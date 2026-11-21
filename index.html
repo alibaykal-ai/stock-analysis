@@ -188,7 +188,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.22</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.23</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -533,7 +533,7 @@ function technicals(h){
   // Volume flow: (up-day volume - down-day volume) / all volume, last 50 days (= On-Balance Volume's change over the window)
   const flow = up + dn > 0 ? (up - dn) / (up + dn) * 100 : NaN;
   return { rsi: r, rsiNow: r[last], relVol: avg30 > 0 ? v[last] / avg30 : NaN, upDown: dn > 0 ? up / dn : NaN,
-    obvTrend: flow, pxTrend: pxChg, m50: m50[last], m200: m200[last], cross, lastDate: h.d[last] };
+    obvTrend: flow, pxTrend: pxChg, m50: m50[last], m200: m200[last], cross, lastDate: h.d[last], px: c[last] };
 }
 
 /* ---- Valuation history worked out from company reports + month-end prices ---- */
@@ -1502,7 +1502,8 @@ function drawChart(el, h){
   const px = h.c[last];
   const vs = (ma, name) => isNum(ma) ? `<b>${px >= ma ? "above" : "below"}</b> its ${name} (${fmt(ma)}, ${fmtPct((px/ma-1)*100,1)})` : `n/a vs its ${name} (needs more history)`;
   const summary = `Last close ${fmt(px)} is ${vs(m50[last], "50-day average")} and ${vs(m200[last], "200-day average")}.`;
-  glance("g-tech", (isNum(tx.m50) && isNum(tx.m200) ? `<span class="badge ${tx.m50 > tx.m200 ? "b-cheap" : "b-rich"}">${tx.m50 > tx.m200 ? "Uptrend" : "Downtrend"}</span> ` : "") +
+  const tl = trendLabel(px, tx.m50, tx.m200);
+  glance("g-tech", (tl ? `<span class="badge ${tl.k}" title="${esc(tl.why)}">${tl.word}</span> ` : "") +
     (isNum(m200[last]) ? `${fmtPct((px/m200[last]-1)*100,0)} vs 200-day` : "") + (isNum(tx.rsiNow) ? ` · RSI ${tx.rsiNow.toFixed(0)}${tx.rsiNow >= 70 ? " overbought" : tx.rsiNow <= 30 ? " oversold" : ""}` : ""));
   const first = h.c[i0], chg = (px/first - 1)*100;
   // geometry (viewBox units; scales to the card width)
@@ -1590,11 +1591,12 @@ function signalsHtml(t){
   const rsiT = !isNum(r) ? tile("RSI (14 days)", "—", "", "", "Needs more price history.")
     : tile("RSI (14 days)", r.toFixed(0), r >= 70 || r <= 30 ? "b-warn" : "b-inline", r >= 70 ? "Overbought" : r <= 30 ? "Oversold" : "Neutral",
       "Momentum from 0 to 100. Above 70 = risen fast, often pauses; below 30 = fallen fast, often bounces.");
+  const tlab = trendLabel(t.px, t.m50, t.m200);
   const tr = !isNum(t.m50) || !isNum(t.m200) ? tile("Trend (50 vs 200-day)", "—", "", "", "Needs 200 days of prices.")
-    : tile("Trend (50 vs 200-day)", t.m50 > t.m200 ? "Uptrend" : "Downtrend", t.m50 > t.m200 ? "b-cheap" : "b-rich",
+    : tile("Trend (averages and price)", tlab ? tlab.word : (t.m50 > t.m200 ? "Uptrend" : "Downtrend"), tlab ? tlab.k : (t.m50 > t.m200 ? "b-cheap" : "b-rich"),
       t.cross && (Date.now() - new Date(t.cross.date)) < 90*864e5 ? (t.cross.kind === "golden" ? "Golden cross" : "Death cross") : "",
-      t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
-               : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`);
+      (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + (t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
+               : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`));
   const rv = t.relVol;
   const rvT = tile("Relative volume", isNum(rv) ? rv.toFixed(1) + "×" : "—", isNum(rv) && rv >= 2 ? "b-warn" : "b-inline", isNum(rv) ? (rv >= 2 ? "Unusually busy" : rv <= 0.5 ? "Quiet" : "Normal") : "",
       `Latest day's shares traded vs the 30-day average. 2× or more usually means news. (If the market is open, today's figure is still building.)`);
@@ -1941,6 +1943,7 @@ async function stockFacts(app, sym){
   const news = [...app.querySelectorAll("#news a")].slice(0, 6).map(a => "- " + a.innerText.trim()).join("\n");
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
+    (() => { const nx = nextEarnings(peek.earn(sym)); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
     `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
@@ -2182,6 +2185,16 @@ const MKT_N = 300; // ~14 months of trading days: enough for the 200-day average
 const retN = (h, n) => h && h.c.length > n ? (h.c[h.c.length-1] / h.c[h.c.length-1-n] - 1) * 100 : NaN;
 const lastOf = a => a[a.length-1];
 
+// Trend label: the averages (50 vs 200-day) AND where the price is. After a sharp fall the averages lag:
+// BE (Nov 2026) had 50-day above 200-day ("uptrend") while the price was 36% below the 200-day.
+function trendLabel(px, m50, m200){
+  if(!isNum(m50) || !isNum(m200) || !isNum(px)) return null;
+  const up = m50 > m200, above = px >= m200;
+  if(up && above) return { k: "b-cheap", word: "Uptrend", why: "50-day average above the 200-day, and the price above the 200-day: a long-term uptrend." };
+  if(!up && !above) return { k: "b-rich", word: "Downtrend", why: "50-day average below the 200-day, and the price below the 200-day: a long-term downtrend." };
+  if(up) return { k: "b-warn", word: "Uptrend breaking", why: "The 50-day average is still above the 200-day (the earlier uptrend), but the price has dropped below the 200-day average: the uptrend is being tested or breaking. Averages react slowly after a sharp fall." };
+  return { k: "b-warn", word: "Recovering", why: "The 50-day average is still below the 200-day (the earlier downtrend), but the price is back above the 200-day average: a possible turn up, not yet confirmed." };
+}
 function marketMood(spy, name){
   name = name || "The S&P 500";
   const c = spy.c, last = lastOf(c);
