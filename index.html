@@ -95,6 +95,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .news a{display:block;padding:8px 0;border-bottom:1px solid var(--line);color:var(--ink)}
 .news a:last-child{border-bottom:none}
 .news small{color:var(--muted);display:block}
+#updbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:50;background:#1d4ed8;color:#fff;border:0;border-radius:12px;padding:12px 18px;font:inherit;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;max-width:calc(100% - 24px)}
 .notice{background:var(--midbg);color:var(--mid);border-radius:10px;padding:12px 14px;margin-bottom:16px}
 .err{color:var(--bad)}
 .recbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:8px 0}
@@ -188,7 +189,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.24</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b id="appver">Version 5.25</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2013,7 +2014,7 @@ async function stockFacts(app, sym){
     `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
-const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
+const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
   if(m){ o.html += (o.inList ? "" : "<ul>") + `<li>${m[1]}</li>`; o.inList = true; } else { if(o.inList){ o.html += "</ul>"; o.inList = false; } if(l.trim()) o.html += `<p>${l}</p>`; } return o; }, { html: "", inList: false });
 function renderAiCard(app, sym){
   const el = $("#ai", app); if(!el) return;
@@ -3646,6 +3647,28 @@ async function ghConnect(repo, token){
 }
 const setHdr = () => { const h = document.querySelector("header"); if(h) document.documentElement.style.setProperty("--hdr", h.offsetHeight + "px"); };
 setHdr(); window.addEventListener("resize", setHdr);
+/* ================= Updates (5.25) ================= */
+// Added to the iPhone home screen, the app opens full-screen: no address bar, no pull-to-refresh, so a new version
+// could only be reached by closing the app. It now checks the published page itself (on opening, on coming back to it,
+// and from "Check for updates" in the footer) and offers a one-tap update. Saved data and lists are untouched.
+const APP_VER = (document.getElementById("appver").textContent.match(/\d+\.\d+/) || [""])[0];
+const verNum = v => { const [a, b] = String(v).split(".").map(Number); return a * 1000 + b; };
+let updLast = 0;
+async function checkUpdate(manual){
+  if(!manual && Date.now() - updLast < 60e3) return; updLast = Date.now();
+  let latest = "";
+  try{ const r = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" }); if(r.ok) latest = ((await r.text()).match(/id="appver">Version (\d+\.\d+)/) || [])[1] || ""; }catch(e){}
+  const link = document.getElementById("updchk");
+  if(latest && verNum(latest) > verNum(APP_VER)){
+    let b = document.getElementById("updbar");
+    if(!b){ b = document.createElement("button"); b.id = "updbar"; document.body.appendChild(b);
+      b.onclick = () => { b.textContent = "Updating…"; location.replace(location.pathname + "?v=" + latest + location.hash); }; }
+    b.textContent = `A new version (${latest}) is ready. Tap to update`;
+  } else if(manual && link){ link.textContent = latest ? "You have the latest version" : "Couldn't check (offline?)"; setTimeout(() => { link.textContent = "Check for updates"; }, 4000); }
+}
+document.getElementById("updchk").onclick = e => { e.preventDefault(); checkUpdate(true); };
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") checkUpdate(); });
+window.addEventListener("pageshow", () => checkUpdate());
 cacheBoot().then(() => { dedupeWatch(); route(); ghPull(); }); // the tidied watchlist is stored with the next change, so start-up never races GitHub
 </script>
 </body>
