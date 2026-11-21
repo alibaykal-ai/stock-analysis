@@ -149,6 +149,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .callout{background:var(--neutralbg);border-left:3px solid var(--mid);border-radius:8px;padding:10px 12px;margin:8px 0}
 details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:6px 0}
+.ai-text p{margin:0 0 8px} .ai-text ul{margin:0 0 8px;padding-left:20px} .ai-text li{margin:2px 0}
 .mood{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
 .mood .big{font-size:20px;padding:6px 14px}
 .spark{display:block}
@@ -187,7 +188,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.20</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.21</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -200,7 +201,7 @@ const STORE_KEY = "stockAnalysis.v1";
 function dedupeWatch(){ try{ if(!Array.isArray(state.watchlist)) return;
   const own = new Set(myHoldings().map(h => h.symbol)); // fully sold stocks aren't in this list, so they can go back on the watchlist
   if(state.watchlist.some(s => own.has(s))) state.watchlist = state.watchlist.filter(s => !own.has(s)); }catch(e){} }
-const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -1063,6 +1064,7 @@ async function viewStock(app, sym, tok){
       <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>
       <div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
     </div>
+    <div class="card" id="c-ai"><h2>AI summary <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
@@ -1112,6 +1114,7 @@ async function viewStock(app, sym, tok){
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
+  renderAiCard(app, sym);
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
 }
 
@@ -1892,6 +1895,87 @@ async function renderInsiders(app, sym, tok){
       <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): any open-market purchase in 6 months = Insiders buying (green); 3+ insiders selling in 3 months with no purchases = Heavy insider selling (amber); otherwise Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
     </details>`;
   glance("g-ins", `<span class="badge ${bd[0]}">${bd[1]}</span>`);
+}
+/* ================= AI summary (stock page, Claude API) ================= */
+// On demand only: the facts this page already shows are sent to Claude with the owner's own Anthropic key,
+// using Anthropic's official JavaScript library (vendor/anthropic-sdk.js, loaded only when needed).
+const AI_MODEL = "claude-opus-5-5", AI_PRICE = { in: 4, out: 20 }; // US$ per million tokens
+let aiSdkP = null;
+function loadAnthropic(){
+  if(window.Anthropic) return Promise.resolve(window.Anthropic);
+  if(!aiSdkP) aiSdkP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "vendor/anthropic-sdk.js";
+    sc.onload = () => window.Anthropic ? res(window.Anthropic) : rej(new Error("The Claude library failed to load."));
+    sc.onerror = () => { aiSdkP = null; rej(new Error("Couldn't load the Claude library. Check your connection and try again.")); }; document.head.appendChild(sc); });
+  return aiSdkP;
+}
+async function aiClient(){ const Anthropic = await loadAnthropic(); return { Anthropic, client: new Anthropic({ apiKey: state.aiKey, dangerouslyAllowBrowser: true, maxRetries: 2 }) }; }
+function aiError(Anthropic, e){
+  if(e instanceof Anthropic.AuthenticationError) return "Anthropic rejected the key. Check it in Settings.";
+  if(e instanceof Anthropic.PermissionDeniedError) return "This key isn't allowed to use Claude. Check the key's workspace in the Anthropic Console.";
+  if(e instanceof Anthropic.RateLimitError) return "Too many requests to Claude right now. Wait a minute and try again.";
+  if(e instanceof Anthropic.BadRequestError) return /credit|balance|billing/i.test(e.message) ? "Your Anthropic account has no credit left. Add some in the Anthropic Console (Billing)." : "Claude couldn't process the request: " + String(e.message).slice(0, 160);
+  if(e instanceof Anthropic.APIConnectionError) return "Couldn't reach Claude. Check your internet connection.";
+  if(e instanceof Anthropic.APIError) return "Claude error: " + String(e.message).slice(0, 160);
+  return e && e.message || "Something went wrong.";
+}
+const AI_SYSTEM = `You write short, plain-English stock summaries for a private long-term investor in the UK who is not a finance professional.
+Use only the facts provided below by their analysis app (its own calculations and data feeds). Don't add outside facts, prices, events or news. If something important is missing, say so briefly.
+Format, in Markdown, under 230 words:
+**In one line:** the overall picture in one sentence.
+**What the numbers say**
+- Valuation: ...
+- Fair value: ...
+- Financial health: ...
+- Price trend: ...
+- Analysts and insiders: ...
+**Worth watching**
+- two or three items (for example upcoming results, warning flags, risks)
+Explain any jargon in a few words. Be balanced: name the main strength and the main concern. Don't tell the reader to buy, sell or hold, and don't predict the price: this informs their own decision.`;
+async function stockFacts(app, sym){
+  const parts = ["#c-glance", "#val", "#fv", "#health", "#rec", "#ins"];
+  for(let i = 0; i < 30 && parts.some(s => { const e = $(s, app); return e && e.querySelector(".spin"); }); i++) await new Promise(r => setTimeout(r, 500)); // let the sections finish loading
+  const txt = (s, n) => { const e = $(s, app); return e ? e.innerText.replace(/\n{2,}/g, "\n").trim().slice(0, n) : ""; };
+  const h = myHoldings().find(x => x.symbol === sym);
+  const news = [...app.querySelectorAll("#news a")].slice(0, 6).map(a => "- " + a.innerText.trim()).join("\n");
+  return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
+    h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`,
+    `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
+}
+const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
+  if(m){ o.html += (o.inList ? "" : "<ul>") + `<li>${m[1]}</li>`; o.inList = true; } else { if(o.inList){ o.html += "</ul>"; o.inList = false; } if(l.trim()) o.html += `<p>${l}</p>`; } return o; }, { html: "", inList: false });
+function renderAiCard(app, sym){
+  const el = $("#ai", app); if(!el) return;
+  const saved = cacheGet("ai:" + sym);
+  const est = "about 2–5p";
+  if(!state.aiKey){ el.innerHTML = `<p class="small muted" style="margin:0">Add an Anthropic API key in <a href="#settings">Settings</a> to get a short plain-English summary of everything on this page, written by Claude (${est} per summary, paid from your Anthropic account).</p>`; return; }
+  const body = saved ? (() => { const r = mdLite(saved.text); return r.html + (r.inList ? "</ul>" : ""); })() : "";
+  el.innerHTML = `${saved ? `<div class="ai-text">${body}</div><p class="small muted" style="margin:6px 0 0">Written ${hhmm(saved.at)} by Claude from this page's figures${saved.cost ? ` · cost about ${saved.cost}` : ""}. AI can misread numbers: check anything important in the sections below.</p>` : ""}
+    <div class="row" style="margin-top:${saved ? 8 : 0}px"><button id="ai-go" class="${saved ? "" : "primary"}">${saved ? "Write a fresh summary" : "Write a plain-English summary"}</button><span id="ai-msg" class="small muted">${saved ? "" : `Uses your Anthropic key; ${est}. Saved for a day.`}</span></div>`;
+  $("#ai-go", el).onclick = async () => {
+    const btn = $("#ai-go", el), m = $("#ai-msg", el); btn.disabled = true; m.className = "small muted"; m.innerHTML = `<span class="spin"></span> Gathering this page's figures…`;
+    let Anthropic;
+    try{
+      const facts = await stockFacts(app, sym);
+      m.innerHTML = `<span class="spin"></span> Claude is writing (usually 10–30 seconds)…`;
+      const c = await aiClient(); Anthropic = c.Anthropic;
+      const r = await c.client.beta.messages.create({
+        model: AI_MODEL, max_tokens: 16000,
+        output_config: { effort: "low" }, // a summary of figures the app already worked out: no deep reasoning needed
+        betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", // if Claude declines, Anthropic retries on a backup model
+        system: AI_SYSTEM,
+        messages: [{ role: "user", content: facts }],
+      });
+      if(r.stop_reason === "refusal"){ m.className = "small err"; m.textContent = "Claude declined to write this summary."; btn.disabled = false; return; }
+      const text = r.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+      if(!text) throw new Error("Claude returned an empty answer. Try again.");
+      const usd = (r.usage.input_tokens * AI_PRICE.in + r.usage.output_tokens * AI_PRICE.out) / 1e6;
+      const fx = (await hvFor(renderToken).catch(() => ({}))).usdPerGbp;
+      const cost = isNum(fx) ? `${Math.max(1, Math.round(usd / fx * 100))}p` : `$${usd.toFixed(3)}`;
+      cacheSet("ai:" + sym, { text, at: new Date().toISOString(), cost, model: r.model }, 24*3600e3);
+      renderAiCard(app, sym);
+    }catch(e){ m.className = "small err"; m.textContent = Anthropic ? aiError(Anthropic, e) : (e.message || "Something went wrong."); btn.disabled = false; }
+  };
 }
 function renderRec(app, r){
   const el = $("#rec", app);
@@ -3234,6 +3318,16 @@ function viewSettings(app){
       <p id="tdmsg" class="small"></p>
     </div>
     <div class="card">
+      <h2>Anthropic API key <span class="small muted">(optional, for AI summaries)</span></h2>
+      <p class="small muted" style="margin-top:0">Lets Claude write a plain-English summary on any stock's page, only when you click the button (about 2–5p each, paid from your Anthropic account). Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → API keys; add a little credit under Billing and set a monthly spend limit there. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
+      <form id="aiform" class="row">
+        <input id="aikey" type="password" placeholder="Paste your Anthropic key (starts with sk-ant-)" value="${esc(state.aiKey)}" style="flex:1;min-width:220px" autocomplete="off">
+        <button class="primary">Save</button>
+        <button type="button" id="aitest">Test</button>
+      </form>
+      <p id="aimsg" class="small"></p>
+    </div>
+    <div class="card">
       <h2>Valuation settings</h2>
       <div class="row">
         <label>"In line" band: ± <input id="band" type="number" min="1" max="50" value="${state.settings.band}" style="width:70px"> %</label>
@@ -3297,6 +3391,13 @@ function viewSettings(app){
   $("#kform",app).onsubmit = e => { e.preventDefault(); const nk = $("#key",app).value.trim(); if(nk !== state.apiKey) cacheDel(k => k.startsWith("/")); state.apiKey = nk; save(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
   $("#avform",app).onsubmit = e => { e.preventDefault(); state.avKey = $("#avkey",app).value.trim(); save(); msg("#avmsg", state.avKey ? "Saved." : "Key removed."); };
   $("#tdform",app).onsubmit = e => { e.preventDefault(); state.tdKey = $("#tdkey",app).value.trim(); save(); msg("#tdmsg", state.tdKey ? "Saved." : "Key removed."); };
+  $("#aiform",app).onsubmit = e => { e.preventDefault(); state.aiKey = $("#aikey",app).value.trim(); save(); msg("#aimsg", state.aiKey ? "Saved." : "Key removed."); };
+  $("#aitest",app).onclick = async () => {
+    state.aiKey = $("#aikey",app).value.trim(); save(); if(!state.aiKey) return msg("#aimsg", "Paste the key first.", true);
+    msg("#aimsg", "Testing… (free: only checks the key)"); let A;
+    try{ const c = await aiClient(); A = c.Anthropic; const info = await c.client.models.retrieve(AI_MODEL); msg("#aimsg", `✓ Works. ${info.display_name || AI_MODEL} is available to your key.`); }
+    catch(e){ msg("#aimsg", A ? aiError(A, e) : e.message, true); }
+  };
   $("#tdtest",app).onclick = async () => {
     state.tdKey = $("#tdkey",app).value.trim(); save();
     msg("#tdmsg","Testing… (uses 1 of today's 800 requests)");
@@ -3372,7 +3473,7 @@ function viewSettings(app){
 // and loaded on any other browser or device that has the GitHub token. The token itself is never uploaded.
 const GH_API = "https://api.github.com", GH_FILE = "portfolio.json";
 const ghOn = () => !!(state.gh && state.gh.repo && state.gh.token);
-const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey"];
+const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey"];
 const syncData = () => { const d = {}; SYNCED.forEach(k => d[k] = state[k]); return d; };
 const b64enc = str => btoa(unescape(encodeURIComponent(str)));
 const b64dec = b64 => decodeURIComponent(escape(atob(String(b64).replace(/\s/g, ""))));
