@@ -183,7 +183,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.9</b> · 21 Nov 2026 ·
+  <b>Version 5.10</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -192,7 +192,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", trades: null, holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -606,12 +606,23 @@ function keyNotice(){
 }
 
 /* ================= Home: My Stocks + Watchlist ================= */
+// Purchases/sales typed in by hand (e.g. Robinhood), kept apart from the bank-imported share counts.
+// A holding's shares = its own count (bank import or typed) + the net of its typed purchases.
+const buysFor = sym => (state.buys || []).filter(b => b.sym === sym);
+const netOf = bs => bs.reduce((a, b) => a + (b.s === "B" ? b.q : -b.q), 0);
+function myHoldings(){
+  return state.holdings.map(h => { const bs = buysFor(h.symbol); if(!bs.length) return h;
+    const base = isNum(h.shares) ? h.shares : 0, m = netOf(bs);
+    const accts = {}; bs.forEach(b => { const a = b.acct || "Other"; accts[a] = (accts[a] || 0) + (b.s === "B" ? b.q : -b.q); });
+    return { ...h, shares: Math.round((base + m) * 1e6) / 1e6, baseShares: base, manualShares: m, accts }; });
+}
+let buyOpen = false;
 let homeTab = "mine", homeSec = "list"; // left menu: list (My Stocks / Watchlist), earn, risk, perf
 function viewHome(app, tok){
   document.body.classList.add("wide");
   const hasMine = state.holdings.length && state.apiKey;
   if(!hasMine && (homeSec === "risk" || homeSec === "perf")) homeSec = "list";
-  const list = homeTab === "mine" ? state.holdings : state.watchlist.map(s=>({symbol:s, type:"stock"}));
+  const list = homeTab === "mine" ? myHoldings() : state.watchlist.map(s=>({symbol:s, type:"stock"}));
   app.innerHTML = `
     ${keyNotice()}
     <div class="homegrid">
@@ -637,6 +648,7 @@ function viewHome(app, tok){
         <button class="primary">Add</button>
         <span class="small muted">Don't know the ticker? <a href="#search">Search by name</a></span>
       </form>
+      ${homeTab==="mine" ? buyBox() : ""}
       ${list.length ? `
       <div style="overflow-x:auto"><table>
         <thead><tr>
@@ -683,15 +695,73 @@ function viewHome(app, tok){
   app.querySelectorAll("[data-del]").forEach(b => b.onclick = ev => {
     ev.stopPropagation();
     const s = b.dataset.del;
-    if(homeTab==="mine") state.holdings = state.holdings.filter(h=>h.symbol!==s);
+    if(homeTab==="mine"){ const n = buysFor(s).length;
+      if(n && !confirm(`Remove ${s} from My Stocks? This also deletes the ${n} purchase${n === 1 ? "" : "s"}/sale${n === 1 ? "" : "s"} you typed for it.`)) return;
+      state.holdings = state.holdings.filter(h=>h.symbol!==s); state.buys = (state.buys || []).filter(b => b.sym !== s); }
     else state.watchlist = state.watchlist.filter(x=>x!==s);
     save(); viewHome(app, ++renderToken);
   });
   app.querySelectorAll("tr[data-sym]").forEach(tr => tr.onclick = () => go(stockHref(tr.dataset.sym)));
+  wireBuyBox(app);
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
   if(state.apiKey && (state.holdings.length || state.watchlist.length)) renderEarnings(app, tok);
   if(hasMine){ renderTotal(app, tok); renderRisk(app, tok); renderPerf(app, tok); }
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
+}
+function buyBox(){
+  const today = ymd(new Date()), bs = (state.buys || []).slice().sort((a, b) => a.d < b.d ? 1 : a.d > b.d ? -1 : 0);
+  const accts = [...new Set(["Robinhood", ...(state.buys || []).map(b => b.acct).filter(Boolean)])];
+  const cur = c => c === "GBP" ? "£" : "$";
+  return `<details class="more" id="buybox" ${buyOpen ? "open" : ""} style="margin:0 0 12px;border-top:none;padding-top:0">
+    <summary>Record a purchase or sale${bs.length ? ` (${bs.length} typed so far)` : ""}</summary>
+    <form id="buyform" class="row" style="margin-top:8px">
+      <select id="b-side" aria-label="Buy or sell"><option value="B">Bought</option><option value="S">Sold</option></select>
+      <input id="b-q" type="number" step="any" min="0" placeholder="Shares" style="width:90px" required aria-label="Shares">
+      <input id="b-sym" placeholder="Ticker" autocapitalize="characters" autocomplete="off" style="width:100px" required aria-label="Ticker">
+      <span class="small muted">at</span>
+      <select id="b-cur" aria-label="Currency"><option value="USD">$</option><option value="GBP">£</option></select>
+      <input id="b-px" type="number" step="any" min="0" placeholder="Price per share" style="width:130px" required aria-label="Price per share">
+      <span class="small muted">on</span>
+      <input id="b-d" type="date" value="${today}" max="${today}" required aria-label="Date">
+      <span class="small muted">in</span>
+      <input id="b-acct" list="acctlist" value="${esc(state.lastAcct || "Robinhood")}" placeholder="Account" style="width:120px" aria-label="Account">
+      <datalist id="acctlist">${accts.map(a => `<option value="${esc(a)}">`).join("")}</datalist>
+      <select id="b-type" aria-label="Type" title="Only used if the ticker isn't in My Stocks yet"><option value="stock">Stock</option><option value="etf">ETF</option></select>
+      <button class="primary">Save</button><span id="b-msg" class="small"></span>
+    </form>
+    <p class="small muted" style="margin:6px 0 0">Example: Bought 5 NVDA at $168.50 on 19 Nov in Robinhood. Shares add to the stock's row (a new ticker gets its own row) and count in the total, risk and performance. Kept in this browser; re-importing your bank file never removes them.</p>
+    ${bs.length ? `<div style="overflow-x:auto;margin-top:8px"><table style="max-width:820px"><thead><tr><th>Date</th><th>Account</th><th></th><th>Stock</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead><tbody>
+      ${bs.map(b => `<tr><td>${fmtDay(b.d)}</td><td>${esc(b.acct || "")}</td><td>${b.s === "B" ? "Bought" : "Sold"}</td><td><b>${esc(b.sym)}</b></td><td class="num">${fmt(b.q, b.q % 1 ? 4 : 0)}</td><td class="num">${cur(b.cur)}${fmt(b.px)}</td><td class="num">${cur(b.cur)}${fmt(b.q * b.px)}</td><td><button class="link" data-delbuy="${esc(b.id)}" title="Delete this entry">×</button></td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+  </details>`;
+}
+function wireBuyBox(app){
+  const box = $("#buybox", app); if(!box) return;
+  box.addEventListener("toggle", () => { buyOpen = box.open; });
+  $("#buyform", app).oninput = () => { $("#b-msg", app).textContent = ""; };
+  $("#buyform", app).onsubmit = e => {
+    e.preventDefault();
+    const m = $("#b-msg", app), bad = t => { m.className = "small err"; m.textContent = t; };
+    const sym = normSym($("#b-sym", app).value), q = parseFloat($("#b-q", app).value), px = parseFloat($("#b-px", app).value), d = $("#b-d", app).value, side = $("#b-side", app).value;
+    if(!sym) return bad("Add the ticker.");
+    if(!(q > 0)) return bad("Shares must be more than 0.");
+    if(!(px > 0)) return bad("Price must be more than 0.");
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d) || d > ymd(new Date())) return bad("Pick a date up to today.");
+    const acct = $("#b-acct", app).value.trim() || "Other";
+    if(side === "S"){ const have = netOf(buysFor(sym).filter(b => (b.acct || "Other") === acct)); if(q > have + 1e-9) return bad(`You've recorded only ${fmt(have, have % 1 ? 4 : 0)} ${sym} shares in ${acct}.`); }
+    if(!state.holdings.some(h => h.symbol === sym)) state.holdings.push({ symbol: sym, shares: 0, type: $("#b-type", app).value });
+    state.buys = state.buys || [];
+    state.buys.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), sym, s: side, q, px, cur: $("#b-cur", app).value, d, acct });
+    state.lastAcct = acct; buyOpen = true; save(); viewHome(app, ++renderToken);
+  };
+  app.querySelectorAll("[data-delbuy]").forEach(b => b.onclick = () => {
+    const x = (state.buys || []).find(y => y.id === b.dataset.delbuy); if(!x) return;
+    if(!confirm(`Delete "${x.s === "B" ? "Bought" : "Sold"} ${x.q} ${x.sym} on ${fmtDay(x.d)}"?`)) return;
+    state.buys = state.buys.filter(y => y !== x);
+    const h = state.holdings.find(y => y.symbol === x.sym);
+    if(h && !buysFor(x.sym).length && !(h.shares > 0)) state.holdings = state.holdings.filter(y => y !== h); // only existed for typed purchases
+    buyOpen = true; save(); viewHome(app, ++renderToken);
+  });
 }
 function alertInline(app, msg){
   let el = $("#inlinemsg", app);
@@ -706,7 +776,7 @@ function rowSkeleton(h){
     <td class="num" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
     <td class="num" data-f="chg"></td>
     <td class="hide-sm" data-f="range"></td>
-    ${mine ? `<td class="num hide-sm">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}</td><td class="num hide-sm" data-f="value"></td>` : ""}
+    ${mine ? `<td class="num hide-sm">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}${h.accts ? `<div class="small muted" style="white-space:nowrap">${[h.baseShares > 0 ? `${h.name ? "Barclays" : "Added"} ${fmt(h.baseShares, h.baseShares%1?4:0)}` : "", ...Object.entries(h.accts).filter(([, v]) => Math.abs(v) > 1e-9).map(([a, v]) => `${esc(a)} ${fmt(v, v%1?4:0)}`)].filter(Boolean).join(" · ")}</div>` : ""}</td><td class="num hide-sm" data-f="value"></td>` : ""}
     <td data-f="val">${h.type && h.type!=="stock" ? '<span class="small muted">Fund: no valuation</span>' : ""}</td>
     <td class="num" data-f="health"></td>
     <td data-f="flags"></td>
@@ -877,7 +947,7 @@ function viewSearch(app, tok){
 async function viewStock(app, sym, tok){
   const inMine = state.holdings.some(h=>h.symbol===sym);
   const inWatch = state.watchlist.includes(sym);
-  const holding = state.holdings.find(h=>h.symbol===sym);
+  const holding = myHoldings().find(h=>h.symbol===sym);
   const isFund = holding && holding.type && holding.type!=="stock";
   app.innerHTML = `${keyNotice()}
     <div class="card" id="c-top">
@@ -1840,7 +1910,8 @@ async function importBankFile(app, file){
       manualPrice: old.get(it.symbol) && old.get(it.symbol).manualPrice }));
     items.forEach(it => { state.nameMap[nameKey(it.name)] = { symbol: it.symbol, type: it.type }; });
     state.trades = { saved: ymd(new Date()), rows: parsed.trades }; // dated buys and sells, for "your results vs the index" (this browser only)
-    if($("#bankreplace", app).checked) state.holdings = fresh;
+    if($("#bankreplace", app).checked){ state.holdings = fresh; // keep tickers that only exist because of typed purchases (e.g. Robinhood)
+      (state.buys || []).forEach(b => { if(!state.holdings.some(h => h.symbol === b.sym)) state.holdings.push({ symbol: b.sym, shares: 0, type: "stock" }); }); }
     else fresh.forEach(f => { const ex = state.holdings.find(h=>h.symbol===f.symbol); if(ex){ ex.shares=f.shares; ex.type=f.type; ex.name=f.name; } else state.holdings.push(f); });
     save();
     viewSettings(app);
@@ -2384,7 +2455,7 @@ function hvFor(tok){ if(hvMemo.tok !== tok || !hvMemo.p) hvMemo = { tok, p: hold
 async function holdingValues(){
   const rateObs = await liveRate();
   const usdPerGbp = rateObs.v;
-  const rows = await Promise.all(state.holdings.map(async h => {
+  const rows = await Promise.all(myHoldings().map(async h => {
     if(!isNum(h.shares) || h.shares <= 0) return { h, err: "no share count" };
     const [q, p] = await Promise.all([ safe(fh.quote(h.symbol)), safe(fh.profile(h.symbol)) ]);
     const prof = p.ok && p.v ? p.v : {};
@@ -2562,8 +2633,8 @@ function xirr(flows){ // flows: [{d, v}], v < 0 money in, > 0 money out. Yearly 
   return (lo + hi) / 2 * 100;
 }
 async function tradeResults(hv, spy, qqq, tok){
-  const rows = state.trades.rows.slice().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-  const first = rows[0].d, today = ymd(new Date());
+  const bank = (state.trades && state.trades.rows) || [], typed = state.buys || [];
+  const first = [...bank, ...typed].map(t => t.d).sort()[0], today = ymd(new Date());
   // Index history must reach the first order: fetch a longer copy (1 request each, kept 12 hours) only if needed
   const longer = async (h, sym) => h && h.d[0] <= first ? h : (state.tdKey ? (await safe(tdDaily(sym, 5000))).v || h : h);
   spy = await longer(spy, "SPY"); qqq = qqq && await longer(qqq, "QQQ"); if(!live(tok)) return null;
@@ -2572,18 +2643,25 @@ async function tradeResults(hv, spy, qqq, tok){
   if(fxs && fxs.d[0] > first){ const f2 = await safe(macroData(true)); if(f2.ok && f2.v.series.DEXUSUK){ fxs = f2.v.series.DEXUSUK; } } // saved copy older than the long history
   if(!fxs) return { err: "The exchange-rate data isn't available right now." };
   const fxShort = fxs.d[0] > first, fxNow = isNum(hv.usdPerGbp) ? hv.usdPerGbp : rateOn(fxs, today); // same rate as "worth now"
+  const fxLast = lastObs(fxs), rateFor = d => fxLast && d > fxLast.d && isNum(hv.usdPerGbp) ? hv.usdPerGbp : rateOn(fxs, d) || fxs.v.find(isNum);
+  // Typed purchases become trades in pounds (dollar prices converted at that day's rate), one group per ticker and account
+  const rows = [...bank, ...typed.map(b => ({ k: "typed:" + b.sym + ":" + (b.acct || ""), n: b.sym, sym: b.sym, acct: b.acct || "Other", d: b.d, s: b.s, q: b.q,
+    a: b.q * b.px * (b.cur === "GBP" ? 1 : 1 / rateFor(b.d)) }))].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
   const bySym = new Map(hv.rows.filter(r => isNum(r.gbp)).map(r => [r.h.symbol, r]));
   const groups = new Map();
-  for(const t of rows){ if(!groups.has(t.k)) groups.set(t.k, { k: t.k, name: t.n, trades: [] }); groups.get(t.k).trades.push(t); }
+  for(const t of rows){ if(!groups.has(t.k)) groups.set(t.k, { k: t.k, name: t.n, sym: t.sym, acct: t.acct, trades: [] }); groups.get(t.k).trades.push(t); }
   const idx = [["spy", spy], ["qqq", qqq]].filter(x => x[1]);
   const out = [], skipped = [];
   for(const g of groups.values()){
     let shares = 0, cost = 0, bought = 0, sold = 0;
     for(const t of g.trades){ if(t.s === "B"){ shares += t.q; cost += t.a; bought += t.a; } else { const avg = shares > 0 ? cost / shares : 0; cost -= avg * Math.min(t.q, shares); shares -= t.q; sold += t.a; } }
-    const held = shares > 1e-6, map = state.nameMap[g.k], hr = map && bySym.get(map.symbol);
+    const map = g.sym ? { symbol: g.sym } : state.nameMap[g.k], held = shares > 1e-6, hr = map && bySym.get(map.symbol);
     if(held && !hr){ skipped.push(`${esc(g.name)} (${map ? esc(map.symbol) + ": no value today" : "not in My Stocks"})`); continue; }
-    const value = held ? hr.gbp : 0;
-    const res = { name: g.name, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })) };
+    // A ticker held in both the bank and a typed account: split today's value by shares
+    let value = 0;
+    if(held){ const h = hr.h, eff = h.shares > 0 ? h.shares : 1;
+      value = !h.accts ? hr.gbp : g.sym ? hr.gbp * Math.max(0, shares) / eff : hr.gbp * h.baseShares / eff; }
+    const res = { name: g.name, acct: g.acct, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })) };
     // Index instead: each buy puts the same pounds into the index fund; each sell sells the same share of that index money
     // (selling half the shares sells half the index units), so every row compares like with like.
     for(const [key, h] of idx){
@@ -2606,7 +2684,7 @@ async function tradeResults(hv, spy, qqq, tok){
   const yrs = (new Date(today) - new Date(first)) / (365.25 * 864e5);
   tot.irr = xirr(flows.concat([{ d: today, v: tot.value }]));
   for(const [key] of idx) tot[key + "Irr"] = isNum(tot[key]) ? xirr(out.flatMap(r => r[key + "Flows"]).sort((a, b) => a.d < b.d ? -1 : 1).concat([{ d: today, v: tot[key] }])) : NaN;
-  return { out, tot, skipped, first, yrs, fxShort, fxFirst: fxs.d[0], n: rows.length, saved: state.trades.saved };
+  return { out, tot, skipped, first, yrs, fxShort, fxFirst: fxs.d[0], n: bank.length, typed: typed.length, saved: state.trades && state.trades.saved };
 }
 function tradesHtml(R){
   if(!R) return "";
@@ -2622,13 +2700,13 @@ function tradesHtml(R){
   const sG = r => r.spy + r.spyOut - r.bought; // what the index would have gained with this investment's money
   const list = out.slice().sort((a, b) => (b.gain - sG(b)) - (a.gain - sG(a)));
   const row = r => { const sGain = sG(r), d = r.gain - sGain;
-    return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
+    return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.acct ? ` <small class="badge b-inline">${esc(r.acct)}</small>` : ""}${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
       <td class="num">${fmtGBP(r.bought)}</td><td class="num">${r.sold ? fmtGBP(r.sold) : "—"}</td><td class="num">${r.held ? fmtGBP(r.value) : "—"}</td>
       <td class="num">${sg(r.gain)}<div class="small">${pc(r.gain / r.bought * 100)}</div></td>
       <td class="num">${r.held && r.book > 0 ? pc((r.value / r.book - 1) * 100) : "—"}</td>
       <td class="num">${isNum(r.spy) ? sg(sGain) : "—"}</td><td class="num">${isNum(r.spy) ? sg(d) : "—"}</td></tr>`; };
   return `
-    <h3 style="margin-top:0">Your results vs the index <small class="muted" style="font-weight:400">(from your bank orders)</small></h3>
+    <h3 style="margin-top:0">Your results vs the index <small class="muted" style="font-weight:400">(from your ${R.n ? "bank orders" : ""}${R.n && R.typed ? " and " : ""}${R.typed ? "typed purchases" : ""})</small></h3>
     <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
       <p style="margin:0;flex:1;min-width:260px;max-width:760px">Since your first order (${since}) you put in <b>${fmtGBP(tot.bought)}</b> and took out ${fmtGBP(tot.sold)}; your holdings are worth ${fmtGBP(tot.value)} today. Gain: <b>${sg(tot.gain)}</b>${annual ? `, <b>${fmtPct(tot.irr, 1)} a year</b>` : ""}.
       The same money in the S&amp;P 500 instead (bought on the same days, sold in the same proportions) would have gained ${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}${annual ? ` (${fmtPct(tot.spyIrr, 1)} a year)` : ""}${isNum(tot.qqqGain) ? `; in the Nasdaq-100 ${sg(tot.qqqGain)}${annual ? ` (${fmtPct(tot.qqqIrr, 1)} a year)` : ""}` : ""}.
@@ -2641,8 +2719,8 @@ function tradesHtml(R){
     ${R.skipped.length ? `<p class="small muted" style="margin:8px 0 0">Left out: ${R.skipped.join(", ")}.</p>` : ""}
     ${R.fxShort ? `<p class="small muted" style="margin:8px 0 0">Exchange rates before ${fmtDay(R.fxFirst)} aren't downloaded yet, so the earliest rate available was used for older orders. This fixes itself after the next daily data update.</p>` : ""}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted">Uses the ${R.n} completed orders with dates from the bank file you imported on ${fmtDay(R.saved)} (kept in this browser only). <b>Put in</b> = cost of all buys, <b>Taken out</b> = proceeds of all sells, <b>Worth now</b> = today's shares × today's price (your share counts in My Stocks, so dividends reinvested by your bank count). <b>Your gain</b> = worth now + taken out − put in; the % is of the money put in. <b>On shares still held</b> = today's value ÷ the average cost of the shares you still have, the way banking apps usually show it, so you can check it against Barclays. <b>Same money in the S&amp;P 500</b>: every buy puts the same pounds into the SPY fund that day; every sell sells the same share of that index money (sell half your shares and half the index money is sold), converted at that day's exchange rate (FRED). The gain = what the index money sold for + what's left today − money put in. <b>Difference</b> = your gain − the index's gain. ${annual ? "<b>A year</b> figures are money-weighted: they allow for when the money went in and came out." : "Yearly rates are shown once your first order is more than a year old."}
-      <b>Badge</b> (suggested): ${PERF_GAP}+ ${unit} ahead of the S&amp;P 500 = Ahead; within ${PERF_GAP} = In line; up to 10 behind = Behind; more than 10 behind = Well behind. Index prices exclude dividends (about 1% a year for the S&amp;P 500), so treat a gap under 1–2 points a year as a tie. Orders your bank file doesn't include (e.g. older ones, transfers in) aren't counted; new orders after ${fmtDay(R.saved)} need a fresh import. Past results, not a forecast.</p>
+      <p class="small muted">Uses ${R.n ? `the ${R.n} completed orders with dates from the bank file you imported on ${fmtDay(R.saved)}` : "no bank file yet"}${R.typed ? ` and the ${R.typed} purchases/sales you typed in (dollar prices converted to pounds at that day's exchange rate; rows tagged with their account)` : ""} (kept in this browser only). <b>Put in</b> = cost of all buys, <b>Taken out</b> = proceeds of all sells, <b>Worth now</b> = today's shares × today's price (your share counts in My Stocks, so dividends reinvested by your bank count). <b>Your gain</b> = worth now + taken out − put in; the % is of the money put in. <b>On shares still held</b> = today's value ÷ the average cost of the shares you still have, the way banking apps usually show it, so you can check it against Barclays. <b>Same money in the S&amp;P 500</b>: every buy puts the same pounds into the SPY fund that day; every sell sells the same share of that index money (sell half your shares and half the index money is sold), converted at that day's exchange rate (FRED). The gain = what the index money sold for + what's left today − money put in. <b>Difference</b> = your gain − the index's gain. ${annual ? "<b>A year</b> figures are money-weighted: they allow for when the money went in and came out." : "Yearly rates are shown once your first order is more than a year old."}
+      <b>Badge</b> (suggested): ${PERF_GAP}+ ${unit} ahead of the S&amp;P 500 = Ahead; within ${PERF_GAP} = In line; up to 10 behind = Behind; more than 10 behind = Well behind. Index prices exclude dividends (about 1% a year for the S&amp;P 500), so treat a gap under 1–2 points a year as a tie. Orders your bank file doesn't include (e.g. older ones, transfers in) aren't counted; new bank orders after ${R.saved ? fmtDay(R.saved) : "your import"} need a fresh import (or type them in under My Stocks). Past results, not a forecast.</p>
     </details>
     <h3>How the stocks you hold now have done</h3>`;
 }
@@ -2659,7 +2737,7 @@ async function renderPerf(app, tok){
   if(!spy){ el.innerHTML = `<span class="muted">Add a Twelve Data key in <a href="#settings">Settings</a> to compare your stocks with the S&amp;P 500.</span>`; return; }
   const hv = await hvFor(tok); if(!live(tok)) return;
   let actual = "";
-  if(state.trades && state.trades.rows && state.trades.rows.length){
+  if((state.trades && state.trades.rows && state.trades.rows.length) || (state.buys || []).length){
     el.innerHTML = `<span class="spin"></span> Working out your results from your bank orders…`;
     const R = await tradeResults(hv, spy, qqq, tok); if(!live(tok)) return;
     actual = tradesHtml(R);
@@ -2832,7 +2910,7 @@ function viewSettings(app){
     <div class="card">
       <h2>Backup &amp; move to another device</h2>
       <p class="small muted" style="margin-top:0">Your lists are stored only in this browser. To use them on your iPhone or keep a backup, copy this text and paste it into "Restore" on the other device. (Your API key is not included.)</p>
-      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, watchlist:state.watchlist, settings:state.settings, fv:state.fv}))}</textarea>
+      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, buys:state.buys||[], watchlist:state.watchlist, settings:state.settings, fv:state.fv}))}</textarea>
       <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span id="cmsg" class="small muted"></span></div>
       <h2 style="margin-top:16px">Restore</h2>
       <textarea id="rest" rows="3" style="width:100%" placeholder="Paste backup text here"></textarea>
@@ -2907,6 +2985,7 @@ function viewSettings(app){
       state.watchlist = d.watchlist.map(normSym).filter(Boolean);
       if(d.settings) state.settings = { ...state.settings, ...d.settings };
       if(d.fv && typeof d.fv === "object") state.fv = d.fv;
+      if(Array.isArray(d.buys)) state.buys = d.buys.filter(b => b && b.sym && b.q > 0 && b.px > 0 && b.d);
       save(); msg("#rmsg", `Restored ${state.holdings.length} stocks and ${state.watchlist.length} watchlist items.`);
     }catch(e){ msg("#rmsg","That doesn't look like a backup from this app.", true); }
   };
