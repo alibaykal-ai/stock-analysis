@@ -56,12 +56,13 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .range i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
 .rangecap{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px}
 h3{font-size:14px;margin:18px 0 8px}
-.fvbar{position:relative;height:14px;margin:34px 0 6px}
+.fvbar{position:relative;height:14px;margin:34px 0 14px}
 .fvz{position:absolute;top:0;bottom:0}
 .fvz:first-child{border-radius:7px 0 0 7px} .fvz:nth-child(3){border-radius:0 7px 7px 0}
 .fvrange{position:absolute;top:-4px;height:22px;border:2px solid var(--ink);border-radius:6px;opacity:.55}
 .fvmid{position:absolute;top:-4px;height:22px;width:2px;background:var(--ink);transform:translateX(-50%);opacity:.55}
 .fvpline{position:absolute;top:-8px;height:30px;width:3px;border-radius:2px;background:var(--accent);transform:translateX(-50%)}
+.fvtgt{position:absolute;top:13px;font-size:13px;color:var(--mid);transform:translateX(-50%);line-height:1}
 .fvplab{position:absolute;top:-30px;font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap}
 .fvm td{vertical-align:top}
 .fvctl{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
@@ -113,15 +114,15 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  For information only, not financial advice. Market data from Finnhub (free plan), usually delayed.
-  Verdicts compare numbers with the stock's own past and with similar companies, and fair values are estimates built on assumptions; they are not buy or sell signals.
+  For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
+  Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
 
 <script>
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -211,6 +212,40 @@ const fh = {
   rec:     s => api("/stock/recommendation", {symbol:s}, "rec"),
   news:    s => { const to=new Date(), from=new Date(Date.now()-14*864e5); return api("/company-news",{symbol:s,from:ymd(from),to:ymd(to)},"news"); },
   search:  q => api("/search", {q}, "search"),
+};
+/* ================= Alpha Vantage client (second free source) ================= */
+// Free key: 25 requests/day. Results are cached for a day so each stock costs at most 2 a day.
+const AV = "https://www.alphavantage.co/query";
+let avLast = 0;
+async function avApi(fn, sym){
+  if(!state.avKey) throw new ApiError("No Alpha Vantage key yet.", "nokey");
+  const ck = "av:" + fn + ":" + sym;
+  const hit = cacheGet(ck); if(hit !== undefined) return hit;
+  if(inflight.has(ck)) return inflight.get(ck);
+  const p = (async () => {
+    const wait = avLast + 1200 - Date.now(); avLast = Math.max(Date.now(), avLast + 1200);
+    if(wait > 0) await new Promise(r => setTimeout(r, wait));
+    let r;
+    try{ r = await fetch(`${AV}?function=${fn}&symbol=${encodeURIComponent(sym)}&apikey=${encodeURIComponent(state.avKey)}`); }
+    catch(e){ throw new ApiError("Couldn't reach Alpha Vantage.", "network"); }
+    if(!r.ok) throw new ApiError(`Alpha Vantage error (${r.status}).`, "http");
+    const j = await r.json();
+    const info = j && (j.Information || j.Note || j["Error Message"]);
+    if(info){
+      if(/limit|per day|frequency/i.test(info)) throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit");
+      if(/premium/i.test(info)) throw new ApiError("Not included in the free Alpha Vantage plan.", "premium");
+      if(/apikey|api key/i.test(info)) throw new ApiError("Alpha Vantage rejected the key. Check it in Settings.", "auth");
+      throw new ApiError(String(info).slice(0, 160), "api");
+    }
+    cacheSet(ck, j, 24*3600e3);
+    return j;
+  })();
+  inflight.set(ck, p);
+  try{ return await p; } finally{ inflight.delete(ck); }
+}
+const avq = {
+  overview:  s => avApi("OVERVIEW", s),
+  estimates: s => avApi("EARNINGS_ESTIMATES", s),
 };
 const safe = p => p.then(v=>({ok:true,v}), e=>({ok:false,e}));
 
@@ -490,7 +525,7 @@ async function viewStock(app, sym, tok){
 
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
-    else { renderHealth(app, mm, price); const peerP = renderValuation(app, sym, met, prof, tok); renderFairValue(app, sym, met, prof, price, peerP, tok); }
+    else { renderHealth(app, mm, price); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([safe(avq.overview(sym)), safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
   }
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
@@ -551,7 +586,8 @@ async function renderValuation(app, sym, met, prof, tok){
     const vals = results.filter(x=>x.ok).map(x => nowValue(x.v, r)).filter(v => isNum(v) && v > 0);
     medians[r.id] = vals.length >= 2 ? median(vals) : NaN;
   }
-  const info = { medians, used, note: pr.ok ? "same industry, chosen by Finnhub" : "peer list unavailable" };
+  const pg = results.filter(x => x.ok && x.v && x.v.metric).map(x => x.v.metric.epsGrowth5Y).filter(isNum);
+  const info = { medians, used, g5: pg.length >= 2 ? median(pg) : NaN, note: pr.ok ? "same industry, chosen by Finnhub" : "peer list unavailable" };
   draw(info);
   return info;
 }
@@ -570,13 +606,36 @@ function dcfPerShare(fcf, g, r, gt){
 // Reverse DCF: the year 1-5 growth rate at which the DCF value equals the price.
 function impliedGrowth(price, fcf, r, gt){
   if(!(fcf > 0) || !(price > 0)) return NaN;
-  let lo = -0.5, hi = 1.0;
+  let lo = -0.5, hi = 1.5;
   if(dcfPerShare(fcf, lo, r, gt) > price) return -Infinity;
   if(dcfPerShare(fcf, hi, r, gt) < price) return Infinity;
   for(let i=0; i<80; i++){ const m = (lo+hi)/2; if(dcfPerShare(fcf, m, r, gt) < price) lo = m; else hi = m; }
   return (lo+hi)/2;
 }
-function fvInputs(met, prof, price){
+// Growth fades as companies get bigger: start at g0 next year, reach gt by year 10.
+// This returns the average over years 1-5 of that path, to feed the 5-year DCF stage.
+const fadeAvg5 = (g0, gt) => g0 - (g0 - gt) * 2 / 9;
+const avNum = v => { const n = parseFloat(v); return isFinite(n) ? n : NaN; };
+function parseAV(ovRes, estRes){
+  const out = { errs: [] };
+  if(ovRes){
+    if(ovRes.ok && ovRes.v && ovRes.v.Symbol){ out.fwdPE = avNum(ovRes.v.ForwardPE); out.target = avNum(ovRes.v.AnalystTargetPrice); }
+    else if(!ovRes.ok) out.errs.push(ovRes.e.message);
+  }
+  if(estRes){
+    if(estRes.ok){
+      const arr = estRes.v && (estRes.v.estimates || estRes.v.data);
+      if(Array.isArray(arr)){
+        const pack = e => e && { date: e.date || e.fiscalDateEnding, eps: avNum(e.eps_estimate_average), n: avNum(e.eps_estimate_analyst_count),
+          eps90: avNum(e.eps_estimate_average_90_days_ago), up30: avNum(e.eps_estimate_revision_up_trailing_30_days), down30: avNum(e.eps_estimate_revision_down_trailing_30_days) };
+        out.fy1 = pack(arr.find(e => /current fiscal year/i.test(String(e.horizon||""))));
+        out.fy2 = pack(arr.find(e => /next fiscal year/i.test(String(e.horizon||""))));
+      }
+    } else out.errs.push(estRes.e.message);
+  }
+  return out;
+}
+function fvInputs(met, prof, price, av){
   const mm = met && met.metric || {};
   const eps = pick(mm, ["epsTTM","epsExclExtraItemsTTM","epsBasicExclExtraItemsTTM","epsInclExtraItemsTTM","epsAnnual"]);
   const bvps = pick(mm, ["bookValuePerShareQuarterly","bookValuePerShareAnnual"]);
@@ -592,32 +651,58 @@ function fvInputs(met, prof, price){
   }
   const past = [["free cash flow", mm.focfCagr5Y], ["sales", mm.revenueGrowth5Y], ["earnings", mm.epsGrowth5Y]].filter(([,v]) => isNum(v));
   const pastMid = past.length ? median(past.map(([,v]) => v)) : NaN;
-  const startG = isNum(pastMid) ? Math.round(Math.min(15, Math.max(0, pastMid)) * 2) / 2 : 5;
-  return { eps, bvps, fcf, past, pastMid, startG, epsG5: mm.epsGrowth5Y, epsG1: pick(mm, ["epsGrowthTTMYoy","epsGrowthQuarterlyYoy"]), roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]) };
+  // Analysts' expected earnings growth for the coming year
+  let exp = null; av = av || {};
+  const f1 = av.fy1, f2 = av.fy2;
+  if(f1 && f2 && f1.eps > 0 && isNum(f2.eps)) exp = { g: (f2.eps/f1.eps - 1) * 100, n: f2.n,
+    how: `analysts' average earnings estimate goes from ${fmt(f1.eps)} per share this fiscal year to ${fmt(f2.eps)} next fiscal year` };
+  else if(av.fwdPE > 0 && eps > 0 && isNum(price)){ const fe = price / av.fwdPE; exp = { g: (fe/eps - 1) * 100,
+    how: `analysts expect about ${fmt(fe)} per share of earnings over the next year, vs ${fmt(eps)} over the last 12 months` }; }
+  const base = exp ? exp.g : pastMid;
+  const startG = isNum(base) ? Math.round(fadeAvg5(base, 2.5) * 2) / 2 : 5;
+  const startHow = exp ? `analysts expect earnings to grow ${fmtPct(exp.g,1)} next year`
+    : isNum(pastMid) ? `the middle of its past 5-year growth (${fmtPct(pastMid,1)}), as there are no analyst estimates` : null;
+  return { eps, bvps, fcf, past, pastMid, exp, startG, startHow, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av };
 }
 function fvAssump(sym, inp){
   const s = state.fv[sym] || {};
   return { g: isNum(s.g) ? s.g : inp.startG, r: isNum(s.r) ? s.r : state.settings.fvR, gt: isNum(s.gt) ? s.gt : 2.5, custom: !!state.fv[sym] };
 }
-function fvMethods(inp, a, met, peerInfo){
-  const out = [];
+// Growth-adjust a P/E: a business with no growth is worth about 1 / required return
+// (10× at 10%). The rest of a P/E is a premium for growth. If the growth expected now
+// is lower than the growth the multiple was earned with, shrink that premium in proportion.
+function adjPE(pe, gNow, gThen, r){
+  const basePE = 100 / r;
+  if(!isNum(pe) || !isNum(gNow) || !isNum(gThen) || gThen <= 0 || pe <= basePE || gNow >= gThen) return { pe, adj:false };
+  const f = Math.max(0, gNow / gThen);
+  return { pe: basePE + (pe - basePE) * f, adj:true, basePE };
+}
+function fvMethods(inp, a, met, fx){
+  const out = [], peerInfo = fx.peerInfo, gNow = inp.exp && inp.exp.g;
   if(isNum(inp.fcf) && inp.fcf > 0){
     out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
-      note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}%, valued at a ${a.r}% required return.` });
+      note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.` });
   } else out.push({ name:"Discounted cash flow", v:NaN, note: isNum(inp.fcf) ? "Skipped: free cash flow is negative, so there is nothing to discount yet." : "Skipped: no free cash flow data." });
-  const peHist = history(met, RATIOS[0]);
   const epsOk = isNum(inp.eps) && inp.eps > 0;
-  // A sudden earnings jump: applying a P/E to possibly-peak earnings overstates value, so show but don't count.
-  const jump = isNum(inp.epsG1) && inp.epsG1 > 50;
-  const jumpNote = jump ? ` Shown but not counted: earnings jumped ${inp.epsG1.toFixed(0)}% in the last year, and putting a P/E on a sudden jump risks valuing peak profits that may not last.` : "";
-  if(epsOk && peHist) out.push({ name:"Its usual P/E", v: peHist.median * inp.eps, counted:!jump,
-      note:`Earnings of ${fmt(inp.eps)} per share × its usual P/E of ${fmtX(peHist.median)} (middle of the last ${state.settings.years} years).` + jumpNote });
-  else out.push({ name:"Its usual P/E", v:NaN, note: epsOk ? "Skipped: not enough P/E history." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
+  const peNote = (label, raw, ad, gThen, who) => {
+    let t = `Earnings of ${fmt(inp.eps)} per share × ${label} of ${fmtX(raw)}`;
+    if(ad.adj) t += `, growth-adjusted to ${fmtX(ad.pe)}: that P/E went with ${fmtPct(gThen,0)} yearly earnings growth (${who}), but analysts now expect ${fmtPct(gNow,0)}, so the growth part of the P/E is scaled down to match.`;
+    else if(isNum(gNow) && isNum(gThen) && gNow >= gThen) t += `. Analysts expect growth (${fmtPct(gNow,0)}) at least as fast as when that P/E applied (${fmtPct(gThen,0)}), so no adjustment.`;
+    else if(!isNum(gNow)) t += `. Not growth-checked: no analyst estimates available.`;
+    else t += ".";
+    return t;
+  };
+  const peHist = history(met, RATIOS[0]);
+  if(epsOk && peHist){
+    const ad = adjPE(peHist.median, gNow, inp.epsG5, a.r);
+    out.push({ name:"Its usual P/E", v: ad.pe * inp.eps, counted:true, note: peNote(`its usual P/E (last ${state.settings.years} years)`, peHist.median, ad, inp.epsG5, "its past 5 years") });
+  } else out.push({ name:"Its usual P/E", v:NaN, note: epsOk ? "Skipped: not enough P/E history." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
   const pm = peerInfo && peerInfo.medians.pe;
   if(!peerInfo) out.push({ name:"Peer P/E", v:NaN, loading:true, note:"Loading similar companies…" });
-  else if(epsOk && isNum(pm)) out.push({ name:"Peer P/E", v: pm * inp.eps, counted:!jump,
-      note:`Earnings of ${fmt(inp.eps)} per share × the peer median P/E of ${fmtX(pm)}.` + jumpNote });
-  else out.push({ name:"Peer P/E", v:NaN, note: epsOk ? "Skipped: not enough peer data." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
+  else if(epsOk && isNum(pm)){
+    const ad = adjPE(pm, gNow, peerInfo.g5, a.r);
+    out.push({ name:"Peer P/E", v: ad.pe * inp.eps, counted:true, note: peNote("the peer median P/E", pm, ad, peerInfo.g5, "peers' past 5 years") });
+  } else out.push({ name:"Peer P/E", v:NaN, note: epsOk ? "Skipped: not enough peer data." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
   if(epsOk && isNum(inp.bvps) && inp.bvps > 0){
     const fast = isNum(inp.epsG5) && inp.epsG5 > 15;
     const light = isNum(inp.roe) && inp.roe > 20;
@@ -626,10 +711,14 @@ function fvMethods(inp, a, met, peerInfo){
     out.push({ name:"Graham Number", v: Math.sqrt(22.5 * inp.eps * inp.bvps), counted: !fast && !light,
       note: `√(22.5 × earnings per share × book value per share). Built for steady, profitable companies.` + why });
   } else out.push({ name:"Graham Number", v:NaN, note:"Skipped: needs positive earnings and positive book value." });
+  const av = inp.av || {};
+  if(isNum(av.target) && av.target > 0) out.push({ name:"Analyst price target", v: av.target, ref:true,
+    note:"Average 12-month target from analysts. Reference only, not counted: targets tend to follow the price up and down." });
+  else if(fx.avState === "loading") out.push({ name:"Analyst price target", v:NaN, loading:true, note:"Loading from Alpha Vantage…" });
   return out;
 }
-function fvBar(lo, mid, hi, price, buyAt, richAt){
-  const pts = [lo, hi, price, buyAt, richAt].filter(isNum);
+function fvBar(lo, mid, hi, price, buyAt, richAt, target){
+  const pts = [lo, hi, price, buyAt, richAt, target].filter(isNum);
   const a = Math.max(0, Math.min(...pts) * 0.9), b = Math.max(...pts) * 1.06;
   const x = v => Math.max(0, Math.min(100, (v - a) / (b - a) * 100));
   const px = x(price);
@@ -640,23 +729,50 @@ function fvBar(lo, mid, hi, price, buyAt, richAt){
       <div class="fvz" style="left:${x(richAt)}%;right:0;background:var(--badbg)"></div>
       <div class="fvrange" style="left:${x(lo)}%;width:${Math.max(0.8, x(hi)-x(lo))}%" title="Fair value range ${fmt(lo)}–${fmt(hi)}"></div>
       <div class="fvmid" style="left:${x(mid)}%" title="Middle ${fmt(mid)}"></div>
+      ${isNum(target) ? `<div class="fvtgt" style="left:${x(target)}%" title="Analyst target ${fmt(target)}">◆</div>` : ""}
       <div class="fvpline" style="left:${px}%"></div>
       <div class="fvplab" style="left:${px}%;transform:${lab}">Price ${fmt(price)}</div>
     </div>
-    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${hi - lo < 0.005 ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>`;
+    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${hi - lo < 0.005 ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>
+    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analyst price target ${fmt(target)} (reference)</div>` : ""}`;
 }
-function renderFairValue(app, sym, met, prof, price, peerP, tok){
+function fvAnalysts(inp, price, fx){
+  if(!state.avKey) return `<p class="small muted" style="margin:0">Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' earnings forecasts, forward P/E and price targets. They make the fair value more accurate.</p>`;
+  if(fx.avState === "loading") return `<p class="small muted" style="margin:0"><span class="spin"></span> Loading analysts' forecasts…</p>`;
+  const av = inp.av || {};
+  const rows = [];
+  const pe = e => e && e.eps > 0 && isNum(price) ? fmtX(price / e.eps) : "—";
+  const fy = e => e && e.date ? ` <span class="muted">(year to ${esc(e.date)})</span>` : "";
+  if(av.fy1 && isNum(av.fy1.eps)) rows.push(["Earnings estimate, this fiscal year" + fy(av.fy1), `${fmt(av.fy1.eps)} <span class="muted small">· P/E ${pe(av.fy1)}</span>`]);
+  if(av.fy2 && isNum(av.fy2.eps)) rows.push(["Earnings estimate, next fiscal year" + fy(av.fy2), `${fmt(av.fy2.eps)} <span class="muted small">· P/E ${pe(av.fy2)}</span>`]);
+  if(!(av.fy1 || av.fy2) && isNum(av.fwdPE)) rows.push(["Forward P/E (next year's expected earnings)", fmtX(av.fwdPE)]);
+  if(isNum(inp.eps)) rows.push(["Earnings, last 12 months", `${fmt(inp.eps)} <span class="muted small">· P/E ${inp.eps > 0 && isNum(price) ? fmtX(price/inp.eps) : "—"}</span>`]);
+  if(inp.exp) rows.push(["Expected earnings growth next year", `<span class="${cls(inp.exp.g)}">${fmtPct(inp.exp.g,1)}</span>${isNum(inp.exp.n) ? ` <span class="muted small">· ${inp.exp.n} analysts</span>` : ""}`]);
+  const f2 = av.fy2;
+  if(f2 && f2.eps > 0 && f2.eps90 > 0){
+    const ch = (f2.eps / f2.eps90 - 1) * 100;
+    const word = Math.abs(ch) < 1 ? `<span class="badge b-inline">Steady</span>` : ch > 0 ? `<span class="badge b-cheap">Raised ${fmtPct(ch,1)}</span>` : `<span class="badge b-rich">Cut ${fmtPct(ch,1)}</span>`;
+    const ud = isNum(f2.up30) || isNum(f2.down30) ? ` <span class="muted small">· last 30 days: ${f2.up30||0} up, ${f2.down30||0} down</span>` : "";
+    rows.push(["Next year's estimate, change over 90 days", word + ud]);
+  }
+  if(isNum(av.target) && isNum(price)) rows.push(["Average analyst price target", `${fmt(av.target)} <span class="small ${cls(av.target/price-1)}">${fmtPct((av.target/price-1)*100,0)} vs price</span>`]);
+  const errs = (av.errs || []).length ? `<p class="small err" style="margin:6px 0 0">Alpha Vantage: ${esc(av.errs[0])}</p>` : "";
+  if(!rows.length) return `<p class="small muted" style="margin:0">No analyst forecasts available for this stock.</p>${errs}`;
+  return `<table><tbody>${rows.map(([k,v]) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join("")}</tbody></table>${errs}
+    <p class="small muted" style="margin-bottom:0">Forecasts change and are often too optimistic near the top of a cycle. The 90-day change shows which way analysts are moving.</p>`;
+}
+function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   const el = $("#fv", app);
   if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so fair value can't be compared.</p>`; return; }
-  const inp = fvInputs(met, prof, price);
-  let peerInfo = null;
+  const fx = { peerInfo: null, avState: avP ? "loading" : "none", av: {} };
+  let inp = fvInputs(met, prof, price, fx.av);
   const sliders = [
-    ["g", "Growth, years 1–5", -10, 30, 0.5, "How fast free cash flow grows each year for the next 5 years."],
+    ["g", "Growth, years 1–5", -20, 60, 0.5, "How fast free cash flow grows each year for the next 5 years."],
     ["r", "Required return", 6, 15, 0.5, "The yearly return you want. Higher = stricter, lower fair value."],
     ["gt", "Long-term growth", 0, 4, 0.5, "Growth after year 10, forever. Keep this near inflation (2–3%)."],
   ];
   el.innerHTML = `<div id="fv-out"></div>
-    <details class="fvctl" ${state.fv[sym] ? "open" : ""}><summary><b>Adjust the assumptions</b> <span class="small muted">(changes the cash flow method and the reverse DCF)</span></summary>
+    <details class="fvctl" ${state.fv[sym] ? "open" : ""}><summary><b>Adjust the assumptions</b> <span class="small muted">(changes the cash flow method, the reverse DCF and the growth adjustment)</span></summary>
       ${sliders.map(([k,l,mn,mx,st,h]) => `<label class="sl"><span>${l} <b id="fv-v-${k}"></b></span>
         <input type="range" id="fv-${k}" min="${mn}" max="${mx}" step="${st}"><small class="muted">${h}</small></label>`).join("")}
       <div class="row"><button id="fv-reset" type="button">Reset to defaults</button><span class="small muted" id="fv-def"></span></div>
@@ -664,29 +780,32 @@ function renderFairValue(app, sym, met, prof, price, peerP, tok){
   const setSliders = () => { const a = fvAssump(sym, inp); sliders.forEach(([k]) => { $("#fv-"+k, el).value = a[k]; $("#fv-v-"+k, el).textContent = a[k] + "%"; }); };
   const draw = () => {
     const a = fvAssump(sym, inp);
-    const methods = fvMethods(inp, a, met, peerInfo);
+    const methods = fvMethods(inp, a, met, fx);
     const vals = methods.filter(m => m.counted && isNum(m.v) && m.v > 0).map(m => m.v);
     const ig = impliedGrowth(price, inp.fcf, a.r/100, a.gt/100);
-    // Reverse DCF block
+    // Reverse DCF block: compare the growth priced in with the data-based expectation
     let rev;
     if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
     else {
-      const igp = ig * 100;
-      const pastTxt = inp.past.length ? `Over the last 5 years it grew ${inp.past.map(([n,v]) => `${n} <b>${fmtPct(v,1)}</b>`).join(", ")} a year.` : "Past growth figures aren't available.";
+      const igp = ig * 100, ref = inp.startG;
+      const expTxt = inp.exp ? `Analysts expect earnings to grow <b>${fmtPct(inp.exp.g,1)}</b> next year; if growth then slows steadily to ${a.gt}% by year 10, that averages about <b>${fmtPct(fadeAvg5(inp.exp.g, a.gt),1)}</b> a year over the next 5. ` : "";
+      const pastTxt = inp.past.length ? `Over the last 5 years it grew ${inp.past.map(([n,v]) => `${n} <b>${fmtPct(v,1)}</b>`).join(", ")} a year.` : "";
       let vb;
       if(igp === -Infinity) vb = `<span class="badge b-cheap">Very low expectations</span>`;
-      else if(igp === Infinity || igp > 20 || (isNum(inp.pastMid) && igp > inp.pastMid + 5)) vb = `<span class="badge b-rich">Very demanding</span>`;
-      else if(isNum(inp.pastMid) && igp <= inp.pastMid) vb = `<span class="badge b-cheap">Modest expectations</span>`;
-      else vb = `<span class="badge b-inline">Needs it to keep up the pace</span>`;
+      else if(igp === Infinity) vb = `<span class="badge b-rich">Very demanding</span>`;
+      else if(igp <= ref) vb = `<span class="badge b-cheap">Below what the data suggests</span>`;
+      else if(igp <= ref + 5) vb = `<span class="badge b-inline">Roughly what the data suggests</span>`;
+      else vb = `<span class="badge b-rich">Above what the data suggests</span>`;
       const head = igp === -Infinity ? `Today's price would be justified even if free cash flow <b>shrank 50% a year</b>.`
-        : igp === Infinity ? `Today's price needs free cash flow to <b>more than double every year</b> for 5 years.`
+        : igp === Infinity ? `Today's price needs free cash flow to <b>grow more than 150% a year</b> for 5 years.`
         : `Today's price assumes free cash flow grows <b>${igp.toFixed(1)}% a year</b> for the next 5 years, then slows to ${a.gt}%.`;
-      rev = `<p style="margin:0 0 6px">${vb}</p><p style="margin:0">${head} ${pastTxt}</p>
-        <p class="small muted" style="margin-bottom:0">Ask yourself: is that growth realistic? If the price assumes more than the company has ever done, there is little room for disappointment.</p>`;
+      rev = `<p style="margin:0 0 6px">${vb}</p><p style="margin:0">${head} ${expTxt}${pastTxt}</p>
+        <p class="small muted" style="margin-bottom:0">The badge compares the growth priced in with the app's starting growth of ${ref}% a year. ${inp.startHow ? "That is based on: " + inp.startHow + ", slowing steadily after that." : "There's no growth data, so that is a cautious 5%."}</p>`;
     }
     let top;
+    const loadingAny = methods.some(m => m.loading);
     if(!vals.length){
-      top = `<p class="muted">${methods.some(m=>m.loading) ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
+      top = `<p class="muted">${loadingAny ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
     } else {
       const lo = Math.min(...vals), hi = Math.max(...vals), mid = median(vals);
       const buyAt = mid * (1 - state.settings.fvBuy/100), richAt = mid * (1 + state.settings.fvRich/100);
@@ -695,23 +814,25 @@ function renderFairValue(app, sym, met, prof, price, peerP, tok){
       const notes = [];
       if(vals.length === 1) notes.push("Only one method fits this company, so treat the range with extra caution.");
       if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
+      if(loadingAny) notes.push("Still loading some data; this may change.");
       top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
           ${price > buyAt ? `With your ${state.settings.fvBuy}% safety margin, it would be attractive below <b>${fmt(buyAt)}</b>.` : `That's beyond your ${state.settings.fvBuy}% safety margin.`}</p>
-        ${fvBar(lo, mid, hi, price, buyAt, richAt)}
+        ${fvBar(lo, mid, hi, price, buyAt, richAt, inp.av && inp.av.target > 0 ? inp.av.target : NaN)}
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
     }
     $("#fv-out", el).innerHTML = `${top}
+      <h3>What analysts expect</h3>${fvAnalysts(inp, price, fx)}
       <h3>What growth is the price assuming? <span class="small muted">(reverse DCF)</span></h3>${rev}
       <h3>How each method values it</h3>
       <table class="fvm"><tbody>${methods.map(m => `<tr class="${m.counted && isNum(m.v) ? "" : "muted"}">
-        <td><b>${m.name}</b><div class="small muted">${esc(m.note)}</div></td>
+        <td><b>${m.name}</b>${m.ref ? ' <span class="badge b-inline">reference</span>' : ""}<div class="small muted">${esc(m.note)}</div></td>
         <td class="num"><b>${isNum(m.v) ? fmt(m.v) : m.loading ? '<span class="spin"></span>' : "—"}</b>${isNum(m.v) ? `<div class="small ${cls(m.v/price-1)}">${fmtPct((m.v/price-1)*100,0)} vs price</div>` : ""}</td>
       </tr>`).join("")}</tbody></table>
       <p class="small muted" style="margin-bottom:0"><b>How to read this:</b> each method is a different way of estimating what one share is worth.
         The range runs from the lowest to the highest estimate that fits this company, and the middle is the median.
         "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it (change in <a href="#settings">Settings</a>).
         These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p>`;
-    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.past.length ? "the middle of its past 5-year growth, kept between 0% and 15% to stay cautious" : "no growth history, so a cautious 5%"}.`;
+    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.startHow ? inp.startHow + ", slowing steadily to 2.5% by year 10 (5-year average)" : "no growth data, so a cautious 5%"}.`;
   };
   sliders.forEach(([k]) => { $("#fv-"+k, el).oninput = e => {
     const cur = fvAssump(sym, inp);
@@ -720,7 +841,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, tok){
   }; });
   $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
   setSliders(); draw();
-  Promise.resolve(peerP).then(pi => { if(!live(tok)) return; peerInfo = pi || { medians:{}, used:[] }; draw(); });
+  Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peerInfo = pi || { medians:{}, used:[] }; draw(); });
+  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); setSliders(); draw(); });
 }
 
 function renderHealth(app, mm, price){
@@ -776,7 +898,7 @@ function renderRec(app, r){
     <div class="recbar">${parts.map(([k,,c])=>cur[k]?`<div style="width:${cur[k]/tot*100}%;background:${c}" title="${k}: ${cur[k]}"></div>`:"").join("")}</div>
     <div class="legend">${parts.map(([k,l,c])=>`<span><i style="background:${c}"></i>${l} ${cur[k]||0}</span>`).join("")}</div>
     <p class="small">${trend}</p>
-    <p class="small muted" style="margin-bottom:0">Full analyst reports and price targets aren't in the free data plan.</p>`;
+    <p class="small muted" style="margin-bottom:0">Full analyst reports aren't in the free data plan. Analysts' forecasts and price target are under Fair value (needs a free Alpha Vantage key).</p>`;
 }
 
 function renderNews(app, n){
@@ -940,6 +1062,16 @@ function viewSettings(app){
       <p id="kmsg" class="small"></p>
     </div>
     <div class="card">
+      <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
+      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts, forward P/E and price targets to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day, and each stock uses 2 (saved for a day). Saved only in this browser.</p>
+      <form id="avform" class="row">
+        <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
+        <button class="primary">Save</button>
+        <button type="button" id="avtest">Test</button>
+      </form>
+      <p id="avmsg" class="small"></p>
+    </div>
+    <div class="card">
       <h2>Valuation settings</h2>
       <div class="row">
         <label>"In line" band: ± <input id="band" type="number" min="1" max="50" value="${state.settings.band}" style="width:70px"> %</label>
@@ -987,6 +1119,13 @@ function viewSettings(app){
   const msg = (id, t, err) => { const e=$(id,app); e.textContent=t; e.className="small "+(err?"err":"muted"); };
   $("#bankfile",app).onchange = e => { const f = e.target.files && e.target.files[0]; if(f) importBankFile(app, f); };
   $("#kform",app).onsubmit = e => { e.preventDefault(); state.apiKey = $("#key",app).value.trim(); save(); pruneCache(); memCache.clear(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
+  $("#avform",app).onsubmit = e => { e.preventDefault(); state.avKey = $("#avkey",app).value.trim(); save(); msg("#avmsg", state.avKey ? "Saved." : "Key removed."); };
+  $("#avtest",app).onclick = async () => {
+    state.avKey = $("#avkey",app).value.trim(); save();
+    msg("#avmsg","Testing… (uses 1 of today's 25 requests)");
+    try{ const o = await avq.overview("MSFT"); msg("#avmsg", o && o.Symbol ? `✓ Works. Microsoft forward P/E: ${isNum(avNum(o.ForwardPE)) ? avNum(o.ForwardPE).toFixed(1) + "×" : "n/a"}, analyst target: ${isNum(avNum(o.AnalystTargetPrice)) ? fmt(avNum(o.AnalystTargetPrice)) : "n/a"}.` : "Key accepted, but no data came back.", !(o && o.Symbol)); }
+    catch(e){ msg("#avmsg", e.message, true); }
+  };
   $("#ktest",app).onclick = async () => {
     state.apiKey = $("#key",app).value.trim(); save();
     msg("#kmsg","Testing…");
