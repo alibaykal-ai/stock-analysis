@@ -187,7 +187,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.18</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.19</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -665,7 +665,7 @@ function viewHome(app, tok){
   document.body.classList.add("wide");
   const hasMine = state.holdings.length && state.apiKey, hasAny = state.apiKey && (state.holdings.length || state.watchlist.length);
   if(!hasAny && homeSec === "alerts") homeSec = "list";
-  if(!hasMine && (homeSec === "risk" || homeSec === "perf")) homeSec = "list";
+  if(!hasMine && (homeSec === "risk" || homeSec === "perf" || homeSec === "whatif")) homeSec = "list";
   const list = homeTab === "mine" ? myHoldings() : state.watchlist.map(s=>({symbol:s, type:"stock"}));
   app.innerHTML = `
     ${keyNotice()}
@@ -675,6 +675,7 @@ function viewHome(app, tok){
       <button data-tab="watch" class="${homeSec==="list"&&homeTab==="watch"?"on":""}">Watchlist (${state.watchlist.length})</button>
       ${hasAny ? `<button data-sec="alerts" class="${homeSec==="alerts"?"on":""}">Alerts<small id="side-alerts" class="alert-n"></small></button>` : ""}
       ${hasMine ? `<button data-sec="risk" class="${homeSec==="risk"?"on":""}">Portfolio risk</button>
+      <button data-sec="whatif" class="${homeSec==="whatif"?"on":""}">What if…</button>
       <button data-sec="perf" class="${homeSec==="perf"?"on":""}">Performance</button>` : ""}
       ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<button data-sec="earn" class="${homeSec==="earn"?"on":""}">Earnings calendar</button>` : ""}
     </nav>
@@ -715,6 +716,7 @@ function viewHome(app, tok){
     ${hasAny ? `<div class="card" id="alerts" data-home="alerts"><h2>Alerts</h2><div id="alerts-b" class="muted small"><span class="spin"></span> Checking your stocks…</div></div>` : ""}
     ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<div class="card" id="earn" data-home="earn"><h2>Earnings calendar</h2><div id="earn-b" class="muted small"><span class="spin"></span> Loading earnings dates…</div></div>` : ""}
     ${hasMine ? `<div class="card" id="risk" data-home="risk"><h2>Portfolio risk: where your money is</h2><div id="risk-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>
+    <div class="card" id="whatif" data-home="whatif"><h2>What if… (try a change before you make it)</h2><div id="whatif-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>
     <div class="card" id="perf" data-home="perf"><h2>Performance vs the market</h2><div id="perf-b" class="muted small"><span class="spin"></span> Comparing your holdings with the S&amp;P 500…</div></div>` : ""}
     </div></div>`;
   const showSec = () => { app.querySelectorAll("[data-home]").forEach(c => c.hidden = c.dataset.home !== homeSec);
@@ -752,7 +754,7 @@ function viewHome(app, tok){
   wireBuyBox(app);
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
   if(state.apiKey && (state.holdings.length || state.watchlist.length)) renderEarnings(app, tok);
-  if(hasMine){ renderTotal(app, tok); renderRisk(app, tok); renderPerf(app, tok); }
+  if(hasMine){ renderTotal(app, tok); renderRisk(app, tok); renderPerf(app, tok); renderWhatIf(app, tok); }
   if(hasAny){ drawAlertBadges(app); if(homeSec === "alerts") renderAlerts(app); checkAlerts(app, tok); }
   if(state.apiKey) bgRefresh();
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
@@ -2980,6 +2982,96 @@ function renderAlerts(app){
   el.querySelectorAll("[data-rearm]").forEach(b => b.onclick = () => { const r = A.rules.find(x => x.id === b.dataset.rearm); if(r) delete r.hit; save2(); });
   // Opening the list counts as seeing it: the bold stays for this visit, the "new" count clears.
   if(newOnes.length){ A.events.forEach(e => e.isNew = false); save(); drawAlertBadges(app); }
+}
+/* ================= What if (My Stocks) ================= */
+// "If I sell X and buy Y, how does my risk change?" Same measures as the risk card, before and after, in pounds.
+let whatIf = [{ side: "S", sym: "", amt: "" }, { side: "B", sym: "", amt: "" }];
+function riskOf(rows){ // rows: [{h, gbp, sector, etf, fund}]
+  const ok = rows.filter(r => r.gbp > 0.5), total = ok.reduce((a, r) => a + r.gbp, 0);
+  const stocks = ok.filter(r => !r.fund).sort((a, b) => b.gbp - a.gbp);
+  const sec = new Map(); ok.filter(r => !r.fund).forEach(r => sec.set(r.sector, (sec.get(r.sector) || 0) + r.gbp));
+  const topSec = [...sec.entries()].sort((a, b) => b[1] - a[1])[0];
+  const sPct = stocks[0] ? stocks[0].gbp / total * 100 : 0, secPct = topSec ? topSec[1] / total * 100 : 0;
+  const lvl = sPct > RISK.stockRed || secPct > RISK.sectorRed ? 2 : sPct > RISK.stockAmber || secPct > RISK.sectorAmber ? 1 : 0;
+  return { total, top: stocks[0], sPct, topSec, secPct, lvl, mv: movement(stocks), n: ok.length };
+}
+async function renderWhatIf(app, tok){
+  const el = $("#whatif-b", app); if(!el) return;
+  const hv = await hvFor(tok); if(!live(tok)) return;
+  const owned = hv.rows.filter(r => isNum(r.gbp));
+  const draw = (result) => {
+    el.classList.remove("muted", "small");
+    el.innerHTML = `
+      <p style="margin-top:0">Try a change before you make it: list what you'd sell and buy, then compare your risk now and after. <span class="small muted">Nothing is changed in My Stocks.</span></p>
+      <datalist id="wi-own">${owned.map(r => `<option value="${esc(r.h.symbol)}">`).join("")}</datalist>
+      <form id="wi-form">
+        ${whatIf.map((l, i) => `<div class="row" style="margin-bottom:6px">
+          <select data-wi="side" data-i="${i}" aria-label="Sell or buy"><option value="S" ${l.side === "S" ? "selected" : ""}>Sell</option><option value="B" ${l.side === "B" ? "selected" : ""}>Buy</option></select>
+          <input data-wi="sym" data-i="${i}" value="${esc(l.sym)}" placeholder="Ticker" list="${l.side === "S" ? "wi-own" : ""}" autocapitalize="characters" autocomplete="off" style="width:110px" aria-label="Ticker">
+          <span class="small muted">£</span><input data-wi="amt" data-i="${i}" value="${esc(l.amt)}" type="number" step="any" min="0" placeholder="${l.side === "S" ? "amount (blank = all)" : "amount"}" style="width:170px" aria-label="Amount in pounds">
+          ${whatIf.length > 1 ? `<button type="button" class="link" data-wi-del="${i}" title="Remove this line">×</button>` : ""}
+        </div>`).join("")}
+        <div class="row"><button type="button" class="link" id="wi-add">+ Add a line</button><button class="primary">Compare</button><span id="wi-msg" class="small"></span></div>
+      </form>
+      <div id="wi-out" style="margin-top:12px">${result || ""}</div>
+      <details class="more"><summary>How this works</summary>
+        <p class="small muted">Starts from your holdings at today's prices in pounds (as in the risk card). A sale lowers that holding by the amount (blank = all of it); a purchase adds the amount to a holding, or adds a new stock. The measures are the risk card's: biggest single stock and sector (suggested limits ${RISK.stockAmber}%/${RISK.stockRed}% and ${RISK.sectorAmber}%/${RISK.sectorRed}%), and how the stocks moved together over the last year (volatility, beta and worst fall vs the S&amp;P 500, average correlation). Money left over from sales is counted as cash: it lowers every percentage but isn't a stock. A new stock needs its price history (1 Twelve Data request, kept 12 hours). Past behaviour, not a forecast, and not advice to trade.</p>
+      </details>`;
+    const sync = () => el.querySelectorAll("[data-wi]").forEach(x => { whatIf[+x.dataset.i][x.dataset.wi] = x.dataset.wi === "sym" ? normSym(x.value) : x.value; });
+    el.querySelectorAll('[data-wi="side"]').forEach(x => x.onchange = () => { sync(); draw($("#wi-out", el).innerHTML); });
+    $("#wi-add", el).onclick = () => { sync(); whatIf.push({ side: "B", sym: "", amt: "" }); draw($("#wi-out", el).innerHTML); };
+    el.querySelectorAll("[data-wi-del]").forEach(x => x.onclick = () => { sync(); whatIf.splice(+x.dataset.wiDel, 1); draw($("#wi-out", el).innerHTML); });
+    $("#wi-form", el).onsubmit = async e => { e.preventDefault(); sync(); const m = $("#wi-msg", el); m.className = "small"; m.innerHTML = `<span class="spin"></span> Working it out…`;
+      try{ const html = await whatIfResult(owned, tok); if(!live(tok)) return; m.textContent = ""; $("#wi-out", el).innerHTML = html; }
+      catch(err){ m.className = "small err"; m.textContent = err.message; } };
+  };
+  draw("");
+}
+async function whatIfResult(owned, tok){
+  const lines = whatIf.filter(l => l.sym);
+  if(!lines.length) throw new Error("Add at least one sale or purchase.");
+  const after = owned.map(r => ({ ...r })); let cash = 0; const done = [];
+  for(const l of lines){
+    const amt = parseFloat(l.amt);
+    if(l.side === "S"){
+      const r = after.find(x => x.h.symbol === l.sym); if(!r) throw new Error(`You don't own ${l.sym}.`);
+      const sold = isNum(amt) && amt > 0 ? Math.min(amt, r.gbp) : r.gbp; r.gbp -= sold; cash += sold; done.push(`sell ${fmtGBP(sold)} of ${l.sym}${sold >= r.gbp + sold - 0.5 ? " (all)" : ""}`);
+    } else {
+      if(!(amt > 0)) throw new Error(`Add an amount for buying ${l.sym}.`);
+      let r = after.find(x => x.h.symbol === l.sym);
+      if(!r){ const p = await safe(fh.profile(l.sym)); const prof = p.ok && p.v || {};
+        if(!prof.name && !prof.ticker) throw new Error(`Couldn't find ${l.sym}. Check the ticker.`);
+        if(state.tdKey && !peek.td(l.sym)) await safe(tdDaily(l.sym));
+        const etf = sectorOf(prof.finnhubIndustry);
+        r = { h: { symbol: l.sym, type: "stock" }, gbp: 0, sector: etf ? SECTORS.find(s => s[0] === etf)[1] : (prof.finnhubIndustry || "Other"), etf, fund: false, isNew: true }; after.push(r); }
+      r.gbp += amt; cash -= amt; done.push(`buy ${fmtGBP(amt)} of ${l.sym}`);
+    }
+  }
+  const A = riskOf(owned), B = riskOf(cash > 0.5 ? [...after, { h: { symbol: "Cash" }, gbp: cash, fund: true, sector: "Cash" }] : after);
+  const lvlB = l => [["b-cheap","Well spread"],["b-warn","Fairly concentrated"],["b-rich","Concentrated"]][l];
+  const arrow = (a, b, d, lowerBetter = true) => { if(!isNum(a) || !isNum(b)) return ""; const diff = b - a; if(Math.abs(diff) < Math.pow(10, -d) / 2) return `<span class="muted">no change</span>`;
+    const good = lowerBetter ? diff < 0 : diff > 0; return `<span class="${good ? "up" : "down"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(d)}</span>`; };
+  const mvA = A.mv, mvB = B.mv, hasMv = mvA.vol && mvB.vol;
+  const row = (label, a, b, fa, d, lb) => `<tr><td>${label}</td><td class="num">${fa(a)}</td><td class="num"><b>${fa(b)}</b></td><td class="num">${arrow(typeof a === "object" ? NaN : a, typeof b === "object" ? NaN : b, d, lb)}</td></tr>`;
+  const p0 = v => isNum(v) ? v.toFixed(0) + "%" : "—", x2 = v => isNum(v) ? v.toFixed(2) : "—";
+  const missing = after.filter(r => r.isNew && !peek.td(r.h.symbol)).map(r => r.h.symbol);
+  const sentence = [];
+  if(A.top && B.top) sentence.push(A.top.h.symbol === B.top.h.symbol ? `your biggest single stock stays <b>${esc(B.top.h.symbol)}</b>, ${p0(A.sPct)} → <b>${p0(B.sPct)}</b>` : `your biggest single stock changes from ${esc(A.top.h.symbol)} (${p0(A.sPct)}) to <b>${esc(B.top.h.symbol)}</b> (<b>${p0(B.sPct)}</b>)`);
+  if(A.topSec && B.topSec) sentence.push(`the biggest sector is <b>${esc(B.topSec[0].toLowerCase())}</b> at <b>${p0(B.secPct)}</b> (now ${esc(A.topSec[0].toLowerCase())} ${p0(A.secPct)})`);
+  if(hasMv) sentence.push(`beta goes ${mvA.beta.toFixed(2)} → <b>${mvB.beta.toFixed(2)}</b> (a 10% market fall would typically mean about ${(mvB.beta * 10).toFixed(0)}% instead of ${(mvA.beta * 10).toFixed(0)}%)`);
+  return `
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${lvlB(B.lvl)[0]}">${lvlB(B.lvl)[1]}</span><div class="small muted" style="margin-top:4px">now: ${lvlB(A.lvl)[1]}</div></div>
+      <p style="margin:0;flex:1;min-width:260px;max-width:760px">If you ${done.join(", ")}: ${sentence.join("; ")}.
+      <span class="small muted">${cash > 0.5 ? `${fmtGBP(cash)} would be left as cash.` : cash < -0.5 ? `You'd need ${fmtGBP(-cash)} more than the sales raise.` : "The sales pay for the purchases."}</span></p></div>
+    <div style="overflow-x:auto"><table style="max-width:760px"><thead><tr><th></th><th class="num">Now</th><th class="num">After</th><th class="num">Change <small style="text-transform:none;font-weight:400">(green = less risk)</small></th></tr></thead><tbody>
+      ${row(`Biggest single stock <small class="muted">${esc(A.top ? A.top.h.symbol : "")} → ${esc(B.top ? B.top.h.symbol : "")}</small>`, A.sPct, B.sPct, p0, 0)}
+      ${row(`Biggest sector <small class="muted">${esc(A.topSec ? A.topSec[0] : "")} → ${esc(B.topSec ? B.topSec[0] : "")}</small>`, A.secPct, B.secPct, p0, 0)}
+      ${hasMv ? `${row("Ups and downs (volatility, % a year)", mvA.vol, mvB.vol, v => v.toFixed(0) + "%", 0)}
+      ${row("Sensitivity to the market (beta)", mvA.beta, mvB.beta, x2, 2)}
+      ${row("Move together (average correlation)", mvA.avgCorr, mvB.avgCorr, x2, 2)}
+      ${row("Worst fall in the last year", mvA.pd.worst, mvB.pd.worst, v => v.toFixed(0) + "%", 0, false)}` : `<tr><td colspan="4" class="small muted">Movement measures need saved price history for most of your stocks (refreshed in the background when My Stocks opens).</td></tr>`}
+    </tbody></table></div>
+    ${missing.length ? `<p class="small muted">No price history for ${missing.map(esc).join(", ")} (Twelve Data key missing or symbol not covered), so it's counted in the percentages but not in the movement measures.</p>` : ""}`;
 }
 /* ================= Earnings calendar (My Stocks) ================= */
 const fmtBig = v => !isNum(v) ? "—" : Math.abs(v) >= 1e9 ? "$" + (v/1e9).toFixed(1) + "B" : Math.abs(v) >= 1e6 ? "$" + (v/1e6).toFixed(0) + "M" : "$" + Math.round(v).toLocaleString();
