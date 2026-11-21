@@ -170,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.1</b> · 21 Nov 2026 ·
+  <b>Version 5.2</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -707,7 +707,12 @@ async function fillRow(app, h, tok){
   const met = m.ok ? m.v : null;
   const mm = met && met.metric || {};
   set("range", rangeBar(mm["52WeekLow"], mm["52WeekHigh"], price));
-  if(homeTab==="mine") set("value", isNum(price)&&isNum(h.shares) ? fmt(price*h.shares) : "—");
+  if(homeTab==="mine"){
+    const pc = String((p.ok && p.v && p.v.currency) || "").toUpperCase();
+    const manual = !(q.ok && isNum(q.v.c) && q.v.c > 0);
+    const sym = manual || pc === "GBP" ? "£" : pc === "USD" || !pc ? "$" : "";
+    set("value", isNum(price)&&isNum(h.shares) ? (pc === "GBX" && !manual ? "£" + fmt(price*h.shares/100) : sym + fmt(price*h.shares) + (sym ? "" : " " + esc(pc))) : "—");
+  }
   if(isStock){
     const r = RATIOS[0];
     const now = nowValue(met, r);
@@ -2400,7 +2405,7 @@ async function renderRisk(app, tok){
       <p style="margin:0;flex:1;min-width:260px;max-width:760px">${topS ? `Your biggest single stock is <b>${esc(topS.h.symbol)}</b> at <b>${sPct.toFixed(0)}%</b> of your money` : "No single stocks"}${topSec ? `, and <b>${secPct.toFixed(0)}%</b> is in <b>${esc(topSec.k.toLowerCase())}</b>${secStatus(topSec.etf)}` : ""}.${mvLine}
       <span class="small muted">Total ${fmtGBP(total)} across ${ok.length} holdings${hv.rateDate ? `, US stocks converted at $${hv.usdPerGbp.toFixed(4)} per £ (${fmtDay(hv.rateDate)})` : ""}.</span></p></div>
     <h3>By sector</h3>${bars(bySector.map(s => ({ label: `${esc(s.k)}${s.fund ? "" : secStatus(s.etf)}<br><small class="muted">${s.syms.map(esc).join(", ")}</small>`, v: s.v, fund: s.fund })), total, RISK.sectorAmber, RISK.sectorRed)}
-    <h3>By holding</h3>${bars(byStock.slice(0, 8).map(r => ({ label: `<b>${esc(r.h.symbol)}</b>${r.fund ? ' <small class="muted">fund</small>' : ""}`, v: r.gbp, fund: r.fund })), total, RISK.stockAmber, RISK.stockRed)}
+    <h3>By holding</h3>${bars(byStock.slice(0, 8).map(r => ({ label: `<b>${esc(r.h.symbol)}</b>${r.fund ? ` <small class="muted">${r.h.type === "etf" ? "ETF" : "fund"}</small>` : ""}`, v: r.gbp, fund: r.fund })), total, RISK.stockAmber, RISK.stockRed)}
     ${byStock.length > 8 ? `<details class="more" style="margin-top:4px"><summary>Show all ${byStock.length}</summary>${bars(byStock.slice(8).map(r => ({ label: `<b>${esc(r.h.symbol)}</b>`, v: r.gbp })), total, RISK.stockAmber, RISK.stockRed)}</details>` : ""}
     <h3>How your stocks move</h3>
     ${mv.need === "spy" ? `<p class="small muted">Open the <a href="#macro">Macro tab</a> once so the app has the S&amp;P 500's price history to compare with.</p>`
