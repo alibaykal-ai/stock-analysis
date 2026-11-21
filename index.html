@@ -169,7 +169,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 4.1</b> · 21 Nov 2026 ·
+  <b>Version 4.2</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1883,11 +1883,18 @@ function rotationText(rows){
 }
 function breadthText(spy, rsp, rows){
   const parts = [];
-  const gap = retN(rsp, 63) - retN(spy, 63);
+  const s3 = retN(spy, 63), gap = retN(rsp, 63) - s3, falling = s3 < 0;
   if(isNum(gap)){
-    if(gap <= -3) parts.push(`<span class="badge b-warn">Narrow</span> The average S&P 500 company (equal-weighted) trailed the index by ${Math.abs(gap).toFixed(1)} points over 3 months: a few of the biggest companies are doing the heavy lifting. Narrow markets are more fragile.`);
-    else if(gap >= 3) parts.push(`<span class="badge b-cheap">Broad</span> The average S&P 500 company (equal-weighted) beat the index by ${gap.toFixed(1)} points over 3 months: gains are spread widely, a healthy sign.`);
-    else parts.push(`<span class="badge b-inline">Fairly broad</span> The average S&P 500 company (equal-weighted) moved in line with the index over 3 months (gap ${fmtPct(gap,1).replace("%","")} points): not just a handful of giants.`);
+    const g = Math.abs(gap).toFixed(1);
+    if(!falling){
+      if(gap <= -3) parts.push(`<span class="badge b-warn">Narrow</span> The average S&P 500 company (equal-weighted) trailed the index by ${g} points over 3 months: a few of the biggest companies are doing the heavy lifting. Narrow rallies are more fragile.`);
+      else if(gap >= 3) parts.push(`<span class="badge b-cheap">Broad</span> The average S&P 500 company (equal-weighted) beat the index by ${g} points over 3 months: gains are spread widely, a healthy sign.`);
+      else parts.push(`<span class="badge b-inline">Fairly broad</span> The average S&P 500 company (equal-weighted) moved in line with the index over 3 months (gap ${fmtPct(gap,1).replace("%","")} points): not just a handful of giants.`);
+    } else {
+      if(gap >= 3) parts.push(`<span class="badge b-warn">Led by the giants</span> The index fell ${Math.abs(s3).toFixed(1)}% over 3 months, but the average S&P 500 company (equal-weighted) held up ${g} points better: the fall is led by the biggest companies rather than everything selling off.`);
+      else if(gap <= -3) parts.push(`<span class="badge b-rich">Broad selling</span> The index fell ${Math.abs(s3).toFixed(1)}% over 3 months and the average S&P 500 company (equal-weighted) did ${g} points worse: selling is widespread, not just in a few big names.`);
+      else parts.push(`<span class="badge b-warn">Across the board</span> The index fell ${Math.abs(s3).toFixed(1)}% over 3 months and the average S&P 500 company (equal-weighted) fell about as much (gap ${fmtPct(gap,1).replace("%","")} points): the fall is spread across the market.`);
+    }
   }
   const ab = rows.filter(r => r.above !== null && r.above !== undefined);
   if(ab.length) parts.push(`${ab.filter(r => r.above).length} of ${ab.length} sectors are above their 200-day average.`);
@@ -2106,14 +2113,14 @@ async function viewMacro(app, tok){
         ${loaded >= 6 ? `<p style="margin:0 0 12px">${rotationText(rows)}</p>` : ""}
         ${pending ? `<p class="small muted"><span class="spin"></span> Loading sectors (${done} of ${syms.length} funds)… Twelve Data allows 8 requests a minute, so the first load takes about 2 minutes. Kept for 12 hours after that.</p>` : ""}
         <div style="overflow-x:auto"><table class="sect"><thead><tr>
-          <th>Sector</th><th>vs S&amp;P 500</th><th class="num">1 month</th><th class="num">3 months</th><th class="num">6 months</th>
+          <th>Sector</th><th>vs S&amp;P 500, 3 months</th><th class="num">1 month</th><th class="num">3 months</th><th class="num">6 months</th>
           <th class="hide-sm">6 months vs S&amp;P 500</th><th>200-day avg</th><th>Your stocks</th></tr></thead><tbody>
           ${sorted.map(r => r.err ? `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td><td colspan="7" class="small muted">${esc(r.err)}</td></tr>`
             : !isNum(r.r3) ? `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td><td colspan="6" class="small muted">${data[r.etf] ? "Not enough history" : '<span class="spin"></span>'}</td><td>${tags(r.etf)}</td></tr>`
             : `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td>
-              <td>${relBadge(r.rel3)}</td>
+              <td>${relBadge(r.rel3)}<br><small class="muted">${fmtPct(r.rel3,1).replace("%","")} pts</small></td>
               <td class="num"><span class="${cls(r.r1)}">${fmtPct(r.r1,1)}</span></td>
-              <td class="num"><span class="${cls(r.r3)}">${fmtPct(r.r3,1)}</span><br><small class="muted">${fmtPct(r.rel3,1).replace("%","")} pts vs index</small></td>
+              <td class="num"><span class="${cls(r.r3)}">${fmtPct(r.r3,1)}</span></td>
               <td class="num"><span class="${cls(r.r6)}">${fmtPct(r.r6,1)}</span></td>
               <td class="hide-sm">${sparkSvg([{v: r.rel, cls:"s-ln"}], 120, 28, 100)}</td>
               <td>${r.above === null ? "—" : r.above ? '<span class="badge b-cheap">Above</span>' : '<span class="badge b-rich">Below</span>'}</td>
@@ -2123,7 +2130,7 @@ async function viewMacro(app, tok){
         <details class="more"><summary>How to read this</summary>
           <p class="small muted">Each sector is measured with its sector fund (e.g. XLK for technology), sorted by how much it beat or trailed the S&amp;P 500 over 3 months. <b>Leading</b> = 2+ points ahead of the index, <b>Lagging</b> = 2+ points behind (green / red), otherwise In line. The small line shows the sector divided by the S&amp;P 500 over 6 months: rising = beating the market; the dotted line is where it started.
           <b>Rotation</b> compares defensive sectors (staples, utilities, health care, real estate: people buy these whatever the economy does) with economy-sensitive ones (tech, communication, consumer discretionary, financials, industrials, materials, energy): a gap of 3+ points on average over 3 months counts as a rotation.
-          <b>Broad or narrow</b> compares the equal-weighted S&amp;P 500 (RSP fund, every company counts the same) with the normal index, where the biggest companies dominate.
+          <b>Broad or narrow</b> (or, in a falling market, whether the fall is led by the giants or spread widely) compares the equal-weighted S&amp;P 500 (RSP fund, every company counts the same) with the normal index, where the biggest companies dominate.
           <b>Your stocks</b>: holdings in bold, watchlist in grey, matched by Finnhub's industry; ETFs and funds are left out. Sector moves are context, not buy or sell signals.</p>
         </details>`;
     } else if(!spy){ note.innerHTML = `<span class="spin"></span> Waiting for the S&P 500…`; }
