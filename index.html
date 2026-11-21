@@ -170,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.0</b> · 21 Nov 2026 ·
+  <b>Version 5.1</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1925,7 +1925,7 @@ const MACRO_URL = "https://raw.githubusercontent.com/alibaykal-ai/stock-analysis
 const FED_DECISIONS = ["2026-12-09","2027-01-27","2027-03-17","2027-04-28","2027-06-09","2027-07-28","2027-09-15","2027-11-17","2028-01-26"];
 async function macroData(){
   const ck = "fred:macro";
-  const hit = cacheGet(ck); if(hit !== undefined) return hit;
+  const hit = cacheGet(ck); if(hit !== undefined && hit.series && hit.series.DEXUSUK) return hit; // older saved copies lack the exchange rate: fetch again
   if(inflight.has(ck)) return inflight.get(ck);
   const p = (async () => {
     let r;
