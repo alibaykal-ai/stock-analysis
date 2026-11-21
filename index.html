@@ -98,6 +98,25 @@ h3{font-size:14px;margin:18px 0 8px}
 .hp-bar{height:8px;background:var(--neutralbg);border-radius:4px;overflow:hidden}
 .hp-bar i{display:block;height:100%;border-radius:4px}
 .hp-v{text-align:right;font-variant-numeric:tabular-nums}
+#c-chart{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
+@media (prefers-color-scheme:dark){ #c-chart{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
+.chartwrap{position:relative;padding-right:0;touch-action:pan-y}
+.chartwrap svg{display:block;width:100%;height:340px}
+.chartwrap .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.chartwrap .ln{fill:none;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.chartwrap .vol{fill:var(--vol)}
+.chartwrap .xh{stroke:var(--muted);stroke-width:1;vector-effect:non-scaling-stroke;stroke-dasharray:3 3}
+.ylab span,.ylab b{position:absolute;right:0;transform:translateY(-50%);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ylab b{right:-2px;font-size:11px;font-weight:600;background:var(--card);padding:0 2px}
+.ylab span{right:auto;left:2px;transform:translateY(-115%)}
+.ylab b i{display:inline-block;width:8px;height:2px;margin-right:3px;vertical-align:middle}
+.ylab{position:absolute;inset:0;pointer-events:none}
+.xlab{position:relative;height:16px;font-size:11px;color:var(--muted)}
+.xlab span{position:absolute;top:2px;white-space:nowrap}
+.vlab{position:absolute;left:4px;font-size:11px;color:var(--muted);pointer-events:none}
+.tip{position:absolute;top:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);pointer-events:none;min-width:150px;z-index:2}
+.tip div{white-space:nowrap;line-height:1.6}
+.lk{display:inline-block;width:12px !important;height:3px !important;border-radius:2px;margin-right:6px !important;vertical-align:middle !important}
 details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:6px 0}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
@@ -126,8 +145,8 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.4</b> · 21 Nov 2026 ·
-  For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
+  <b>Version 3.5</b> · 21 Nov 2026 ·
+  For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
 
@@ -135,7 +154,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", avKey: "", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -369,6 +388,50 @@ const avq = {
     return { m: out };
   }),
 };
+/* ================= Twelve Data client (daily price history) ================= */
+// Free key: 800 requests/day, 8/minute. One request gets ~6 years of daily prices; kept 12 hours.
+const TD = "https://api.twelvedata.com";
+const tdTimes = [];
+async function tdThrottle(){
+  for(;;){ const now = Date.now(); while(tdTimes.length && now - tdTimes[0] > 60000) tdTimes.shift();
+    if(tdTimes.length < 7){ tdTimes.push(now); return; }
+    await new Promise(r => setTimeout(r, 60000 - (now - tdTimes[0]) + 100)); }
+}
+async function tdDaily(sym, n){
+  if(!state.tdKey) throw new ApiError("No Twelve Data key yet.", "nokey");
+  n = n || 1600;
+  const ck = "td:daily:" + sym + ":" + n;
+  const hit = cacheGet(ck); if(hit !== undefined) return hit;
+  if(inflight.has(ck)) return inflight.get(ck);
+  const p = (async () => {
+    await tdThrottle();
+    let r;
+    try{ r = await fetch(`${TD}/time_series?symbol=${encodeURIComponent(sym)}&interval=1day&outputsize=${n}&apikey=${encodeURIComponent(state.tdKey)}`); }
+    catch(e){ throw new ApiError("Couldn't reach Twelve Data.", "network"); }
+    let j = null; try{ j = await r.json(); }catch(e){}
+    const code = (j && j.status === "error" && j.code) || (!r.ok && r.status);
+    if(code){
+      const m = String(j && j.message || "");
+      if(code === 401 || /api ?key/i.test(m)) throw new ApiError("Twelve Data rejected the key. Check it in Settings.", "auth");
+      if(code === 429 || /credits|limit/i.test(m)) throw new ApiError("Twelve Data's free request limit is used up for now. Try again in a minute (or tomorrow if the daily 800 are used).", "rate");
+      if(code === 404 || code === 400 || /not found|invalid|symbol/i.test(m)) throw new ApiError("Twelve Data has no daily prices for this symbol on the free plan.", "nosym");
+      if(code === 403 || /plan|upgrade|grow|pro/i.test(m)) throw new ApiError("Not included in the free Twelve Data plan.", "premium");
+      throw new ApiError(`Twelve Data error: ${m.slice(0,140) || code}`, "api");
+    }
+    const vals = (j && Array.isArray(j.values) ? j.values : []).slice().reverse(); // oldest first
+    const out = { d: [], c: [], v: [] };
+    for(const x of vals){ const c = +x.close; if(!isFinite(c)) continue; out.d.push(String(x.datetime).slice(0,10)); out.c.push(c); out.v.push(+x.volume || 0); }
+    if(!out.d.length) throw new ApiError("Twelve Data returned no prices for this symbol.", "nosym");
+    cacheSet(ck, out, 12*3600e3);
+    return out;
+  })();
+  inflight.set(ck, p);
+  try{ return await p; } finally{ inflight.delete(ck); }
+}
+// Simple moving average over n days (NaN until there are n days).
+function sma(c, n){ const out = new Array(c.length).fill(NaN); let s = 0;
+  for(let i = 0; i < c.length; i++){ s += c[i]; if(i >= n) s -= c[i-n]; if(i >= n-1) out[i] = s / n; } return out; }
+
 /* ---- Valuation history worked out from company reports + month-end prices ---- */
 function calcHistory(fin, finQ, monthly, prof){
   const ys = fin && fin.years || [], qs = finQ && finQ.q || [], px = monthly && monthly.m || {};
@@ -635,6 +698,7 @@ async function viewStock(app, sym, tok){
       </div>
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
     </div>
+    <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
@@ -649,6 +713,7 @@ async function viewStock(app, sym, tok){
     state.holdings.push({symbol:sym, shares:null, type:"stock"}); save();
     bm.outerHTML = `<span class="badge b-inline">In My Stocks</span>`;
   };
+  renderChartCard(app, sym, tok);
   if(!state.apiKey){ ["#val","#health","#rec","#news"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
   const [q, p, m] = await Promise.all([safe(fh.quote(sym)), safe(fh.profile(sym)), safe(fh.metric(sym))]);
@@ -1015,6 +1080,100 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   setSliders(); draw();
   Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peerInfo = pi || { medians:{}, used:[] }; draw(); });
   if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); setSliders(); draw(); });
+}
+
+/* ================= Price chart ================= */
+const CHART_RANGES = [["1M",1],["6M",6],["1Y",12],["5Y",60]];
+let chartRange = "1Y";
+function renderChartCard(app, sym, tok){
+  const el = $("#chart", app); if(!el) return;
+  if(!state.tdKey){ el.innerHTML = `<p class="small muted" style="margin:0">Add a free <a href="#settings">Twelve Data key in Settings</a> to see the price chart with 50- and 200-day averages.</p>`; return; }
+  el.innerHTML = `<span class="spin"></span> Loading price history…`;
+  tdDaily(sym).then(h => { if(live(tok)) drawChart(el, h); }, e => { if(live(tok)) el.innerHTML = `<p class="small muted" style="margin:0">${esc(e.message)}</p>`; });
+}
+function drawChart(el, h){
+  const m50 = sma(h.c, 50), m200 = sma(h.c, 200), n = h.c.length, last = n - 1;
+  const months = (CHART_RANGES.find(r => r[0] === chartRange) || CHART_RANGES[2])[1];
+  const from = new Date(h.d[last]); from.setMonth(from.getMonth() - months);
+  let i0 = h.d.findIndex(d => d >= ymd(from)); if(i0 < 0) i0 = 0;
+  const idx = []; for(let i = i0; i <= last; i++) idx.push(i);
+  const px = h.c[last];
+  const vs = (ma, name) => isNum(ma) ? `<b>${px >= ma ? "above" : "below"}</b> its ${name} (${fmt(ma)}, ${fmtPct((px/ma-1)*100,1)})` : `n/a vs its ${name} (needs more history)`;
+  const summary = `Last close ${fmt(px)} is ${vs(m50[last], "50-day average")} and ${vs(m200[last], "200-day average")}.`;
+  const first = h.c[i0], chg = (px/first - 1)*100;
+  // geometry (viewBox units; scales to the card width)
+  const W = 1000, PH = 260, VH = 70, GAP = 14, L = 8, R = 64, T = 10, B = 22;
+  const H = T + PH + GAP + VH + B;
+  const xs = k => L + (idx.length > 1 ? k / (idx.length - 1) : 0.5) * (W - L - R);
+  const ys = [...idx.map(i => h.c[i]), ...idx.map(i => m50[i]), ...idx.map(i => m200[i])].filter(isNum);
+  let lo = Math.min(...ys), hi = Math.max(...ys); const pad = (hi - lo) * 0.06 || hi * 0.05; lo -= pad; hi += pad;
+  const yP = v => T + (1 - (v - lo) / (hi - lo)) * PH;
+  // Volume bars: one per day, or one per ~week on long ranges so bars stay readable
+  const grp = Math.max(1, Math.ceil(idx.length / 260));
+  const vb = []; for(let k = 0; k < idx.length; k += grp){ const ks = idx.slice(k, k + grp); vb.push({ k: k + (ks.length - 1) / 2, v: ks.reduce((a, i) => a + h.v[i], 0) / ks.length }); }
+  const vMax = Math.max(1, ...vb.map(b => b.v));
+  const yV = v => T + PH + GAP + VH * (1 - v / vMax);
+  const path = arr => { let d = "", pen = false; idx.forEach((i, k) => { const v = arr[i]; if(!isNum(v)){ pen = false; return; } d += (pen ? "L" : "M") + xs(k).toFixed(1) + " " + yP(v).toFixed(1); pen = true; }); return d; };
+  // nice y ticks
+  const step = (() => { const raw = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))); return [1,2,2.5,5,10].map(f => f*mag).find(s => s >= raw) || raw; })();
+  const ticks = []; for(let v = Math.ceil(lo/step)*step; v <= hi; v += step) ticks.push(v);
+  const dec = Number.isInteger(step) ? 0 : step < 1 ? 2 : 1;
+  // x labels: ~5 evenly spaced dates
+  const xl = []; const nl = 5; for(let j = 0; j < nl; j++){ const k = Math.round(j * (idx.length - 1) / (nl - 1)); xl.push([k, h.d[idx[k]]]); }
+  const dLab = d => new Date(d + "T00:00:00").toLocaleDateString(undefined, months <= 12 ? {month:"short", day:"numeric"} : {month:"short", year:"numeric"});
+  const bw = Math.max(1, (W - L - R) / vb.length - (vb.length < 150 ? 2 : 0.6));
+  // direct end labels, nudged apart so they don't overlap
+  const ends = [["Price", h.c[last], "var(--s1)"], ["50d", m50[last], "var(--s2)"], ["200d", m200[last], "var(--s3)"]].filter(e => isNum(e[1])).map(e => ({ t: e[0], y: yP(e[1]), c: e[2] })).sort((a,b) => a.y - b.y);
+  for(let j = 1; j < ends.length; j++) if(ends[j].y - ends[j-1].y < 13) ends[j].y = ends[j-1].y + 13;
+  el.innerHTML = `
+    <p style="margin:0 0 10px">${summary}</p>
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <div class="tabs" style="margin:0">${CHART_RANGES.map(([k]) => `<button data-r="${k}" class="${k===chartRange?"on":""}">${k}</button>`).join("")}</div>
+      <div class="legend"><span><i class="lk" style="background:var(--s1)"></i>Price</span><span><i class="lk" style="background:var(--s2)"></i>50-day average</span><span><i class="lk" style="background:var(--s3)"></i>200-day average</span><span><i style="background:var(--vol)"></i>Volume</span></div>
+    </div>
+    <div class="chartwrap">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Price chart, last ${chartRange}">
+        ${ticks.map(v => `<line class="grid" x1="${L}" x2="${W-R}" y1="${yP(v)}" y2="${yP(v)}"/>`).join("")}
+        ${vb.map(b => `<rect class="vol" x="${(xs(b.k) - bw/2).toFixed(1)}" y="${yV(b.v).toFixed(1)}" width="${bw.toFixed(2)}" height="${(T+PH+GAP+VH - yV(b.v)).toFixed(1)}"/>`).join("")}
+        <path d="${path(m200)}" class="ln" style="stroke:var(--s3)"/>
+        <path d="${path(m50)}" class="ln" style="stroke:var(--s2)"/>
+        <path d="${path(h.c)}" class="ln" style="stroke:var(--s1)"/>
+        <line id="xh" class="xh" x1="0" x2="0" y1="${T}" y2="${T+PH+GAP+VH}" style="display:none"/>
+      </svg>
+      <div class="ylab">${ticks.map(v => `<span style="top:${(yP(v)/H*100).toFixed(2)}%">${v.toFixed(dec)}</span>`).join("")}
+        ${ends.map(e => `<b style="top:${(e.y/H*100).toFixed(2)}%;color:var(--ink)"><i style="background:${e.c}"></i>${e.t}</b>`).join("")}</div>
+      <div class="xlab">${xl.map(([k, d], j) => `<span style="left:${(xs(k)/W*100).toFixed(2)}%;transform:translateX(${j===0?"0":j===nl-1?"-100%":"-50%"})">${dLab(d)}</span>`).join("")}</div>
+      <div class="vlab" style="top:${((T+PH+GAP)/H*100).toFixed(2)}%">Volume</div>
+      <div id="tip" class="tip" style="display:none"></div>
+    </div>
+    <p class="small muted" style="margin:8px 0 0">${chartRange}: ${fmtPct(chg,1)} (from ${fmt(first)}). Daily closing prices from Twelve Data. Moving averages smooth out daily swings: price above its 200-day average is usually read as a long-term uptrend.</p>
+    <details class="more"><summary>Show the numbers</summary>${chartTable(h, m50, m200, idx)}</details>`;
+  el.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { chartRange = b.dataset.r; drawChart(el, h); });
+  // hover: crosshair snaps to the nearest day; one tooltip lists every series
+  const wrap = $(".chartwrap", el), svg = $("svg", el), xh = $("#xh", el), tip = $("#tip", el);
+  const move = ev => {
+    const r = svg.getBoundingClientRect(); const fx = (ev.clientX - r.left) / r.width * W;
+    const k = Math.max(0, Math.min(idx.length - 1, Math.round((fx - L) / (W - L - R) * (idx.length - 1)))), i = idx[k];
+    xh.setAttribute("x1", xs(k)); xh.setAttribute("x2", xs(k)); xh.style.display = "";
+    tip.replaceChildren();
+    const row = (val, label, color) => { const d = document.createElement("div"); if(color){ const s = document.createElement("i"); s.className = "lk"; s.style.background = color; d.append(s); }
+      const b = document.createElement("b"); b.textContent = val; d.append(b, " " + label); tip.append(d); };
+    const hd = document.createElement("div"); hd.className = "muted"; hd.textContent = new Date(h.d[i] + "T00:00:00").toLocaleDateString(undefined, {weekday:"short", year:"numeric", month:"short", day:"numeric"}); tip.append(hd);
+    row(fmt(h.c[i]), "close", "var(--s1)");
+    if(isNum(m50[i])) row(fmt(m50[i]), "50-day avg", "var(--s2)");
+    if(isNum(m200[i])) row(fmt(m200[i]), "200-day avg", "var(--s3)");
+    row(Math.round(h.v[i]).toLocaleString(), "shares traded", null);
+    tip.style.display = "";
+    const left = xs(k) / W * r.width; tip.style.left = (left > r.width * 0.6 ? left - tip.offsetWidth - 12 : left + 12) + "px";
+  };
+  wrap.onpointermove = move; wrap.onpointerdown = move;
+  wrap.onpointerleave = () => { xh.style.display = "none"; tip.style.display = "none"; };
+}
+function chartTable(h, m50, m200, idx){
+  // Weekly rows (every 5th trading day), newest first, at most 60
+  const rows = []; for(let k = idx.length - 1; k >= 0 && rows.length < 60; k -= (idx.length > 70 ? 5 : 1)) rows.push(idx[k]);
+  return `<div style="overflow-x:auto;max-height:320px;overflow-y:auto"><table><thead><tr><th>Date</th><th class="num">Close</th><th class="num">50-day avg</th><th class="num">200-day avg</th><th class="num">Volume</th></tr></thead><tbody>${
+    rows.map(i => `<tr><td>${esc(h.d[i])}</td><td class="num">${fmt(h.c[i])}</td><td class="num">${fmt(m50[i])}</td><td class="num">${fmt(m200[i])}</td><td class="num">${Math.round(h.v[i]).toLocaleString()}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 /* ================= Financial health score ================= */
@@ -1406,6 +1565,16 @@ function viewSettings(app){
       <p id="avmsg" class="small"></p>
     </div>
     <div class="card">
+      <h2>Twelve Data API key <span class="small muted">(optional, for the price chart)</span></h2>
+      <p class="small muted" style="margin-top:0">Daily price history for the price chart. Free at <a href="https://twelvedata.com" target="_blank" rel="noopener">twelvedata.com</a>: 800 requests a day; each stock uses 1 (saved for 12 hours). Saved only in this browser.</p>
+      <form id="tdform" class="row">
+        <input id="tdkey" type="password" placeholder="Paste your Twelve Data key" value="${esc(state.tdKey)}" style="flex:1;min-width:220px" autocomplete="off">
+        <button class="primary">Save</button>
+        <button type="button" id="tdtest">Test</button>
+      </form>
+      <p id="tdmsg" class="small"></p>
+    </div>
+    <div class="card">
       <h2>Valuation settings</h2>
       <div class="row">
         <label>"In line" band: ± <input id="band" type="number" min="1" max="50" value="${state.settings.band}" style="width:70px"> %</label>
@@ -1454,6 +1623,13 @@ function viewSettings(app){
   $("#bankfile",app).onchange = e => { const f = e.target.files && e.target.files[0]; if(f) importBankFile(app, f); };
   $("#kform",app).onsubmit = e => { e.preventDefault(); state.apiKey = $("#key",app).value.trim(); save(); pruneCache(); memCache.clear(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
   $("#avform",app).onsubmit = e => { e.preventDefault(); state.avKey = $("#avkey",app).value.trim(); save(); msg("#avmsg", state.avKey ? "Saved." : "Key removed."); };
+  $("#tdform",app).onsubmit = e => { e.preventDefault(); state.tdKey = $("#tdkey",app).value.trim(); save(); msg("#tdmsg", state.tdKey ? "Saved." : "Key removed."); };
+  $("#tdtest",app).onclick = async () => {
+    state.tdKey = $("#tdkey",app).value.trim(); save();
+    msg("#tdmsg","Testing… (uses 1 of today's 800 requests)");
+    try{ const h = await tdDaily("AAPL", 5); msg("#tdmsg", `✓ Works. Apple closed at ${fmt(h.c[h.c.length-1])} on ${h.d[h.d.length-1]}.`); }
+    catch(e){ msg("#tdmsg", e.message, true); }
+  };
   $("#avtest",app).onclick = async () => {
     state.avKey = $("#avkey",app).value.trim(); save();
     msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); memCache.delete("av:EARNINGS_ESTIMATES:MSFT"); try{ localStorage.removeItem("sa.c.av:EARNINGS_ESTIMATES:MSFT"); }catch(err){}
