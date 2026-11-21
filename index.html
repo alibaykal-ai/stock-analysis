@@ -71,7 +71,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .sl input{display:block;width:100%;max-width:420px;padding:0;margin:4px 0}
 .tabs{display:flex;gap:6px;margin-bottom:12px}
 .tabs button.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px}
 .stat{background:var(--neutralbg);border-radius:10px;padding:10px 12px}
 .stat b{display:block;font-size:17px}
 .stat span{font-size:12px;color:var(--muted)}
@@ -122,6 +122,15 @@ h3{font-size:14px;margin:18px 0 8px}
 .tip{position:absolute;top:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);pointer-events:none;min-width:150px;z-index:2}
 .tip div{white-space:nowrap;line-height:1.6}
 .lk{display:inline-block;width:12px !important;height:3px !important;border-radius:2px;margin-right:6px !important;vertical-align:middle !important}
+.jump{position:sticky;z-index:4;display:flex;gap:4px;flex-wrap:wrap;background:var(--bg);padding:8px 0;margin:-8px 0 8px}
+.jump a{padding:5px 12px;border-radius:999px;font-size:13px;color:var(--muted);cursor:pointer;border:1px solid var(--line);background:var(--card)}
+.jump a:hover{color:var(--ink)} .jump a.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.card{scroll-margin-top:110px}
+.glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0;padding:0;overflow:hidden}
+.gl{padding:12px 14px;cursor:pointer;border-right:1px solid var(--line)}
+.gl:last-child{border-right:none} .gl:hover{background:var(--neutralbg)}
+.gl>span{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:600;margin-bottom:4px}
+.gl>div{font-size:13px;line-height:1.6}
 details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:6px 0}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
@@ -150,7 +159,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.7</b> · 21 Nov 2026 ·
+  <b>Version 3.8</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -810,7 +819,7 @@ async function viewStock(app, sym, tok){
   const holding = state.holdings.find(h=>h.symbol===sym);
   const isFund = holding && holding.type && holding.type!=="stock";
   app.innerHTML = `${keyNotice()}
-    <div class="card">
+    <div class="card" id="c-top">
       <div class="row" style="justify-content:space-between;align-items:flex-start">
         <div>
           <div class="muted small" id="s-ex"></div>
@@ -824,13 +833,23 @@ async function viewStock(app, sym, tok){
       </div>
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
     </div>
+    <nav class="jump" id="jump">
+      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a>`}<a data-go="c-news">News</a>
+    </nav>
+    <div class="card glance" id="c-glance">
+      <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
+      ${isFund ? "" : `<div class="gl" data-go="c-val"><span>Valuation</span><div id="g-val" class="small muted">…</div></div>
+      <div class="gl" data-go="c-fv"><span>Fair value</span><div id="g-fv" class="small muted">…</div></div>
+      <div class="gl" data-go="c-health"><span>Health</span><div id="g-health" class="small muted">…</div></div>
+      <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>`}
+    </div>
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
-    <div class="card"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>`}
-    <div class="card"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
+    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>`}
+    <div class="card" id="c-news"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
   $("#b-watch", app).onclick = () => {
     if(state.watchlist.includes(sym)) state.watchlist = state.watchlist.filter(x=>x!==sym); else state.watchlist.push(sym);
     save(); $("#b-watch", app).textContent = state.watchlist.includes(sym) ? "★ On watchlist" : "☆ Add to watchlist";
@@ -839,6 +858,9 @@ async function viewStock(app, sym, tok){
     state.holdings.push({symbol:sym, shares:null, type:"stock"}); save();
     bm.outerHTML = `<span class="badge b-inline">In My Stocks</span>`;
   };
+  app.querySelectorAll("[data-go]").forEach(a => a.onclick = () => { const t = document.getElementById(a.dataset.go); if(t) t.scrollIntoView({behavior:"smooth", block:"start"}); });
+  const jb = $("#jump", app); if(jb) jb.style.top = ($("header").offsetHeight) + "px";
+  if(!state.tdKey) glance("g-tech", `<a href="#settings">Add Twelve Data key</a>`);
   renderChartCard(app, sym, tok);
   if(!state.apiKey){ ["#val","#health","#rec","#news"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
@@ -894,22 +916,24 @@ async function renderValuation(app, sym, met, prof, tok){
       </tr>`;
     }).join("");
     let summary = "";
+    const gv = counted >= 2 ? null : "Not enough data";
     if(counted >= 2){
       if(rich/counted >= 0.6) summary = `<span class="badge b-rich">Looks expensive</span> on most measures, compared with its own past and its peers.`;
       else if(cheap/counted >= 0.6) summary = `<span class="badge b-cheap">Looks cheap</span> on most measures, compared with its own past and its peers.`;
       else summary = `<span class="badge b-inline">Mixed / fairly valued</span>: no clear signal across the measures.`;
     }
+    glance("g-val", gv || (rich/counted >= 0.6 ? `<span class="badge b-rich">Looks expensive</span>` : cheap/counted >= 0.6 ? `<span class="badge b-cheap">Looks cheap</span>` : `<span class="badge b-inline">Mixed</span>`) + (gv ? "" : ` <span class="muted">${cheap} cheaper · ${rich} pricier</span>`));
     el.innerHTML = `
       ${summary ? `<p style="margin-top:0">${summary}</p>` : ""}
       <div style="overflow-x:auto"><table class="val-table">
         <thead><tr><th>Ratio</th><th class="num">Now</th><th class="num">Usual range (${state.settings.years}y)</th><th>vs its past</th><th class="num">Peer median</th><th>vs peers</th></tr></thead>
         <tbody>${body}</tbody></table></div>
-      <p class="small muted" style="margin-bottom:0">
-        <b>How to read this:</b> lower ratios mean you pay less for each dollar of profit, sales, assets or cash flow.
+      <details class="more"><summary>How to read this</summary><p class="small muted" style="margin-bottom:0">
+        Lower ratios mean you pay less for each dollar of profit, sales, assets or cash flow.
         "Usual range" is the middle half of the stock's values over the last ${state.settings.years} years; the verdict compares today with the middle value.
         "In line" means within ±${state.settings.band}% (change in <a href="#settings">Settings</a>).
         A stock can deserve a higher ratio if it is growing faster, so treat this as a starting point, not an answer.
-      </p>
+      </p></details>
       ${rows.some(x => x.hist && x.hist.freq === "calc") ? `<p class="small muted">* Worked out by the app from the company's reports and month-end prices (Alpha Vantage), because the main data source has too little history for this stock.</p>` : ""}
       ${histNote ? `<p class="small muted">${histNote}</p>` : ""}
       ${peerInfo ? `<p class="small muted">Peers (${peerInfo.used.length}): ${peerInfo.used.map(s=>`<a href="${stockHref(s)}">${esc(s)}</a>`).join(", ") || "none found"}${peerInfo.note?` · ${esc(peerInfo.note)}`:""}</p>` : `<p class="small muted"><span class="spin"></span> Loading similar companies…</p>`}`;
@@ -1124,6 +1148,7 @@ function fvAnalysts(inp, price, fx){
   return `<table><tbody>${rows.map(([k,v]) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join("")}</tbody></table>${errs}
     <p class="small muted" style="margin-bottom:0">Forecasts change and are often too optimistic near the top of a cycle. The 90-day change shows which way analysts are moving.</p>`;
 }
+let fvMoreOpen = false;
 function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   const el = $("#fv", app);
   if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so fair value can't be compared.</p>`; return; }
@@ -1168,12 +1193,14 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     let top;
     const loadingAny = methods.some(m => m.loading);
     if(!vals.length){
+      glance("g-fv", loadingAny ? "…" : "No range (methods don't fit)");
       top = `<p class="muted">${loadingAny ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
     } else {
       const lo = Math.min(...vals), hi = Math.max(...vals), mid = median(vals);
       const buyAt = mid * (1 - state.settings.fvBuy/100), richAt = mid * (1 + state.settings.fvRich/100);
       const diff = price / mid - 1, pct = Math.abs(diff*100).toFixed(0);
       const vb = price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
+      glance("g-fv", `${vb} ${pct}% ${diff < 0 ? "below" : "above"} middle (${fmt(mid)})`);
       const notes = [];
       if(vals.length === 1) notes.push("Only one method fits this company, so treat the range with extra caution.");
       if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
@@ -1184,6 +1211,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
     }
     $("#fv-out", el).innerHTML = `${top}
+      <details class="more" id="fv-more" ${fvMoreOpen ? "open" : ""}><summary>Show the details: analysts' forecasts, what growth the price assumes, each method's value</summary>
       <h3>What analysts expect</h3>${fvAnalysts(inp, price, fx)}
       <h3>What growth is the price assuming? <span class="small muted">(reverse DCF)</span></h3>${rev}
       <h3>How each method values it</h3>
@@ -1194,7 +1222,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       <p class="small muted" style="margin-bottom:0"><b>How to read this:</b> each method is a different way of estimating what one share is worth.
         The range runs from the lowest to the highest estimate that fits this company, and the middle is the median.
         "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it (change in <a href="#settings">Settings</a>).
-        These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p>`;
+        These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p></details>`;
+    $("#fv-more", el).ontoggle = e => { fvMoreOpen = e.target.open; };
     $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.startHow || "no growth data, so a cautious 5%"}.`;
   };
   sliders.forEach(([k]) => { $("#fv-"+k, el).oninput = e => {
@@ -1208,6 +1237,16 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); setSliders(); draw(); });
 }
 
+/* ================= At a glance strip ================= */
+function glance(id, html){ const el = document.getElementById(id); if(el){ el.innerHTML = html; el.classList.remove("muted"); } }
+// Highlight the section in view in the jump bar.
+window.addEventListener("scroll", () => {
+  const jb = document.getElementById("jump"); if(!jb) return;
+  const off = jb.getBoundingClientRect().bottom + 20; let cur = "c-top";
+  jb.querySelectorAll("a").forEach(a => { const t = document.getElementById(a.dataset.go); if(t && t.getBoundingClientRect().top <= off) cur = a.dataset.go; });
+  jb.querySelectorAll("a").forEach(a => a.classList.toggle("on", a.dataset.go === cur));
+}, { passive: true });
+
 /* ================= Price chart ================= */
 const CHART_RANGES = [["1M",1],["6M",6],["1Y",12],["5Y",60]];
 let chartRange = "1Y";
@@ -1215,7 +1254,7 @@ function renderChartCard(app, sym, tok){
   const el = $("#chart", app); if(!el) return;
   if(!state.tdKey){ el.innerHTML = `<p class="small muted" style="margin:0">Add a free <a href="#settings">Twelve Data key in Settings</a> to see the price chart with 50- and 200-day averages.</p>`; return; }
   el.innerHTML = `<span class="spin"></span> Loading price history…`;
-  tdDaily(sym).then(h => { if(live(tok)) drawChart(el, h); }, e => { if(live(tok)) el.innerHTML = `<p class="small muted" style="margin:0">${esc(e.message)}</p>`; });
+  tdDaily(sym).then(h => { if(live(tok)) drawChart(el, h); }, e => { if(live(tok)){ el.innerHTML = `<p class="small muted" style="margin:0">${esc(e.message)}</p>`; glance("g-tech", "No price history"); } });
 }
 function drawChart(el, h){
   const m50 = sma(h.c, 50), m200 = sma(h.c, 200), n = h.c.length, last = n - 1, tx = technicals(h);
@@ -1226,6 +1265,8 @@ function drawChart(el, h){
   const px = h.c[last];
   const vs = (ma, name) => isNum(ma) ? `<b>${px >= ma ? "above" : "below"}</b> its ${name} (${fmt(ma)}, ${fmtPct((px/ma-1)*100,1)})` : `n/a vs its ${name} (needs more history)`;
   const summary = `Last close ${fmt(px)} is ${vs(m50[last], "50-day average")} and ${vs(m200[last], "200-day average")}.`;
+  glance("g-tech", (isNum(tx.m50) && isNum(tx.m200) ? `<span class="badge ${tx.m50 > tx.m200 ? "b-cheap" : "b-rich"}">${tx.m50 > tx.m200 ? "Uptrend" : "Downtrend"}</span> ` : "") +
+    (isNum(m200[last]) ? `${fmtPct((px/m200[last]-1)*100,0)} vs 200-day` : "") + (isNum(tx.rsiNow) ? ` · RSI ${tx.rsiNow.toFixed(0)}${tx.rsiNow >= 70 ? " overbought" : tx.rsiNow <= 30 ? " oversold" : ""}` : ""));
   const first = h.c[i0], chg = (px/first - 1)*100;
   // geometry (viewBox units; scales to the card width)
   const W = 1000, PH = 260, VH = 70, GAP = 14, RH = 70, L = 8, R = 64, T = 10, B = 22;
@@ -1310,7 +1351,7 @@ function signalsHtml(t){
   const tile = (name, val, badgeCls, word, rule) => `<div class="stat"><span>${name}</span><b>${val} ${word ? `<span class="badge ${badgeCls}">${word}</span>` : ""}</b><p>${rule}</p></div>`;
   const r = t.rsiNow;
   const rsiT = !isNum(r) ? tile("RSI (14 days)", "—", "", "", "Needs more price history.")
-    : tile("RSI (14 days)", r.toFixed(0), r >= 70 ? "b-rich" : r <= 30 ? "b-cheap" : "b-inline", r >= 70 ? "Overbought" : r <= 30 ? "Oversold" : "Neutral",
+    : tile("RSI (14 days)", r.toFixed(0), r >= 70 || r <= 30 ? "b-warn" : "b-inline", r >= 70 ? "Overbought" : r <= 30 ? "Oversold" : "Neutral",
       "Momentum from 0 to 100. Above 70 = risen fast, often pauses; below 30 = fallen fast, often bounces.");
   const tr = !isNum(t.m50) || !isNum(t.m200) ? tile("Trend (50 vs 200-day)", "—", "", "", "Needs 200 days of prices.")
     : tile("Trend (50 vs 200-day)", t.m50 > t.m200 ? "Uptrend" : "Downtrend", t.m50 > t.m200 ? "b-cheap" : "b-rich",
@@ -1505,6 +1546,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
       <div class="hp-v">${isNum(p.s) ? Math.round(p.s*20) + "<span class='muted'>/20</span>" : '<span class="muted small">n/a</span>'}</div>
     </div>`;
   const total = H.total;
+  if(finState !== "loading" || isNum(total)) glance("g-health", isNum(total) ? `<span class="badge ${scoreClass(total)}">${total}/100 ${scoreWord(total)}</span>${flags.some(f => f[0] === "b-rich") ? ` <span class="muted">${flags.filter(f => f[0] === "b-rich").length} red flag${flags.filter(f => f[0] === "b-rich").length > 1 ? "s" : ""}</span>` : ""}` : "Not enough data");
   el.innerHTML = `
     <div class="hs">
       <div class="hs-ring" style="--p:${isNum(total)?total:0};--c:${scoreColor(total)}"><div><b>${isNum(total)?total:"—"}</b><span>of 100</span></div></div>
@@ -1541,16 +1583,17 @@ function renderHealth(app, mm, price, prof, fin, finQ){
 
 function renderRec(app, r){
   const el = $("#rec", app);
-  if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; return; }
+  if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings"); return; }
   const cur = r[0], old = r.find(x => x.period <= ymd(new Date(new Date(cur.period).getTime() - 85*864e5))) || r[r.length-1];
   const parts = [["strongBuy","Strong buy","#15803d"],["buy","Buy","#4ade80"],["hold","Hold","#cbd5e1"],["sell","Sell","#f87171"],["strongSell","Strong sell","#b91c1c"]];
   const tot = parts.reduce((a,[k])=>a+(cur[k]||0),0);
-  if(!tot){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; return; }
+  if(!tot){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings"); return; }
   const score = x => { const t = parts.reduce((a,[k])=>a+(x[k]||0),0); return t ? ((x.strongBuy||0)*2+(x.buy||0)-(x.sell||0)-(x.strongSell||0)*2)/t : NaN; };
   const sNow = score(cur), sOld = old && old!==cur ? score(old) : NaN;
   const buyish = (cur.strongBuy||0)+(cur.buy||0), sellish=(cur.sell||0)+(cur.strongSell||0);
   let trend = "";
   if(isNum(sOld)){ const d = sNow - sOld; trend = Math.abs(d) < 0.1 ? "Roughly unchanged vs ~3 months ago." : d > 0 ? "<span class='up'>More positive</span> than ~3 months ago." : "<span class='down'>Less positive</span> than ~3 months ago."; }
+  glance("g-rec", `<b class="up">${buyish} buy</b> · ${cur.hold||0} hold · <b class="down">${sellish} sell</b>${trend.includes("Less") ? ' <span class="muted">· less positive</span>' : trend.includes("More") ? ' <span class="muted">· more positive</span>' : ""}`);
   el.innerHTML = `
     <p style="margin-top:0"><b>${tot}</b> analysts: <b class="up">${buyish} buy</b> · <b>${cur.hold||0} hold</b> · <b class="down">${sellish} sell</b> <span class="small muted">(${esc(cur.period)})</span></p>
     <div class="recbar">${parts.map(([k,,c])=>cur[k]?`<div style="width:${cur[k]/tot*100}%;background:${c}" title="${k}: ${cur[k]}"></div>`:"").join("")}</div>
@@ -1563,7 +1606,8 @@ function renderNews(app, n){
   const el = $("#news", app);
   const items = (Array.isArray(n) ? n : []).filter(x=>x.headline && x.url).sort((a,b)=>b.datetime-a.datetime).slice(0, 10);
   if(!items.length){ el.innerHTML = `<p class="muted">No news in the last 2 weeks.</p>`; return; }
-  el.innerHTML = items.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.headline)}<small>${esc(x.source)} · ${new Date(x.datetime*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</small></a>`).join("");
+  const link = x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.headline)}<small>${esc(x.source)} · ${new Date(x.datetime*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</small></a>`;
+  el.innerHTML = items.slice(0,5).map(link).join("") + (items.length > 5 ? `<details class="more"><summary>Show ${items.length - 5} more</summary><div class="news">${items.slice(5).map(link).join("")}</div></details>` : "");
 }
 
 /* ================= Bank order-history import ================= */
