@@ -173,7 +173,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.6</b> · 21 Nov 2026 ·
+  <b>Version 5.7</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2530,10 +2530,16 @@ async function tradeResults(hv, spy, qqq, tok){
     if(held && !hr){ skipped.push(`${esc(g.name)} (${map ? esc(map.symbol) + ": no value today" : "not in My Stocks"})`); continue; }
     const value = held ? hr.gbp : 0;
     const res = { name: g.name, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })) };
+    // Index instead: each buy puts the same pounds into the index fund; each sell sells the same share of that index money
+    // (selling half the shares sells half the index units), so every row compares like with like.
     for(const [key, h] of idx){
-      let units = 0, ok = true;
-      for(const t of g.trades){ const px = closeOn(h, t.d), r = rateOn(fxs, t.d) || fxs.v.find(isNum); if(!px || !isNum(r)){ ok = false; break; } units += (t.s === "B" ? 1 : -1) * t.a / (px / r); }
-      res[key] = ok ? units * lastOf(h.c) / fxNow : NaN; // the index money's value today, in pounds
+      let units = 0, sh = 0, out = 0, ok = true; const fl = [];
+      for(const t of g.trades){ const px = closeOn(h, t.d), r = rateOn(fxs, t.d) || fxs.v.find(isNum); if(!px || !isNum(r)){ ok = false; break; }
+        const pg = px / r;
+        if(t.s === "B"){ units += t.a / pg; sh += t.q; fl.push({ d: t.d, v: -t.a }); }
+        else { const f = sh > 0 ? Math.min(1, t.q / sh) : 0, got = units * f * pg; units -= units * f; sh = Math.max(0, sh - t.q); out += got; fl.push({ d: t.d, v: got }); } }
+      res[key] = ok ? units * lastOf(h.c) / fxNow : NaN; // index money still invested, worth today in pounds
+      res[key + "Out"] = ok ? out : NaN; res[key + "Flows"] = fl;
     }
     out.push(res);
   }
@@ -2542,10 +2548,10 @@ async function tradeResults(hv, spy, qqq, tok){
   const tot = { bought: sum("bought"), sold: sum("sold"), value: sum("value") };
   tot.gain = tot.value + tot.sold - tot.bought;
   const flows = out.flatMap(r => r.flows).sort((a, b) => a.d < b.d ? -1 : 1);
-  for(const [key] of idx){ tot[key] = out.every(r => isNum(r[key])) ? sum(key) : NaN; tot[key + "Gain"] = tot[key] + tot.sold - tot.bought; }
+  for(const [key] of idx){ const ok = out.every(r => isNum(r[key])); tot[key] = ok ? sum(key) : NaN; tot[key + "Out"] = ok ? sum(key + "Out") : NaN; tot[key + "Gain"] = tot[key] + tot[key + "Out"] - tot.bought; }
   const yrs = (new Date(today) - new Date(first)) / (365.25 * 864e5);
   tot.irr = xirr(flows.concat([{ d: today, v: tot.value }]));
-  for(const [key] of idx) tot[key + "Irr"] = isNum(tot[key]) ? xirr(flows.concat([{ d: today, v: tot[key] }])) : NaN;
+  for(const [key] of idx) tot[key + "Irr"] = isNum(tot[key]) ? xirr(out.flatMap(r => r[key + "Flows"]).sort((a, b) => a.d < b.d ? -1 : 1).concat([{ d: today, v: tot[key] }])) : NaN;
   return { out, tot, skipped, first, yrs, fxShort, fxFirst: fxs.d[0], n: rows.length, saved: state.trades.saved };
 }
 function tradesHtml(R){
@@ -2559,8 +2565,9 @@ function tradesHtml(R){
   const vs = (g, nm) => !isNum(g) ? "" : Math.abs(g) < 0.5 ? `about level with the ${nm}` : `${Math.abs(g).toFixed(1)} ${unit} ${g > 0 ? "ahead of" : "behind"} the ${nm}`;
   const gapQ = annual ? tot.irr - tot.qqqIrr : (tot.gain - tot.qqqGain) / tot.bought * 100;
   const since = fmtDay(R.first);
-  const list = out.slice().sort((a, b) => (b.gain - b.spy) - (a.gain - a.spy));
-  const row = r => { const sGain = r.spy + r.sold - r.bought, d = r.gain - sGain;
+  const sG = r => r.spy + r.spyOut - r.bought; // what the index would have gained with this investment's money
+  const list = out.slice().sort((a, b) => (b.gain - sG(b)) - (a.gain - sG(a)));
+  const row = r => { const sGain = sG(r), d = r.gain - sGain;
     return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
       <td class="num">${fmtGBP(r.bought)}</td><td class="num">${r.sold ? fmtGBP(r.sold) : "—"}</td><td class="num">${r.held ? fmtGBP(r.value) : "—"}</td>
       <td class="num">${sg(r.gain)}<div class="small">${pc(r.gain / r.bought * 100)}</div></td>
@@ -2570,7 +2577,7 @@ function tradesHtml(R){
     <h3 style="margin-top:0">Your results vs the index <small class="muted" style="font-weight:400">(from your bank orders)</small></h3>
     <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
       <p style="margin:0;flex:1;min-width:260px;max-width:760px">Since your first order (${since}) you put in <b>${fmtGBP(tot.bought)}</b> and took out ${fmtGBP(tot.sold)}; your holdings are worth ${fmtGBP(tot.value)} today. Gain: <b>${sg(tot.gain)}</b>${annual ? `, <b>${fmtPct(tot.irr, 1)} a year</b>` : ""}.
-      The same money, on the same days, in the S&amp;P 500 would have gained ${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}${annual ? ` (${fmtPct(tot.spyIrr, 1)} a year)` : ""}${isNum(tot.qqqGain) ? `; in the Nasdaq-100 ${sg(tot.qqqGain)}${annual ? ` (${fmtPct(tot.qqqIrr, 1)} a year)` : ""}` : ""}.
+      The same money in the S&amp;P 500 instead (bought on the same days, sold in the same proportions) would have gained ${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}${annual ? ` (${fmtPct(tot.spyIrr, 1)} a year)` : ""}${isNum(tot.qqqGain) ? `; in the Nasdaq-100 ${sg(tot.qqqGain)}${annual ? ` (${fmtPct(tot.qqqIrr, 1)} a year)` : ""}` : ""}.
       You are ${vs(gap, "S&amp;P 500")}${isNum(gapQ) ? ` and ${vs(gapQ, "Nasdaq-100")}` : ""}.</p></div>
     <div style="overflow-x:auto"><table><thead><tr><th>Investment</th><th class="num">Put in</th><th class="num">Taken out</th><th class="num">Worth now</th><th class="num">Your gain</th><th class="num">On shares still held<br><small>(as your bank shows)</small></th><th class="num">Same money in S&amp;P 500</th><th class="num">Difference</th></tr></thead><tbody>
       ${list.slice(0, 12).map(row).join("")}
@@ -2580,7 +2587,7 @@ function tradesHtml(R){
     ${R.skipped.length ? `<p class="small muted" style="margin:8px 0 0">Left out: ${R.skipped.join(", ")}.</p>` : ""}
     ${R.fxShort ? `<p class="small muted" style="margin:8px 0 0">Exchange rates before ${fmtDay(R.fxFirst)} aren't downloaded yet, so the earliest rate available was used for older orders. This fixes itself after the next daily data update.</p>` : ""}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted">Uses the ${R.n} completed orders with dates from the bank file you imported on ${fmtDay(R.saved)} (kept in this browser only). <b>Put in</b> = cost of all buys, <b>Taken out</b> = proceeds of all sells, <b>Worth now</b> = today's shares × today's price (your share counts in My Stocks, so dividends reinvested by your bank count). <b>Your gain</b> = worth now + taken out − put in; the % is of the money put in. <b>On shares still held</b> = today's value ÷ the average cost of the shares you still have, the way banking apps usually show it, so you can check it against Barclays. <b>Same money in the S&amp;P 500</b>: every buy puts the same pounds into the SPY fund that day and every sell takes the same pounds out, converted at that day's exchange rate (FRED), valued today. ${annual ? "<b>A year</b> figures are money-weighted: they allow for when the money went in and came out." : "Yearly rates are shown once your first order is more than a year old."}
+      <p class="small muted">Uses the ${R.n} completed orders with dates from the bank file you imported on ${fmtDay(R.saved)} (kept in this browser only). <b>Put in</b> = cost of all buys, <b>Taken out</b> = proceeds of all sells, <b>Worth now</b> = today's shares × today's price (your share counts in My Stocks, so dividends reinvested by your bank count). <b>Your gain</b> = worth now + taken out − put in; the % is of the money put in. <b>On shares still held</b> = today's value ÷ the average cost of the shares you still have, the way banking apps usually show it, so you can check it against Barclays. <b>Same money in the S&amp;P 500</b>: every buy puts the same pounds into the SPY fund that day; every sell sells the same share of that index money (sell half your shares and half the index money is sold), converted at that day's exchange rate (FRED). The gain = what the index money sold for + what's left today − money put in. <b>Difference</b> = your gain − the index's gain. ${annual ? "<b>A year</b> figures are money-weighted: they allow for when the money went in and came out." : "Yearly rates are shown once your first order is more than a year old."}
       <b>Badge</b> (suggested): ${PERF_GAP}+ ${unit} ahead of the S&amp;P 500 = Ahead; within ${PERF_GAP} = In line; up to 10 behind = Behind; more than 10 behind = Well behind. Index prices exclude dividends (about 1% a year for the S&amp;P 500), so treat a gap under 1–2 points a year as a tie. Orders your bank file doesn't include (e.g. older ones, transfers in) aren't counted; new orders after ${fmtDay(R.saved)} need a fresh import. Past results, not a forecast.</p>
     </details>
     <h3>How the stocks you hold now have done</h3>`;
