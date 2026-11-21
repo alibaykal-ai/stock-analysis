@@ -187,7 +187,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.16</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.17</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -626,6 +626,8 @@ function route(){
   const h = (location.hash || "#home").slice(1);
   document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", h === a.dataset.nav));
   const app = $("#app"); document.body.classList.remove("wide");
+  // Tab title follows the page (a stock page sets its own once the name is known)
+  document.title = h.startsWith("stock-") ? `${normSym(decodeURIComponent(h.slice(6)))} · Stock Analysis` : (({ search: "Search", macro: "Macro", settings: "Settings" })[h] ? ({ search: "Search", macro: "Macro", settings: "Settings" })[h] + " · Stock Analysis" : "Stock Analysis");
   const tok = ++renderToken;
   window.scrollTo(0,0);
   if(h.startsWith("stock-")) return viewStock(app, normSym(decodeURIComponent(h.slice(6))), tok);
