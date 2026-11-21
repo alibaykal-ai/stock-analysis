@@ -188,7 +188,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.23</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.24</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -847,7 +847,7 @@ async function fillRow(app, h, tok){
   const tr = app.querySelector(`tr[data-sym="${CSS.escape(h.symbol)}"]`); if(!tr) return;
   const set = (f, html) => { const el = tr.querySelector(`[data-f="${f}"]`); if(el) el.innerHTML = html; };
   const isStock = !h.type || h.type === "stock";
-  const [q, m, p] = await Promise.all([ safe(fh.quote(h.symbol)), safe(fh.metric(h.symbol)), safe(fh.profile(h.symbol)) ]);
+  const [q, m, p] = await liveData(h.symbol);
   if(!live(tok)) return;
   let price;
   if(q.ok && isNum(q.v.c) && q.v.c > 0){
@@ -883,6 +883,71 @@ async function fillRow(app, h, tok){
   rowCtx.set(h.symbol, { isStock, mm, price, prof: p.ok ? p.v : {} });
   drawRowFlags(app, h);
   if(isStock){ const r = await safe(fh.rec(h.symbol)); if(!live(tok)) return; const c = rowCtx.get(h.symbol); if(c && r.ok){ c.rec = r.v; drawRowFlags(app, h); } }
+}
+
+/* ================= Finnhub's figures brought up to date (5.24) ================= */
+// 1) After a stock split, Finnhub's per-share figures (EPS, book value, 52-week range…) and the profile's share count can stay
+//    on the old basis for weeks while its price is already new (SNDK 8-for-1: EPS 124 vs 15.6, so fair value came out 8× too high).
+//    Twelve Data's price history is split-adjusted, so on the dates of Finnhub's 52-week high and low its figures are a whole
+//    multiple of Twelve Data's: the high must be at or above that day's close, the low at or below. Exactly one whole
+//    number ≥ 2 in that window = the split. Only saved price history is used (no extra requests).
+// 2) Finnhub's ratios (P/E, P/S, P/B, P/FCF, EV/…) are worked out at an earlier price (TSLA P/E 447× while today's price gave 380×),
+//    so they are rescaled to today's price.
+const PER_SHARE = k => /PerShare|^eps(?!Growth)|^52Week(High|Low)$/.test(k);
+const PRICE_RATIO = k => /^(pe|ps|pb|pfcf|pcf|ptbv)(TTM|Annual|Quarterly|BasicExclExtraTTM|ExclExtraTTM|InclExtraTTM|NormalizedAnnual|ShareTTM|ShareAnnual)?$/.test(k);
+const EV_RATIO = k => /^(evEbitda|evRevenue|currentEv\/|enterpriseValueEbitda|evToEbitda)/.test(k);
+function splitFactor(mm, td){
+  if(!mm || !td || !Array.isArray(td.d) || td.d.length < 30) return 1;
+  const closeOn = d => { if(!d) return NaN; let i = td.d.length - 1; while(i >= 0 && td.d[i] > d) i--; return i >= 0 && td.d[0] <= d ? td.c[i] : NaN; };
+  const hi = mm["52WeekHigh"], lo = mm["52WeekLow"], cH = closeOn(mm["52WeekHighDate"]), cL = closeOn(mm["52WeekLowDate"]);
+  if(![hi, lo, cH, cL].every(v => isNum(v) && v > 0)) return 1;
+  const one = (a, b) => { const n = []; for(let k = Math.max(2, Math.ceil(a)); k <= Math.floor(b) && k <= 100; k++) n.push(k); return n.length === 1 ? n[0] : 0; };
+  const up = one(lo / cL * 0.98, hi / cH * 1.02); if(up) return up;     // Finnhub still on the old (pre-split) basis
+  const rev = one(cH / hi * 0.98, cL / lo * 1.02); if(rev) return 1 / rev; // reverse split
+  return 1;
+}
+const splitOf = sym => { const m = cacheGet("/stock/metric?" + new URLSearchParams({ symbol: sym, metric: "all" })); return splitFactor(m && m.metric, peek.td(sym)); };
+function liveMetric(met, price, f){
+  if(!met || !met.metric) return met;
+  const mm = { ...met.metric };
+  if(f && f !== 1){ for(const k in mm) if(PER_SHARE(k) && isNum(mm[k])) mm[k] = mm[k] / f; mm._split = f; }
+  if(isNum(price) && price > 0){
+    const pe = pick(mm, ["peTTM","peBasicExclExtraTTM","peExclExtraTTM"]), eps = pick(mm, ["epsTTM","epsBasicExclExtraItemsTTM","epsExclExtraItemsTTM"]);
+    let at = isNum(pe) && isNum(eps) && pe > 0 && eps > 0 ? pe * eps : NaN; // the price Finnhub used
+    if(!isNum(at) && isNum(mm.psTTM) && isNum(mm.revenuePerShareTTM) && mm.psTTM > 0 && mm.revenuePerShareTTM > 0) at = mm.psTTM * mm.revenuePerShareTTM;
+    const sc = price / at;
+    if(isNum(sc) && sc > 0.5 && sc < 2 && Math.abs(sc - 1) > 0.002){
+      for(const k in mm) if(PRICE_RATIO(k) && isNum(mm[k])) mm[k] = mm[k] * sc;
+      const cap = mm.marketCapitalization, ev = mm.enterpriseValue;
+      if(isNum(cap) && isNum(ev) && ev > 0){ const evN = ev + cap * (sc - 1); if(evN > 0){ for(const k in mm) if(EV_RATIO(k) && isNum(mm[k])) mm[k] = mm[k] * evN / ev; mm.enterpriseValue = evN; } }
+      if(isNum(cap)) mm.marketCapitalization = cap * sc;
+      mm._priceScale = sc;
+    }
+    // Today's price is part of the last 52 weeks (Finnhub's range can lag a day or more after a sharp move)
+    if(isNum(mm["52WeekHigh"]) && price > mm["52WeekHigh"]) mm["52WeekHigh"] = price;
+    if(isNum(mm["52WeekLow"]) && price < mm["52WeekLow"]) mm["52WeekLow"] = price;
+  }
+  return { ...met, metric: mm };
+}
+function liveProfile(prof, f, price){
+  if(!prof || !f || f === 1) return prof;
+  const p = { ...prof }; if(isNum(p.shareOutstanding)) p.shareOutstanding *= f;
+  if(isNum(p.shareOutstanding) && isNum(price) && price > 0) p.marketCapitalization = p.shareOutstanding * price;
+  return p;
+}
+// Quote + metric (+ profile) for a stock, with the figures above brought up to date. withTd: also wait for the price history
+// (only where the page loads it anyway, so it costs nothing extra).
+async function liveData(sym, { profile = true, withTd = false } = {}){
+  const [q, m, p] = await Promise.all([ safe(fh.quote(sym)), safe(fh.metric(sym)), profile ? safe(fh.profile(sym)) : Promise.resolve({ ok: false }) ]);
+  if(withTd && state.tdKey) await Promise.race([safe(tdDaily(sym)), new Promise(r => setTimeout(r, 4000))]); // never hold the page up long
+  const price = q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : NaN;
+  const f = m.ok && m.v ? splitFactor(m.v.metric, peek.td(sym)) : 1;
+  return [q, m.ok ? { ok: true, v: liveMetric(m.v, price, f) } : m, p.ok ? { ok: true, v: liveProfile(p.v, f, price) } : p, f];
+}
+// Earnings calendar figures per share follow Finnhub's other figures after a split (SNDK expected EPS 58 = pre-split).
+function earnAdj(sym, cal){
+  const f = splitOf(sym); if(!cal || f === 1) return cal;
+  return { ...cal, earningsCalendar: (cal.earningsCalendar || []).map(x => ({ ...x, epsEstimate: isNum(x.epsEstimate) ? x.epsEstimate / f : x.epsEstimate, epsActual: isNum(x.epsActual) ? x.epsActual / f : x.epsActual })) };
 }
 
 /* ================= Risk flags (overview) ================= */
@@ -1087,7 +1152,7 @@ async function viewStock(app, sym, tok){
   renderChartCard(app, sym, tok);
   if(!state.apiKey){ ["#val","#health","#rec","#ins","#news"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
-  const [q, p, m] = await Promise.all([safe(fh.quote(sym)), safe(fh.profile(sym)), safe(fh.metric(sym))]);
+  const [q, m, p, splitF] = await liveData(sym, { withTd: !!state.tdKey });
   if(!live(tok)) return;
   const prof = p.ok ? p.v : {};
   const met = m.ok ? m.v : null;
@@ -1106,7 +1171,8 @@ async function viewStock(app, sym, tok){
   ];
   if(holding && isNum(holding.shares)) stats.push(["Your shares", fmt(holding.shares, holding.shares%1?4:0)], ["Your value", isNum(price)?fmt(price*holding.shares):"—"]);
   $("#s-stats",app).innerHTML = stats.map(([k,v])=>`<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("") +
-    (prof.weburl ? `<div class="stat"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "");
+    (prof.weburl ? `<div class="stat"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "") +
+    (splitF && splitF !== 1 ? `<div class="small muted" style="grid-column:1/-1;flex-basis:100%;margin-top:2px">Adjusted for ${/^(8|11|18)\b/.test(String(Math.round(splitF > 1 ? splitF : 1 / splitF))) ? "an" : "a"} ${splitF > 1 ? `${splitF}-for-1` : `1-for-${Math.round(1 / splitF)} reverse`} stock split: Finnhub's per-share figures (earnings, book value, 52-week range, share count) were still on the old basis, so they're converted here.</div>` : "");
 
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
@@ -1184,7 +1250,7 @@ async function renderValuation(app, sym, met, prof, tok){
   if(!live(tok)) return;
   let peers = pr.ok && Array.isArray(pr.v) ? pr.v.map(normSym).filter(s => s && s !== sym && !s.includes(".")) : [];
   peers = [...new Set(peers)].slice(0, 8);
-  const results = await Promise.all(peers.map(s => safe(fh.metric(s))));
+  const results = await Promise.all(peers.map(s => liveData(s, { profile: false }).then(r => r[1])));
   if(!live(tok)) return;
   const medians = {}, used = [];
   results.forEach((res, i) => { if(res.ok && res.v && res.v.metric && Object.keys(res.v.metric).length) used.push(peers[i]); });
@@ -1759,7 +1825,7 @@ function healthScore(mm, prof, fin, finQ){
   ]);
   // 5. Share dilution
   const yrsBetween = (a, b) => (new Date(a.end) - new Date(b.end)) / (365.25*864e5);
-  const shOld = y0 ? ys.filter(y => y !== y0 && isNum(y.shares)).sort((a, b) => Math.abs(yrsBetween(y0, a) - 3) - Math.abs(yrsBetween(y0, b) - 3))[0] : null;
+  const shOld = y0 ? ys.filter(y => y !== y0 && isNum(y.shares)).sort((a, b) => { const d = Math.abs(yrsBetween(y0, a) - 3) - Math.abs(yrsBetween(y0, b) - 3); return Math.abs(d) > 0.1 ? d : new Date(b.end) - new Date(a.end); })[0] : null; // a near-tie goes to the newer report
   const dilYrs = shOld ? Math.round(yrsBetween(y0, shOld)) : 0;
   const dil = y0 && shOld && dilYrs >= 1 ? cagr(ysS[0].shares, ysS[ys.indexOf(shOld)].shares, yrsBetween(y0, shOld)) : NaN;
   const splitNote = SA.splits.length ? ` · adjusted for ${SA.splits.map(x => `a ${x.ratio} stock split (${x.year})`).join(" and ")}` : "";
@@ -1943,7 +2009,7 @@ async function stockFacts(app, sym){
   const news = [...app.querySelectorAll("#news a")].slice(0, 6).map(a => "- " + a.innerText.trim()).join("\n");
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
-    (() => { const nx = nextEarnings(peek.earn(sym)); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
+    (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
     `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
@@ -2693,7 +2759,7 @@ const isFundLike = h => h.type && h.type !== "stock";
 async function liveRate(){
   if(state.tdKey && !cacheGet("td:err:GBP/USD")){
     const r = await safe(tdDaily("GBP/USD", 10));
-    if(r.ok && isNum(lastOf(r.v.c))) return { v: lastOf(r.v.c), d: lastOf(r.v.d), src: "Twelve Data" };
+    if(r.ok && isNum(lastOf(r.v.c))){ const d = lastOf(r.v.d), t = ymd(new Date()); return { v: lastOf(r.v.c), d: d > t ? t : d, src: "Twelve Data" }; }
     if(!r.ok && ["nosym", "premium"].includes(r.e.code)) cacheSet("td:err:GBP/USD", r.e.message, 24*3600e3);
   }
   const fx = await safe(macroData());
@@ -3054,7 +3120,7 @@ const alertsState = () => (state.alerts = state.alerts || { rules: [], seen: {},
 const flagKey = t => String(t).replace(/\s*\([^)]*\)/g, "").replace(/^RSI \d+/, "RSI").replace(/^Earnings (in \d+ days|today|tomorrow)/, "Earnings soon").trim();
 async function alertCtx(sym, type){
   const isStock = !type || type === "stock";
-  const [q, m, p] = await Promise.all([ safe(fh.quote(sym)), safe(fh.metric(sym)), safe(fh.profile(sym)) ]);
+  const [q, m, p] = await liveData(sym);
   const r = isStock ? await safe(fh.rec(sym)) : { ok: false };
   const c = { isStock, mm: m.ok && m.v && m.v.metric || {}, price: q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : NaN, prof: p.ok ? p.v : {}, rec: r.ok ? r.v : undefined,
     td: peek.td(sym), fin: peek.fin(sym), finQ: peek.finQ(sym), av: peek.av(sym), earn: peek.earn(sym), cur: String((p.ok && p.v && p.v.currency) || "USD").toUpperCase() };
@@ -3251,6 +3317,7 @@ async function renderEarnings(app, tok){
   const today = ymd(new Date()), up = [], past = [], failed = [];
   for(const { s, r } of res){
     if(!r.ok){ failed.push(s); continue; }
+    r.v = earnAdj(s, r.v);
     const rows = r.v.earningsCalendar || [];
     const nx = nextEarnings(r.v); if(nx) up.push({ ...nx, symbol: s });
     rows.filter(x => x.date < today && x.date >= ymd(new Date(Date.now() - 35*864e5)) && (isNum(x.epsActual) || isNum(x.revenueActual))).forEach(x => past.push({ ...x, symbol: s }));
