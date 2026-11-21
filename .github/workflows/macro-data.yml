@@ -1,0 +1,31 @@
+# Daily download of public economic data from FRED for the app's Macro tab.
+# Saves macro.json on the separate "macro-data" branch (one commit, replaced each time),
+# so the main branch and the website aren't touched. The app reads it from raw.githubusercontent.com.
+name: Macro data
+on:
+  schedule:
+    - cron: "37 13 * * 1-5"   # after US data releases (8:30 New York time)
+    - cron: "17 22 * * *"     # after the market close, every day
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: macro-data
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: mkdir -p out && node tools/fetch-macro.mjs out/macro.json
+      - name: Publish to macro-data branch
+        run: |
+          cd out
+          git init -q -b macro-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add macro.json
+          git commit -qm "Macro data $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" macro-data

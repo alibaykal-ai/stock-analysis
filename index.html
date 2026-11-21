@@ -169,8 +169,8 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 4.0</b> · 21 Nov 2026 ·
-  For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
+  <b>Version 4.1</b> · 21 Nov 2026 ·
+  For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
 
@@ -1906,11 +1906,151 @@ async function holdingSectors(){
   ]);
   return out;
 }
+/* ================= Macro tab: inflation & the Fed (FRED) ================= */
+// FRED doesn't allow browser apps to read it directly, so a daily GitHub job saves the public figures
+// to the repo's "macro-data" branch (see .github/workflows/macro-data.yml). No key needed.
+const MACRO_URL = "https://raw.githubusercontent.com/alibaykal-ai/stock-analysis/macro-data/macro.json";
+// Fed rate decisions (second day of each meeting). Source: federalreserve.gov calendar, 2027 dates tentative. Update yearly.
+const FED_DECISIONS = ["2026-12-09","2027-01-27","2027-03-17","2027-04-28","2027-06-09","2027-07-28","2027-09-15","2027-11-17","2028-01-26"];
+async function macroData(){
+  const ck = "fred:macro";
+  const hit = cacheGet(ck); if(hit !== undefined) return hit;
+  if(inflight.has(ck)) return inflight.get(ck);
+  const p = (async () => {
+    let r;
+    try{ r = await fetch(MACRO_URL, { cache: "no-cache" }); }
+    catch(e){ throw new ApiError("Couldn't reach the economic data file.", "network"); }
+    if(!r.ok) throw new ApiError(r.status === 404 ? "The economic data file isn't there yet (the daily update hasn't run)." : `Economic data error (${r.status}).`, "http");
+    const j = await r.json();
+    if(!j || !j.series) throw new ApiError("The economic data file looks wrong.", "api");
+    cacheSet(ck, j, 6*3600e3);
+    return j;
+  })();
+  inflight.set(ck, p);
+  try{ return await p; } finally{ inflight.delete(ck); }
+}
+const fmtDay = d => d ? new Date(d + "T12:00:00Z").toLocaleDateString(undefined, { day:"numeric", month:"short", year:"numeric" }) : "—";
+const fmtMonth = d => d ? new Date(d + "T12:00:00Z").toLocaleDateString(undefined, { month:"long", year:"numeric" }) : "—";
+// Last valid value of a series: {d, v, i}
+function lastObs(s){ if(!s) return null; for(let i = s.v.length - 1; i >= 0; i--) if(isNum(s.v[i])) return { d: s.d[i], v: s.v[i], i }; return null; }
+// Monthly index -> yearly % change, month by month. Fills a missing month by averaging its neighbours.
+function yoySeries(s){
+  if(!s) return { d: [], v: [] };
+  const v = s.v.slice();
+  for(let i = 1; i < v.length - 1; i++) if(!isNum(v[i]) && isNum(v[i-1]) && isNum(v[i+1])) v[i] = (v[i-1] + v[i+1]) / 2;
+  const d = [], out = [];
+  for(let i = 12; i < v.length; i++){ if(!isNum(v[i]) || !isNum(v[i-12])) continue; d.push(s.d[i]); out.push((v[i] / v[i-12] - 1) * 100); }
+  return { d, v: out };
+}
+function inflationItem(name, s, note){
+  const y = yoySeries(s); const n = y.v.length;
+  if(n < 4) return { name, ok: false };
+  const now = y.v[n-1], prev = y.v[n-2], ago3 = y.v[n-4], dir = now - ago3;
+  const k = now <= 2.5 ? "b-cheap" : now <= 3.5 ? "b-warn" : "b-rich";
+  const word = now <= 2.5 ? "Near target" : now <= 3.5 ? "Above target" : "Well above target";
+  const trend = dir >= 0.2 ? "rising" : dir <= -0.2 ? "falling" : "steady";
+  return { name, ok: true, now, prev, dir, trend, k, word, month: y.d[n-1], note, line: y.v.slice(-24) };
+}
+// Next value after the latest month: CPI is usually out mid-month, PCE near the end of the month.
+function nextRelease(month, kind){
+  const d = new Date(month + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + 2);
+  const when = d.toLocaleDateString(undefined, { month:"long" });
+  const cover = new Date(month + "T12:00:00Z"); cover.setUTCMonth(cover.getUTCMonth() + 1);
+  return `${cover.toLocaleDateString(undefined,{month:"long"})} figure due ${kind === "cpi" ? "mid-" : "late "}${when}`;
+}
+function fedView(S){
+  const up = lastObs(S.DFEDTARU), lo = lastObs(S.DFEDTARL), y2 = lastObs(S.DGS2);
+  if(!up || !lo) return null;
+  const mid = (up.v + lo.v) / 2;
+  const out = { up: up.v, lo: lo.v, mid, y2 };
+  if(y2){
+    const gap = y2.v - mid; out.gap = gap;
+    const moves = Math.round(Math.abs(gap) / 0.25);
+    out.mkt = gap >= 0.25 ? "up" : gap <= -0.25 ? "down" : "flat";
+    out.mktText = out.mkt === "up" ? `The 2-year Treasury yield (${y2.v.toFixed(2)}%) is ${gap.toFixed(2)} points above the Fed's rate: bond markets are pricing in <b>rate rises</b>, roughly ${moves} quarter-point ${moves === 1 ? "hike" : "hikes"}' worth over the next 2 years.`
+      : out.mkt === "down" ? `The 2-year Treasury yield (${y2.v.toFixed(2)}%) is ${Math.abs(gap).toFixed(2)} points below the Fed's rate: bond markets are pricing in <b>rate cuts</b>, roughly ${moves} quarter-point ${moves === 1 ? "cut" : "cuts"}' worth over the next 2 years.`
+      : `The 2-year Treasury yield (${y2.v.toFixed(2)}%) is close to the Fed's rate (gap ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}): bond markets expect rates to <b>stay roughly where they are</b>.`;
+  }
+  const pr = S.FEDTARMD, lr = lastObs(S.FEDTARMDLR);
+  if(pr && pr.d.length){
+    const year = new Date().getUTCFullYear();
+    const pts = pr.d.map((d, i) => ({ y: +d.slice(0,4), v: pr.v[i] })).filter(p => isNum(p.v) && p.y >= year);
+    if(pts.length){
+      out.proj = pts; out.projLong = lr && lr.v; out.projDate = lr && lr.d;
+      // The year that matters: next year-end (this year's projection is nearly done by late in the year)
+      const tgt = pts.find(p => p.y === year + 1) || pts[0];
+      const diff = tgt.v - mid; out.projTgt = tgt;
+      out.off = diff >= 0.125 ? "up" : diff <= -0.125 ? "down" : "flat";
+    }
+  }
+  const today = ymd(new Date());
+  out.next = FED_DECISIONS.find(d => d >= today) || null;
+  return out;
+}
+function fedSummary(f, infl){
+  const m = f.mkt, o = f.off;
+  const hot = infl && infl.ok && infl.now > 2.5;
+  let dir, k, text;
+  if(m && o && m === o) dir = m; else if(m && (!o || o === "flat")) dir = m; else if(o && (!m || m === "flat")) dir = o; else dir = "mixed";
+  if(dir === "up"){ k = "b-rich"; text = `<b>Rates more likely to rise than fall.</b> ${m === o ? "Bond markets and Fed officials both point higher" : m === "up" ? "Bond markets point higher" : "Fed officials point higher"}${hot ? ", with inflation still above the 2% target" : ""}. Higher rates are usually a headwind for stocks, especially fast-growing companies valued on future profits.`; }
+  else if(dir === "down"){ k = "b-cheap"; text = `<b>Rates more likely to fall than rise.</b> ${m === o ? "Bond markets and Fed officials both point lower" : m === "down" ? "Bond markets point lower" : "Fed officials point lower"}${hot ? ", though inflation above target may keep cuts slow" : ""}. Lower rates are usually a tailwind for stocks.`; }
+  else if(dir === "flat"){ k = "b-inline"; text = `<b>Rates likely to stay roughly where they are</b> for now${hot ? ", with inflation still above target" : ""}.`; }
+  else { k = "b-warn"; text = `<b>Mixed signals:</b> bond markets point ${m === "up" ? "higher" : "lower"} but Fed officials point ${o === "up" ? "higher" : "lower"}. Worth watching the next Fed meeting.`; }
+  return { k, text, word: dir === "up" ? "Rates heading up" : dir === "down" ? "Rates heading down" : dir === "flat" ? "Rates on hold" : "Mixed signals" };
+}
+function renderFed(app, j){
+  const el = $("#m-fed-b", app); if(!el) return;
+  const S = j.series;
+  const infl = [
+    inflationItem("Core PCE", S.PCEPILFE, "The Fed's preferred measure (excludes food & energy)"),
+    inflationItem("CPI", S.CPIAUCSL, "The headline consumer price index"),
+    inflationItem("Core CPI", S.CPILFESL, "CPI without food & energy"),
+    inflationItem("PCE", S.PCEPI, "All personal spending prices"),
+  ];
+  const main = infl[0].ok ? infl[0] : infl.find(x => x.ok);
+  const f = fedView(S);
+  const sum = f ? fedSummary(f, main) : null;
+  const tile = x => !x.ok ? `<div class="stat"><span>${x.name}</span><b>—</b></div>` : `<div class="stat">
+      <span>${x.name}, ${fmtMonth(x.month)}</span><b>${x.now.toFixed(1)}%</b>
+      <span class="badge ${x.k}">${x.word}</span> <span class="small muted">${x.trend === "rising" ? "↑ rising" : x.trend === "falling" ? "↓ falling" : "→ steady"}</span>
+      <p class="small muted" style="margin:4px 0 0">Month before ${x.prev.toFixed(1)}% · 3 months ago ${(x.now - x.dir).toFixed(1)}%. ${x.note}.</p></div>`;
+  const cpi = infl[1], pce = infl[0];
+  const stale = (Date.now() - new Date(j.updated)) > 3 * 864e5;
+  el.classList.remove("muted", "small");
+  el.innerHTML = `
+    ${sum ? `<div class="mood" style="margin-bottom:12px"><div><span class="badge big ${sum.k}">${sum.word}</span></div><p style="margin:0;flex:1;min-width:260px;max-width:760px">${sum.text}</p></div>` : ""}
+    <h3 style="margin-top:4px">Inflation <span class="small muted" style="font-weight:400">· the Fed's target is 2% a year</span></h3>
+    ${main ? `<p style="margin:0 0 10px">${main.name} inflation is <b>${main.now.toFixed(1)}%</b> a year (${fmtMonth(main.month)}), ${(main.now - 2).toFixed(1)} points ${main.now >= 2 ? "above" : "below"} target and <b>${main.trend}</b> over the last 3 months.</p>` : ""}
+    <div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${infl.map(tile).join("")}</div>
+    <div class="row" style="gap:18px;margin-top:10px;align-items:flex-end">
+      <div>${sparkSvg([{v: (cpi.line||[]), cls:"s-ma"}, {v: (pce.line||[]), cls:"s-ln"}], 300, 70, 2)}
+        <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--accent)"></i>Core PCE</span><span><i class="lk" style="background:#1baf7a"></i>CPI</span><span>dotted = 2% target · last 2 years</span></div></div>
+      <p class="small muted" style="margin:0;flex:1;min-width:220px">Next: CPI ${cpi.ok ? nextRelease(cpi.month, "cpi") : "—"}; PCE ${pce.ok ? nextRelease(pce.month, "pce") : "—"} (usual timing). Big surprises in these releases often move the whole market.</p>
+    </div>
+    ${f ? `<h3>Interest rates: where the Fed is heading</h3>
+    <div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+      <div class="stat"><span>Fed's rate now</span><b>${f.lo.toFixed(2)}–${f.up.toFixed(2)}%</b><p class="small muted" style="margin:4px 0 0">The target range for overnight lending between banks.</p></div>
+      <div class="stat"><span>Next Fed decision</span><b>${f.next ? fmtDay(f.next) : "—"}</b><p class="small muted" style="margin:4px 0 0">${f.next ? "Announced 2pm New York time (7pm UK)." : "Next year's dates need adding to the app."}</p></div>
+      ${f.y2 ? `<div class="stat"><span>2-year Treasury yield</span><b>${f.y2.v.toFixed(2)}%</b><p class="small muted" style="margin:4px 0 0">${f.gap >= 0 ? "+" : ""}${f.gap.toFixed(2)} vs the Fed's rate (middle of the range), ${fmtDay(f.y2.d)}.</p></div>` : ""}
+    </div>
+    <p style="margin:10px 0 4px"><b>What bond markets expect:</b> ${f.mktText || "—"}</p>
+    ${f.proj ? `<p style="margin:4px 0"><b>What Fed officials expect</b> (their median projection${f.projDate ? `, ${fmtMonth(f.projDate)}` : ""}): ${f.proj.map(p => `${p.v.toFixed(1)}% at the end of ${p.y}`).join(", ")}${isNum(f.projLong) ? `; ${f.projLong.toFixed(1)}% in the long run` : ""}. ${f.off === "up" ? "That's above today's rate: officials expect to raise rates." : f.off === "down" ? "That's below today's rate: officials expect to cut." : "That's close to today's rate: officials expect to hold."}</p>` : ""}
+    ` : ""}
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted">Inflation = prices compared with 12 months earlier. Green = at or below 2.5%, amber = 2.5–3.5%, red = above 3.5%. "Rising/falling" = up or down at least 0.2 points over 3 months.
+      <b>Bond markets:</b> the 2-year Treasury yield roughly equals the average Fed rate investors expect over the next 2 years, so a yield well above the Fed's rate means they expect hikes (each 0.25 points ≈ one quarter-point move). It's a rough guide: the professional version (CME FedWatch, from futures prices) isn't available free.
+      <b>Fed officials:</b> four times a year the Fed publishes where its officials expect rates to be at each year-end (the "dot plot"); compared here with today's rate for next year-end.
+      Release timings are typical, not exact dates. Data: FRED (St. Louis Fed), saved by the app's daily update ${fmtDay(String(j.updated).slice(0,10))}.</p>
+    </details>
+    ${stale ? `<p class="small err" style="margin:8px 0 0">The economic data is more than 3 days old: the daily update may have stopped. Tell Claude.</p>` : ""}`;
+}
 async function viewMacro(app, tok){
   app.innerHTML = `
     <div class="card" id="m-mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
     <div class="card" id="m-sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
-    <div class="card"><h2>Coming next</h2><p class="small muted" style="margin:0">Inflation &amp; the Fed (latest inflation, where interest rates are heading), economy indicators (jobs, growth, yield curve, fear index, credit, dollar, oil), an overall verdict and "Macro → your stocks". These need a free FRED key; steps will follow.</p></div>`;
+    <div class="card" id="m-fed"><h2>Inflation &amp; the Fed</h2><div id="m-fed-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card"><h2>Coming next</h2><p class="small muted" style="margin:0">Economy indicators (jobs, growth, yield curve, fear index, credit, dollar, oil), an overall verdict and "Macro → your stocks".</p></div>`;
+  macroData().then(j => { if(live(tok)) renderFed(app, j); }, e => { const el = $("#m-fed-b", app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; });
   if(!state.tdKey){
     $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (13 requests, kept 12 hours).`;
     $("#m-sect-b", app).textContent = "";
