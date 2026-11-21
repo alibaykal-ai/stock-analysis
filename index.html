@@ -30,9 +30,9 @@ nav{display:flex;gap:4px;margin-left:auto}
 nav a{padding:6px 10px;border-radius:8px;color:var(--muted);font-weight:500;white-space:nowrap}
 nav a.on{background:var(--neutralbg);color:var(--ink)}
 main{max-width:1100px;margin:0 auto;padding:16px}
-main.wide{max-width:1380px}
+body.wide main,body.wide .bar,body.wide footer{max-width:1380px}
 .homegrid{display:grid;grid-template-columns:200px minmax(0,1fr);gap:16px;align-items:start}
-.side{position:sticky;top:72px;display:flex;flex-direction:column;gap:4px}
+.side{margin-left:0;position:sticky;top:72px;display:flex;flex-direction:column;gap:4px}
 .side button{text-align:left;border:1px solid transparent;background:transparent;padding:9px 12px;font-weight:500;width:100%}
 .side button:hover{background:var(--neutralbg)}
 .side button.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
@@ -183,7 +183,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.8</b> · 21 Nov 2026 ·
+  <b>Version 5.9</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -589,7 +589,7 @@ let renderToken = 0;
 function route(){
   const h = (location.hash || "#home").slice(1);
   document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", h === a.dataset.nav));
-  const app = $("#app"); app.classList.remove("wide");
+  const app = $("#app"); document.body.classList.remove("wide");
   const tok = ++renderToken;
   window.scrollTo(0,0);
   if(h.startsWith("stock-")) return viewStock(app, normSym(decodeURIComponent(h.slice(6))), tok);
@@ -608,7 +608,7 @@ function keyNotice(){
 /* ================= Home: My Stocks + Watchlist ================= */
 let homeTab = "mine", homeSec = "list"; // left menu: list (My Stocks / Watchlist), earn, risk, perf
 function viewHome(app, tok){
-  app.classList.add("wide");
+  document.body.classList.add("wide");
   const hasMine = state.holdings.length && state.apiKey;
   if(!hasMine && (homeSec === "risk" || homeSec === "perf")) homeSec = "list";
   const list = homeTab === "mine" ? state.holdings : state.watchlist.map(s=>({symbol:s, type:"stock"}));
@@ -618,9 +618,9 @@ function viewHome(app, tok){
     <nav class="side" aria-label="My Stocks sections">
       <button data-tab="mine" class="${homeSec==="list"&&homeTab==="mine"?"on":""}">My Stocks (${state.holdings.length})<small id="side-total">${state.holdings.length && state.apiKey ? "…" : ""}</small></button>
       <button data-tab="watch" class="${homeSec==="list"&&homeTab==="watch"?"on":""}">Watchlist (${state.watchlist.length})</button>
-      ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<button data-sec="earn" class="${homeSec==="earn"?"on":""}">Earnings calendar</button>` : ""}
       ${hasMine ? `<button data-sec="risk" class="${homeSec==="risk"?"on":""}">Portfolio risk</button>
       <button data-sec="perf" class="${homeSec==="perf"?"on":""}">Performance</button>` : ""}
+      ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<button data-sec="earn" class="${homeSec==="earn"?"on":""}">Earnings calendar</button>` : ""}
     </nav>
     <div class="side-main">
     <div class="card" data-home="list">
