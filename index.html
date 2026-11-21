@@ -170,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.3</b> · 21 Nov 2026 ·
+  <b>Version 5.4</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1838,16 +1838,17 @@ const MKT_N = 300; // ~14 months of trading days: enough for the 200-day average
 const retN = (h, n) => h && h.c.length > n ? (h.c[h.c.length-1] / h.c[h.c.length-1-n] - 1) * 100 : NaN;
 const lastOf = a => a[a.length-1];
 
-function marketMood(spy){
+function marketMood(spy, name){
+  name = name || "The S&P 500";
   const c = spy.c, last = lastOf(c);
   const yr = c.slice(-252), high = Math.max(...yr), dd = (last / high - 1) * 100;
   const m200 = lastOf(sma(c, 200)), m50 = lastOf(sma(c, 50));
   const vs200 = (last / m200 - 1) * 100;
   let k, word, why;
-  if(dd <= -20){ k = "b-rich"; word = "Bear market"; why = `The S&P 500 is ${Math.abs(dd).toFixed(1)}% below its 12-month high. A fall of 20% or more is the usual definition of a bear market.`; }
-  else if(dd <= -10){ k = "b-warn"; word = "Correction"; why = `The S&P 500 is ${Math.abs(dd).toFixed(1)}% below its 12-month high: a 10–20% fall is called a correction. These happen about once a year or two on average and most don't turn into bear markets.`; }
-  else if(isNum(m200) && last >= m200){ k = "b-cheap"; word = "Bull market"; why = `The S&P 500 is above its 200-day average (long-term uptrend) and only ${Math.abs(dd).toFixed(1)}% below its 12-month high.`; }
-  else { k = "b-warn"; word = "Pullback"; why = `The S&P 500 is ${Math.abs(dd).toFixed(1)}% below its 12-month high (less than a 10% correction) but has slipped below its 200-day average, so the long-term uptrend is being tested.`; }
+  if(dd <= -20){ k = "b-rich"; word = "Bear market"; why = `${name} is ${Math.abs(dd).toFixed(1)}% below its 12-month high. A fall of 20% or more is the usual definition of a bear market.`; }
+  else if(dd <= -10){ k = "b-warn"; word = "Correction"; why = `${name} is ${Math.abs(dd).toFixed(1)}% below its 12-month high: a 10–20% fall is called a correction. These happen about once a year or two on average and most don't turn into bear markets.`; }
+  else if(isNum(m200) && last >= m200){ k = "b-cheap"; word = "Bull market"; why = `${name} is above its 200-day average (long-term uptrend) and only ${Math.abs(dd).toFixed(1)}% below its 12-month high.`; }
+  else { k = "b-warn"; word = "Pullback"; why = `${name} is ${Math.abs(dd).toFixed(1)}% below its 12-month high (less than a 10% correction) but has slipped below its 200-day average, so the long-term uptrend is being tested.`; }
   return { k, word, why, last, high, dd, m50, m200, vs200, r1: retN(spy,21), r3: retN(spy,63), r6: retN(spy,126), r12: retN(spy,251) };
 }
 // Small line chart. series: [{v:[...], cls}], base: horizontal reference value (optional).
@@ -2193,7 +2194,10 @@ function renderTop(app, data, mine, fredJ){
   }
   // Score each part: +1 supportive, 0 neutral, -1 unsupportive
   const parts = [];
+  const qm = data.QQQ && !data.QQQ.err ? marketMood(data.QQQ, "The Nasdaq-100") : null;
+  const qTxt = qm && mood && qm.word !== mood.word ? ` (Nasdaq-100: ${qm.word.toLowerCase()})` : "";
   if(mood) parts.push({ s: mood.word === "Bull market" ? 1 : mood.word === "Pullback" ? 0 : -1, t: mood.word === "Bull market" ? "stocks in a bull market" : mood.word === "Pullback" ? "stocks in a pullback" : mood.word === "Correction" ? "stocks in a correction" : "stocks in a bear market" });
+  if(mood && qTxt) parts[parts.length-1].t += qTxt;
   if(rot) parts.push({ s: rot === "cyc" ? 1 : rot === "def" ? -1 : 0, t: rot === "cyc" ? "investors favouring growth sectors" : rot === "def" ? "investors moving to defensive sectors" : "no clear sector rotation" });
   if(fedDir) parts.push({ s: fedDir === "down" ? 1 : fedDir === "up" ? -1 : 0, t: fedDir === "down" ? "rates heading down" : fedDir === "up" ? "rates heading up" : fedDir === "flat" ? "rates on hold" : "mixed signals on rates" });
   if(econ) parts.push({ s: econ.k === "tail" ? 1 : econ.k === "head" ? -1 : 0, t: econ.k === "tail" ? "the economy mostly supportive" : econ.k === "head" ? "the economy mostly against" : "the economy itself holding up (mixed signals)" });
@@ -2236,13 +2240,13 @@ async function viewMacro(app, tok){
   const top = () => { if(live(tok)) renderTop(app, data, mine, fredJ); };
   macroData().then(j => { if(live(tok)){ fredJ = j; renderFed(app, j); renderEcon(app, j); top(); } }, e => { ["#m-fed-b","#m-econ-b"].forEach(id => { const el = $(id, app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }); });
   if(!state.tdKey){
-    $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (13 requests, kept 12 hours).`;
+    $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (14 requests, kept 12 hours).`;
     $("#m-sect-b", app).textContent = "";
     holdingSectors().then(m => { mine = m; top(); });
     return;
   }
-  const syms = ["SPY", "RSP", ...SECTORS.map(s => s[0])];
-  const cached = syms.filter(s => cacheGet("td:daily:" + s + ":" + (s === "SPY" ? 1600 : MKT_N)) !== undefined).length;
+  const syms = ["SPY", "QQQ", "RSP", ...SECTORS.map(s => s[0])];
+  const cached = syms.filter(s => cacheGet("td:daily:" + s + ":" + (s === "SPY" || s === "QQQ" ? 1600 : MKT_N)) !== undefined).length;
   const note = $("#m-sect-b", app);
   const mineP = holdingSectors();
   mineP.then(m => { mine = m; if(live(tok)){ draw(); top(); } });
@@ -2252,28 +2256,28 @@ async function viewMacro(app, tok){
     const spy = data.SPY;
     const mb = $("#m-mood-b", app);
     if(spy && !spy.err){
-      const m = marketMood(spy);
-      const n = 252, cs = spy.c.slice(-n), ma = sma(spy.c, 200).slice(-n);
-      mb.classList.remove("muted", "small");
-      mb.innerHTML = `
-        <div class="mood">
-          <div><span class="badge big ${m.k}">${m.word}</span></div>
+      const moodBlock = (h, label, fund, nm) => { const m = marketMood(h, nm), n = 252, cs = h.c.slice(-n), ma = sma(h.c, 200).slice(-n);
+        return `<div class="mood" style="margin-bottom:12px">
+          <div style="min-width:150px"><div class="small muted" style="margin-bottom:4px"><b>${label}</b></div><span class="badge big ${m.k}">${m.word}</span></div>
           <div style="flex:1;min-width:260px;max-width:620px">
             <p style="margin:0 0 6px">${m.why}</p>
-            <p class="small muted" style="margin:0">S&amp;P 500 (via the SPY fund) ${fmt(m.last)} on ${esc(lastOf(spy.d))} · 3 months ${fmtPct(m.r3,1)} · 12 months ${fmtPct(m.r12,1)}</p>
+            <p class="small muted" style="margin:0">${label} (via the ${fund} fund) ${fmt(m.last)} on ${esc(lastOf(h.d))} · 3 months ${fmtPct(m.r3,1)} · 12 months ${fmtPct(m.r12,1)}</p>
           </div>
           <div>${sparkSvg([{v: ma, cls:"s-ma"}, {v: cs, cls:"s-ln"}], 260, 70)}
-            <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--accent)"></i>S&amp;P 500, 12 months</span><span><i class="lk" style="background:#1baf7a"></i>200-day average</span></div></div>
-        </div>
+            <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--accent)"></i>${label}, 12 months</span><span><i class="lk" style="background:#1baf7a"></i>200-day average</span></div></div>
+        </div>`; };
+      const numRows = (h, label, nm) => { const m = marketMood(h, nm); return `<tr><td><b>${label}</b></td><td class="num">${fmtPct(m.dd,1)}</td><td class="num">${fmtPct(m.vs200,1)}</td><td class="num">${fmtPct((m.last/m.m50-1)*100,1)}</td><td class="num">${fmtPct(m.r1,1)} · ${fmtPct(m.r3,1)} · ${fmtPct(m.r6,1)}</td></tr>`; };
+      const qqq = data.QQQ && !data.QQQ.err ? data.QQQ : null;
+      mb.classList.remove("muted", "small");
+      mb.innerHTML = `
+        ${moodBlock(spy, "S&amp;P 500", "SPY")}
+        ${qqq ? moodBlock(qqq, "Nasdaq-100", "QQQ", "The Nasdaq-100") : data.QQQ ? `<p class="small muted">Nasdaq-100 unavailable: ${esc(data.QQQ.err)}</p>` : `<p class="small muted"><span class="spin"></span> Loading the Nasdaq-100…</p>`}
         <div id="m-breadth" style="margin-top:12px"></div>
         <details class="more"><summary>Show the numbers and rules</summary>
-          <table style="max-width:520px"><tbody>
-            <tr><td>Below its 12-month high</td><td class="num">${fmtPct(m.dd,1)}</td></tr>
-            <tr><td>vs 200-day average (${fmt(m.m200)})</td><td class="num">${fmtPct(m.vs200,1)}</td></tr>
-            <tr><td>vs 50-day average (${fmt(m.m50)})</td><td class="num">${fmtPct((m.last/m.m50-1)*100,1)}</td></tr>
-            <tr><td>1 month · 3 months · 6 months</td><td class="num">${fmtPct(m.r1,1)} · ${fmtPct(m.r3,1)} · ${fmtPct(m.r6,1)}</td></tr>
-          </tbody></table>
-          <p class="small muted">Rules: 20% or more below the 12-month high = Bear market (red). 10–20% below = Correction (amber). Less than 10% below and above the 200-day average = Bull market (green); below the 200-day average = Pullback (amber). For a long-term investor these describe the backdrop; they aren't buy or sell signals.</p>
+          <div style="overflow-x:auto"><table style="max-width:760px"><thead><tr><th></th><th class="num">Below 12-month high</th><th class="num">vs 200-day avg</th><th class="num">vs 50-day avg</th><th class="num">1 · 3 · 6 months</th></tr></thead><tbody>
+            ${numRows(spy, "S&amp;P 500")}${qqq ? numRows(qqq, "Nasdaq-100", "The Nasdaq-100") : ""}
+          </tbody></table></div>
+          <p class="small muted">Rules: 20% or more below the 12-month high = Bear market (red). 10–20% below = Correction (amber). Less than 10% below and above the 200-day average = Bull market (green); below the 200-day average = Pullback (amber). The Nasdaq-100 (QQQ fund) holds the 100 largest non-financial companies on the Nasdaq exchange, mostly tech; it usually swings more than the S&amp;P 500. For a long-term investor these describe the backdrop; they aren't buy or sell signals.</p>
         </details>`;
     } else if(spy && spy.err){ mb.innerHTML = `<span class="err">Couldn't load the S&P 500: ${esc(spy.err)}</span>`; }
     const rsp = data.RSP;
@@ -2314,11 +2318,11 @@ async function viewMacro(app, tok){
   if(cached < syms.length) note.innerHTML = `<span class="spin"></span> Loading ${syms.length - cached} funds from Twelve Data…`;
   for(const s of syms){
     if(!live(tok)) return;
-    const r = await safe(tdDaily(s, s === "SPY" ? 1600 : MKT_N)); // SPY: same request as its price chart
+    const r = await safe(tdDaily(s, s === "SPY" || s === "QQQ" ? 1600 : MKT_N)); // SPY: same request as its price chart
     if(!live(tok)) return;
     data[s] = r.ok ? r.v : { err: r.e.message };
     done++;
-    if(s === "SPY" || s === "RSP" || done === syms.length || done % 2 === 0){ draw(); top(); }
+    if(s === "SPY" || s === "QQQ" || s === "RSP" || done === syms.length || done % 2 === 0){ draw(); top(); }
     if(!r.ok && (r.e.code === "auth" || r.e.code === "rate")){ syms.forEach(x => { if(!data[x]) data[x] = { err: r.e.message }; }); break; }
   }
   done = syms.length; draw(); top();
@@ -2380,7 +2384,10 @@ function movement(stockRows){
   const avgCorr = cs.length ? cs.reduce((x,y)=>x+y,0) / cs.length : NaN;
   // Worst fall from a peak over the year, portfolio vs S&P 500
   const dd = rs => { let v = 1, pk = 1, worst = 0; for(const x of rs){ v *= 1 + x; pk = Math.max(pk, v); worst = Math.min(worst, v / pk - 1); } return { worst: worst * 100, now: (v / pk - 1) * 100, total: (v - 1) * 100 }; };
-  return { vol, mvol, beta, avgCorr, pd: dd(port), md: dd(mkt), n: withData.length, of: stockRows.length, cover: cov / total * 100, days: port.length };
+  let q = null; const qqq = cacheGet("td:daily:QQQ:1600");
+  if(qqq){ const qR = retMap(qqq), pp = [], qq = []; for(const d of days){ let s = 0, w = 0; for(const r of withData){ const x = r.rm.get(d); if(isNum(x)){ s += x * r.gbp; w += r.gbp; } } const m = qR.get(d); if(w > 0 && isNum(m)){ pp.push(s / w); qq.push(m); } }
+    if(qq.length > 100) q = { beta: corr(pp, qq) * stdev(pp) / stdev(qq), vol: stdev(qq) * Math.sqrt(252) * 100, dd: dd(qq) }; }
+  return { vol, mvol, beta, avgCorr, pd: dd(port), md: dd(mkt), q, n: withData.length, of: stockRows.length, cover: cov / total * 100, days: port.length };
 }
 function bars(items, total, warnAt, redAt){
   return items.map(x => { const pct = x.v / total * 100, c = x.fund ? "var(--accent)" : isNum(redAt) && pct > redAt ? "var(--bad)" : isNum(warnAt) && pct > warnAt ? "var(--mid)" : "var(--accent)";
@@ -2417,10 +2424,10 @@ async function renderRisk(app, tok){
     ${mv.need === "spy" ? `<p class="small muted">Open the <a href="#macro">Macro tab</a> once so the app has the S&amp;P 500's price history to compare with.</p>`
       : mv.need === "prices" ? `<p class="small muted">Price history saved for ${mv.have} of ${mv.of} stocks. Press <b>Run full check</b> above to fetch the rest (Twelve Data, kept 12 hours).</p>`
       : `<div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
-        <div class="stat"><span>Ups and downs (volatility)</span><b>${mv.vol.toFixed(0)}% a year</b>${tag(mv.vol / mv.mvol, 1.15, 1.5, 0.85)}<p>S&amp;P 500: ${mv.mvol.toFixed(0)}%. A typical year's swing either way; ${(mv.vol / mv.mvol).toFixed(1)}× the market's.</p></div>
-        <div class="stat"><span>Sensitivity to the market (beta)</span><b>${mv.beta.toFixed(2)}</b>${tag(mv.beta, 1.1, 1.3, 0.9)}<p>When the S&amp;P 500 falls 10%, your stocks have typically fallen about ${(mv.beta * 10).toFixed(0)}%.</p></div>
+        <div class="stat"><span>Ups and downs (volatility)</span><b>${mv.vol.toFixed(0)}% a year</b>${tag(mv.vol / mv.mvol, 1.15, 1.5, 0.85)}<p>S&amp;P 500: ${mv.mvol.toFixed(0)}%${mv.q ? `, Nasdaq-100: ${mv.q.vol.toFixed(0)}%` : ""}. A typical year's swing either way; ${(mv.vol / mv.mvol).toFixed(1)}× the S&amp;P 500's.</p></div>
+        <div class="stat"><span>Sensitivity to the market (beta)</span><b>${mv.beta.toFixed(2)}</b>${tag(mv.beta, 1.1, 1.3, 0.9)}<p>When the S&amp;P 500 falls 10%, your stocks have typically fallen about ${(mv.beta * 10).toFixed(0)}%.${mv.q ? ` When the Nasdaq-100 falls 10%: about ${(mv.q.beta * 10).toFixed(0)}% (beta ${mv.q.beta.toFixed(2)}).` : ""}</p></div>
         <div class="stat"><span>Move together (correlation)</span><b>${isNum(mv.avgCorr) ? mv.avgCorr.toFixed(2) : "—"}</b>${tag(mv.avgCorr, 0.4, 0.6, 0.25)}<p>0 = unrelated, 1 = move in lockstep. ${mv.avgCorr >= 0.6 ? "Your stocks tend to rise and fall together, so owning several of them spreads risk less than it seems." : mv.avgCorr >= 0.4 ? "Your stocks often move together." : "Your stocks move fairly independently: good for spreading risk."}</p></div>
-        <div class="stat"><span>Worst fall in the last year</span><b>${fmtPct(mv.pd.worst, 0)}</b>${tag(mv.pd.worst / Math.min(-0.01, mv.md.worst), 1.15, 1.5, 0.85)}<p>S&amp;P 500: ${fmtPct(mv.md.worst, 0)}. Now ${fmtPct(mv.pd.now, 0)} from the year's peak (market ${fmtPct(mv.md.now, 0)}).</p></div>
+        <div class="stat"><span>Worst fall in the last year</span><b>${fmtPct(mv.pd.worst, 0)}</b>${tag(mv.pd.worst / Math.min(-0.01, mv.md.worst), 1.15, 1.5, 0.85)}<p>S&amp;P 500: ${fmtPct(mv.md.worst, 0)}${mv.q ? `, Nasdaq-100: ${fmtPct(mv.q.dd.worst, 0)}` : ""}. Now ${fmtPct(mv.pd.now, 0)} from the year's peak (S&amp;P 500 ${fmtPct(mv.md.now, 0)}${mv.q ? `, Nasdaq-100 ${fmtPct(mv.q.dd.now, 0)}` : ""}).</p></div>
       </div>
       <p class="small muted" style="margin:8px 0 0">Based on ${mv.n} of ${mv.of} stocks (${mv.cover.toFixed(0)}% of the money in single stocks), daily prices over the last ${mv.days} trading days, weighted by today's values. Funds and ETFs left out.</p>`}
     ${bad.length ? `<p class="small muted" style="margin:8px 0 0">Not included: ${bad.map(r => `${esc(r.h.symbol)} (${esc(r.err)})`).join(", ")}. Add share counts or prices in Settings.</p>` : ""}
