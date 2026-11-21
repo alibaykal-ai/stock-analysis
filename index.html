@@ -187,7 +187,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.17</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.18</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -709,7 +709,7 @@ function viewHome(app, tok){
         <button id="fullcheck" title="Fetches what's missing: company reports (Finnhub) and daily prices (Twelve Data, 1 request per stock, kept 12 hours)">Run full check</button>
         <span id="checknote" class="small muted">Prices and reports are refreshed in the background when this page opens. "Run full check" fetches everything missing now.</span>
       </div>
-      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
+      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years; where losses or tiny profits make past P/Es meaningless, it compares price/sales instead (marked <b>P/S</b>). Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>
     ${hasAny ? `<div class="card" id="alerts" data-home="alerts"><h2>Alerts</h2><div id="alerts-b" class="muted small"><span class="spin"></span> Checking your stocks…</div></div>` : ""}
@@ -871,7 +871,10 @@ async function fillRow(app, h, tok){
     const r = RATIOS[0];
     const now = nowValue(met, r);
     const hist = history(met, r);
-    if(!isNum(now) || now <= 0) set("val", `<span class="small muted">${isNum(now)?"Loss-making":"n/a"}</span>`);
+    // No usable P/E history (losses or tiny profits in the window, e.g. OSCR): compare price/sales with its own past instead
+    const ps = RATIOS[1], psNow = nowValue(met, ps), psHist = (!hist || !isNum(now) || now <= 0) ? history(met, ps) : null;
+    if(psHist && isNum(psNow) && psNow > 0) set("val", `<span class="small" title="${esc(`No usable P/E history: losses or very small profits in the last ${state.settings.years} years make the past P/E meaningless${isNum(now) && now > 0 ? ` (P/E today ${fmtX(now)})` : ""}. Price/sales is compared with its own past instead.`)}"><b>P/S</b> ${fmtX(psNow)}</span> ${badge(verdict(psNow, psHist.median), "its usual P/S")}`);
+    else if(!isNum(now) || now <= 0) set("val", `<span class="small muted">${isNum(now)?"Loss-making":"n/a"}</span>`);
     else set("val", `<span class="small">${fmtX(now)}</span> ${badge(hist && verdict(now, hist.median), "its usual P/E")}`);
   }
   rowCtx.set(h.symbol, { isStock, mm, price, prof: p.ok ? p.v : {} });
