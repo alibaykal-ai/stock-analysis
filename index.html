@@ -228,6 +228,7 @@ const fh = {
   search:  q => api("/search", {q}, "search"),
   // Annual reports as filed (10-K). Large reply, so only a small summary per year is kept.
   fin:     s => api("/stock/financials-reported", {symbol:s, freq:"annual"}, "fin", shapeFinancials),
+  finQ:    s => api("/stock/financials-reported", {symbol:s, freq:"quarterly"}, "fin", shapeQuarters),
 };
 /* ---- Annual reports: pick the few numbers the health score needs ---- */
 const FIN_CONCEPTS = {
@@ -250,6 +251,61 @@ const FIN_CONCEPTS = {
   cfo:      ["NetCashProvidedByUsedInOperatingActivities","NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","CashFlowsFromUsedInOperatingActivities"],
   capex:    ["PaymentsToAcquirePropertyPlantAndEquipment","PaymentsToAcquireProductiveAssets","PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
 };
+// Pull the chosen numbers out of one filing's statements.
+function readReport(rep){
+  const items = {}; let unit = "";
+  for(const part of ["bs","ic","cf"]){
+    let arr = rep[part]; if(!arr) continue;
+    if(!Array.isArray(arr)) arr = Object.entries(arr).map(([concept,value]) => ({concept, value}));
+    for(const it of arr){
+      if(!it || !isNum(it.value)) continue;
+      const c = String(it.concept||"").replace(/^[A-Za-z-]+_/, "");
+      if(!(c in items)) items[c] = it.value;
+      if(!unit && it.unit && /^[a-z]{3}$/i.test(it.unit) && c === "Assets") unit = it.unit.toUpperCase();
+    }
+  }
+  const y = { unit };
+  for(const [k, names] of Object.entries(FIN_CONCEPTS)){ const n = names.find(n => isNum(items[n])); if(n) y[k] = items[n]; }
+  return y;
+}
+const monthsBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / (30.44 * 864e5));
+// Quarterly reports (10-Q): keep income-statement figures with the period they cover.
+// Some filings give the 3 months, some the year to date; the period length tells which.
+function shapeQuarters(j){
+  const rows = (j && Array.isArray(j.data) ? j.data : []).filter(d => d && d.report && /^10-Q/.test(d.form||""));
+  const seen = new Set(), out = [];
+  for(const d of rows){
+    const end = String(d.endDate||"").slice(0,10), start = String(d.startDate||"").slice(0,10);
+    if(!end || seen.has(end)) continue; seen.add(end);
+    const y = readReport(d.report);
+    out.push({ end, start, months: start ? monthsBetween(start, end) : 3, revenue: y.revenue, net: y.net, pretax: y.pretax, ebit: y.ebit, equity: y.equity });
+  }
+  return { q: out.sort((a,b) => b.end.localeCompare(a.end)).slice(0, 10) };
+}
+// Last 12 months = last annual report + this year so far − same part of last year.
+function ttmFrom(fin, finQ){
+  const A = fin && fin.years && fin.years[0], qs = finQ && finQ.q;
+  if(!A || !qs || !qs.length) return null;
+  const near = (a, b) => Math.abs(new Date(a) - new Date(b)) < 20 * 864e5;
+  const yearBefore = d => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return ymd(x); };
+  const latest = qs.find(q => q.end > A.end); if(!latest) return null;
+  // Year-to-date value of field k for the quarter ending `end`, within the fiscal year that started after `fyEnd`.
+  const ytd = (end, fyEnd, k) => {
+    const sinceFY = monthsBetween(fyEnd, end);
+    const one = qs.find(q => near(q.end, end));
+    if(one && isNum(one[k]) && Math.abs(one.months - sinceFY) <= 1) return one[k]; // filing already gives year to date
+    let sum = 0, got = 0;                                                          // otherwise add up 3-month figures
+    for(const q of qs) if(q.end > fyEnd && q.end <= end && q.months <= 4 && isNum(q[k])){ sum += q[k]; got += q.months; }
+    return Math.abs(got - sinceFY) <= 1 ? sum : NaN;
+  };
+  const prevFYEnd = yearBefore(A.end), prevEnd = yearBefore(latest.end);
+  const t = { end: latest.end, equity: latest.equity };
+  for(const k of ["revenue","net","pretax","ebit"]){
+    const cur = ytd(latest.end, A.end, k), prev = ytd(prevEnd, prevFYEnd, k);
+    t[k] = isNum(A[k]) && isNum(cur) && isNum(prev) ? A[k] + cur - prev : NaN;
+  }
+  return isNum(t.revenue) ? t : null;
+}
 function shapeFinancials(j){
   const rows = (j && Array.isArray(j.data) ? j.data : []).filter(d => d && d.report && /^(10-K|20-F|40-F)/.test(d.form||"10-K"));
   const byYear = new Map();
@@ -257,19 +313,7 @@ function shapeFinancials(j){
     const end = String(d.endDate||"").slice(0,10); if(!end) continue;
     const yr = end.slice(0,4);
     if(byYear.has(yr) && !/\/A$/.test(byYear.get(yr).form||"")) continue; // keep the original filing over amendments
-    const items = {}; let unit = "";
-    for(const part of ["bs","ic","cf"]){
-      let arr = d.report[part]; if(!arr) continue;
-      if(!Array.isArray(arr)) arr = Object.entries(arr).map(([concept,value]) => ({concept, value}));
-      for(const it of arr){
-        if(!it || !isNum(it.value)) continue;
-        const c = String(it.concept||"").replace(/^[A-Za-z-]+_/, "");
-        if(!(c in items)) items[c] = it.value;
-        if(!unit && it.unit && /^[a-z]{3}$/i.test(it.unit) && c === "Assets") unit = it.unit.toUpperCase();
-      }
-    }
-    const y = { end, form: d.form, unit };
-    for(const [k, names] of Object.entries(FIN_CONCEPTS)){ const n = names.find(n => isNum(items[n])); if(n) y[k] = items[n]; }
+    const y = { end, form: d.form, ...readReport(d.report) };
     if(!isNum(y.liab) && isNum(y.liabEq) && isNum(y.equity)) y.liab = y.liabEq - y.equity;
     if(!isNum(y.gross) && isNum(y.revenue) && isNum(y.cogs)) y.gross = y.revenue - y.cogs;
     if(isNum(y.cfo)) y.fcf = y.cfo - Math.abs(y.capex || 0);
@@ -589,7 +633,7 @@ async function viewStock(app, sym, tok){
 
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); fh.fin(sym).then(f => live(tok) && renderHealth(app, mm, price, prof, f), () => live(tok) && renderHealth(app, mm, price, prof, null)); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
+    else { renderHealth(app, mm, price, prof); Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
   }
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
@@ -961,7 +1005,7 @@ function altman(y0, mcapM, prof){
   return { z, zone: z > 2.99 ? "safe" : z >= 1.81 ? "grey" : "distress" };
 }
 
-function healthScore(mm, prof, fin){
+function healthScore(mm, prof, fin, finQ){
   const ys = fin && fin.years || [], y0 = ys[0], y1 = ys[1];
   const pct = v => v.toFixed(1) + "%";
   const pillars = [];
@@ -972,8 +1016,11 @@ function healthScore(mm, prof, fin){
   const item = (name, v, show, weak, strong, rule, s) => ({ name, v, show: isNum(v) ? show(v) : "—", s: s !== undefined ? s : scale(v, weak, strong), rule });
   // Finnhub's ready-made ratio (last 12 months) first; if missing, work it out from the latest annual report.
   const yrNote = y0 ? ` · from the annual report (year to ${y0.end})` : "";
+  const T = ttmFrom(fin, finQ);
   const ratio = (keys, num, den) => {
     const v = pick(mm, keys); if(isNum(v)) return { v, note: "" };
+    const tn = T && T[num], td = T && (den === "equity" ? (T.equity ?? (y0 && y0.equity)) : T[den]);
+    if(isNum(tn) && isNum(td) && td > 0) return { v: tn / td * 100, note: ` · last 12 months, from quarterly reports (to ${T.end})` };
     const n = y0 && y0[num], d = y0 && y0[den];
     return isNum(n) && isNum(d) && d > 0 ? { v: n / d * 100, note: yrNote } : { v: NaN, note: "" };
   };
@@ -1035,10 +1082,10 @@ const scoreClass = v => !isNum(v) ? "b-inline" : v >= 70 ? "b-cheap" : v >= 40 ?
 const scoreWord = v => !isNum(v) ? "Not enough data" : v >= 70 ? "Strong" : v >= 40 ? "Average" : "Weak";
 const scoreColor = v => !isNum(v) ? "var(--line)" : v >= 70 ? "var(--good)" : v >= 40 ? "var(--mid)" : "var(--bad)";
 
-function renderHealth(app, mm, price, prof, fin){
+function renderHealth(app, mm, price, prof, fin, finQ){
   const el = $("#health", app); if(!el) return;
   const finState = fin === undefined ? "loading" : fin && fin.years && fin.years.length ? "ok" : "none";
-  const H = healthScore(mm, prof, finState === "ok" ? fin : null);
+  const H = healthScore(mm, prof, finState === "ok" ? fin : null, finQ);
   const flags = [];
   const hi = mm["52WeekHigh"], lo = mm["52WeekLow"];
   const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
