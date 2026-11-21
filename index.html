@@ -593,7 +593,7 @@ function fvInputs(met, prof, price){
   const past = [["free cash flow", mm.focfCagr5Y], ["sales", mm.revenueGrowth5Y], ["earnings", mm.epsGrowth5Y]].filter(([,v]) => isNum(v));
   const pastMid = past.length ? median(past.map(([,v]) => v)) : NaN;
   const startG = isNum(pastMid) ? Math.round(Math.min(15, Math.max(0, pastMid)) * 2) / 2 : 5;
-  return { eps, bvps, fcf, past, pastMid, startG, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]) };
+  return { eps, bvps, fcf, past, pastMid, startG, epsG5: mm.epsGrowth5Y, epsG1: pick(mm, ["epsGrowthTTMYoy","epsGrowthQuarterlyYoy"]), roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]) };
 }
 function fvAssump(sym, inp){
   const s = state.fv[sym] || {};
@@ -607,13 +607,16 @@ function fvMethods(inp, a, met, peerInfo){
   } else out.push({ name:"Discounted cash flow", v:NaN, note: isNum(inp.fcf) ? "Skipped: free cash flow is negative, so there is nothing to discount yet." : "Skipped: no free cash flow data." });
   const peHist = history(met, RATIOS[0]);
   const epsOk = isNum(inp.eps) && inp.eps > 0;
-  if(epsOk && peHist) out.push({ name:"Its usual P/E", v: peHist.median * inp.eps, counted:true,
-      note:`Earnings of ${fmt(inp.eps)} per share × its usual P/E of ${fmtX(peHist.median)} (middle of the last ${state.settings.years} years).` });
+  // A sudden earnings jump: applying a P/E to possibly-peak earnings overstates value, so show but don't count.
+  const jump = isNum(inp.epsG1) && inp.epsG1 > 50;
+  const jumpNote = jump ? ` Shown but not counted: earnings jumped ${inp.epsG1.toFixed(0)}% in the last year, and putting a P/E on a sudden jump risks valuing peak profits that may not last.` : "";
+  if(epsOk && peHist) out.push({ name:"Its usual P/E", v: peHist.median * inp.eps, counted:!jump,
+      note:`Earnings of ${fmt(inp.eps)} per share × its usual P/E of ${fmtX(peHist.median)} (middle of the last ${state.settings.years} years).` + jumpNote });
   else out.push({ name:"Its usual P/E", v:NaN, note: epsOk ? "Skipped: not enough P/E history." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
   const pm = peerInfo && peerInfo.medians.pe;
   if(!peerInfo) out.push({ name:"Peer P/E", v:NaN, loading:true, note:"Loading similar companies…" });
-  else if(epsOk && isNum(pm)) out.push({ name:"Peer P/E", v: pm * inp.eps, counted:true,
-      note:`Earnings of ${fmt(inp.eps)} per share × the peer median P/E of ${fmtX(pm)}.` });
+  else if(epsOk && isNum(pm)) out.push({ name:"Peer P/E", v: pm * inp.eps, counted:!jump,
+      note:`Earnings of ${fmt(inp.eps)} per share × the peer median P/E of ${fmtX(pm)}.` + jumpNote });
   else out.push({ name:"Peer P/E", v:NaN, note: epsOk ? "Skipped: not enough peer data." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
   if(epsOk && isNum(inp.bvps) && inp.bvps > 0){
     const fast = isNum(inp.epsG5) && inp.epsG5 > 15;
@@ -640,7 +643,7 @@ function fvBar(lo, mid, hi, price, buyAt, richAt){
       <div class="fvpline" style="left:${px}%"></div>
       <div class="fvplab" style="left:${px}%;transform:${lab}">Price ${fmt(price)}</div>
     </div>
-    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${fmt(lo)}–${fmt(hi)}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>`;
+    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${hi - lo < 0.005 ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>`;
 }
 function renderFairValue(app, sym, met, prof, price, peerP, tok){
   const el = $("#fv", app);
