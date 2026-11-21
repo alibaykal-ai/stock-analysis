@@ -159,7 +159,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.8</b> · 21 Nov 2026 ·
+  <b>Version 3.9</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -717,7 +717,7 @@ function riskFlags(c){
   const mm = c.mm || {}, px = c.price, stock = c.isStock;
   if(c.td){
     const t = technicals(c.td), last = c.td.c[c.td.c.length-1];
-    if(isNum(t.m200) && last < t.m200) add("amber", `Below 200-day avg (${fmtPct((last/t.m200-1)*100,0)})`, "Price is under its 200-day moving average, often read as a long-term downtrend.");
+    if(isNum(t.m200) && last < t.m200 * 0.99) add("amber", `Below 200-day avg (${fmtPct((last/t.m200-1)*100,0)})`, "Price is under its 200-day moving average, often read as a long-term downtrend.");
     if(isNum(t.rsiNow) && t.rsiNow >= 70) add("amber", `RSI ${t.rsiNow.toFixed(0)}: overbought`, "Price has risen fast; it often pauses or pulls back.");
     if(isNum(t.rsiNow) && t.rsiNow <= 30) add("amber", `RSI ${t.rsiNow.toFixed(0)}: oversold`, "Price has fallen fast; it often bounces, but check why it fell.");
     if(t.cross && t.cross.kind === "death" && (Date.now() - new Date(t.cross.date)) < 90*864e5) add("red", "Death cross", `50-day average fell below the 200-day on ${t.cross.date}.`);
@@ -763,12 +763,12 @@ const rowCtx = new Map(); // symbol -> data used for its flags, so a full check 
 function drawRowFlags(app, h){
   const c = rowCtx.get(h.symbol); if(!c) return;
   const tr = app.querySelector(`tr[data-sym="${CSS.escape(h.symbol)}"]`); if(!tr) return;
-  c.td = c.td || peek.td(h.symbol); c.fin = c.fin || peek.fin(h.symbol); c.finQ = c.finQ || peek.finQ(h.symbol); c.av = c.av || peek.av(h.symbol);
+  c.td = c.td || peek.td(h.symbol); c.tdErr = c.tdErr || cacheGet("td:err:" + h.symbol); c.fin = c.fin || peek.fin(h.symbol); c.finQ = c.finQ || peek.finQ(h.symbol); c.av = c.av || peek.av(h.symbol);
   const f = riskFlags(c);
   const checked = !!c.td && (!c.isStock || !!c.fin);
   const hEl = tr.querySelector('[data-f="health"]'), fEl = tr.querySelector('[data-f="flags"]');
   if(hEl) hEl.innerHTML = !c.isStock ? '<span class="small muted">—</span>' : isNum(c.health) ? `<span class="badge ${scoreClass(c.health)}" title="Financial health score">${c.health}</span>` : '<span class="small muted" title="Run the full check, or open the stock">?</span>';
-  if(fEl) fEl.innerHTML = flagsCell(f, checked);
+  if(fEl) fEl.innerHTML = !f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(f, checked);
 }
 async function runFullCheck(app, list, tok){
   const btn = $("#fullcheck", app), note = $("#checknote", app);
@@ -777,11 +777,12 @@ async function runFullCheck(app, list, tok){
     if(!live(tok)) return;
     const h = list[i], stock = !h.type || h.type === "stock";
     note.textContent = `Checking ${h.symbol} (${i+1} of ${list.length})… Twelve Data allows 8 requests a minute, so this can take a few minutes.`;
-    const jobs = [ state.tdKey ? safe(tdDaily(h.symbol)) : Promise.resolve({ok:false}) ];
+    const known = cacheGet("td:err:" + h.symbol); // symbol Twelve Data doesn't cover: don't spend a request again today
+    const jobs = [ state.tdKey && !known ? safe(tdDaily(h.symbol)) : Promise.resolve({ok:false, e: known ? {message: known} : null}) ];
     if(stock) jobs.push(safe(fh.fin(h.symbol)), safe(fh.finQ(h.symbol)));
     const [td, fin, finQ] = await Promise.all(jobs);
     const c = rowCtx.get(h.symbol);
-    if(c){ if(td.ok) c.td = td.v; if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
+    if(c){ if(td.ok) c.td = td.v; else if(td.e){ c.tdErr = td.e.message; if(["nosym","premium"].includes(td.e.code)) cacheSet("td:err:" + h.symbol, td.e.message, 24*3600e3); } if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
   }
   note.textContent = `Full check done${state.tdKey ? "" : " (no Twelve Data key, so technical flags are missing)"}. Results are kept: prices for 12 hours, company reports for a week.`;
   btn.disabled = false;
