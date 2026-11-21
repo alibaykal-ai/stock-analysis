@@ -187,7 +187,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.19</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.20</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1053,21 +1053,23 @@ async function viewStock(app, sym, tok){
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
     </div>
     <nav class="jump" id="jump">
-      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a>`}<a data-go="c-news">News</a>
+      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a><a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
     </nav>
     <div class="card glance" id="c-glance">
       <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
       ${isFund ? "" : `<div class="gl" data-go="c-val"><span>Valuation</span><div id="g-val" class="small muted">…</div></div>
       <div class="gl" data-go="c-fv"><span>Fair value</span><div id="g-fv" class="small muted">…</div></div>
       <div class="gl" data-go="c-health"><span>Health</span><div id="g-health" class="small muted">…</div></div>
-      <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>`}
+      <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>
+      <div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
     </div>
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
-    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>`}
+    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>
+    <div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
     <div class="card" id="c-news"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
   if($("#b-watch", app)) $("#b-watch", app).onclick = () => {
     if(state.watchlist.includes(sym)) state.watchlist = state.watchlist.filter(x=>x!==sym); else state.watchlist.push(sym);
@@ -1081,7 +1083,7 @@ async function viewStock(app, sym, tok){
   const jb = $("#jump", app); if(jb) jb.style.top = ($("header").offsetHeight) + "px";
   if(!state.tdKey) glance("g-tech", `<a href="#settings">Add Twelve Data key</a>`);
   renderChartCard(app, sym, tok);
-  if(!state.apiKey){ ["#val","#health","#rec","#news"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
+  if(!state.apiKey){ ["#val","#health","#rec","#ins","#news"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
   const [q, p, m] = await Promise.all([safe(fh.quote(sym)), safe(fh.profile(sym)), safe(fh.metric(sym))]);
   if(!live(tok)) return;
@@ -1108,6 +1110,7 @@ async function viewStock(app, sym, tok){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
     else { renderHealth(app, mm, price, prof); Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
+    renderInsiders(app, sym, tok);
   }
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
 }
@@ -1834,6 +1837,62 @@ function renderHealth(app, mm, price, prof, fin, finQ){
     </details>`;
 }
 
+/* ================= Insiders & ownership (stock page) ================= */
+// Finnhub free plan: insider transactions (Form 4 filings) and insider sentiment (MSPR). Short interest and
+// institutional ownership are tried once; if Finnhub says they're paid-only, that answer is remembered for a week.
+async function paidOnly(path, params, ttlKind){
+  const k = "paid:" + path; const known = cacheGet(k); if(known) throw new ApiError(known, "premium");
+  try{ return await api(path, params, ttlKind); }
+  catch(e){ if(e.code === "premium") cacheSet(k, e.message, 7*24*3600e3); throw e; }
+}
+const INS_CODE = { P: "Bought on the market", S: "Sold on the market", A: "Granted (pay)", M: "Option exercise", F: "Shares withheld for tax", G: "Gift", D: "Returned to company", C: "Conversion", X: "Option exercise" };
+const fmtUSD = v => !isNum(v) ? "—" : Math.abs(v) >= 1e9 ? "$" + (v/1e9).toFixed(1) + "B" : Math.abs(v) >= 1e6 ? "$" + (v/1e6).toFixed(1) + "M" : Math.abs(v) >= 1e3 ? "$" + (v/1e3).toFixed(0) + "K" : "$" + Math.round(v);
+async function renderInsiders(app, sym, tok){
+  const el = $("#ins", app); if(!el) return;
+  const from = ymd(new Date(Date.now() - 365*864e5)), to = ymd(new Date());
+  const [tx, sent, si, own] = await Promise.all([
+    safe(api("/stock/insider-transactions", { symbol: sym, from, to }, "rec")),
+    safe(api("/stock/insider-sentiment", { symbol: sym, from, to }, "rec")),
+    safe(paidOnly("/stock/short-interest", { symbol: sym, from, to }, "rec")),
+    safe(paidOnly("/stock/ownership", { symbol: sym, limit: 10 }, "rec")) ]);
+  if(!live(tok)) return;
+  const rows = tx.ok && Array.isArray(tx.v.data) ? tx.v.data : [];
+  const six = ymd(new Date(Date.now() - 182*864e5));
+  const val = r => Math.abs(r.change || 0) * (r.transactionPrice || 0);
+  const recent = rows.filter(r => (r.transactionDate || r.filingDate || "") >= six);
+  const buys = recent.filter(r => r.transactionCode === "P"), sells = recent.filter(r => r.transactionCode === "S");
+  const people = a => new Set(a.map(r => r.name)).size, sum = a => a.reduce((x, r) => x + val(r), 0);
+  const threeM = ymd(new Date(Date.now() - 91*864e5)), sells3 = sells.filter(r => (r.transactionDate || "") >= threeM);
+  let bd, line;
+  if(!tx.ok) { bd = ["b-inline", "n/a"]; line = `Insider data unavailable: ${esc(tx.e.message)}`; }
+  else if(buys.length){ bd = ["b-cheap", "Insiders buying"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))})${sells.length ? `, while ${people(sells)} sold (${fmtUSD(sum(sells))})` : ""}. Insiders buying with their own money is one of the more meaningful signals: they usually buy only when they think the shares are cheap.`; }
+  else if(people(sells3) >= 3){ bd = ["b-warn", "Heavy insider selling"]; line = `No open-market purchases in 6 months, and <b>${people(sells3)}</b> insiders sold in the last 3 months (${fmtUSD(sum(sells3))}). Selling is common (pay, taxes, planned sales), but several insiders selling at once is worth a look.`; }
+  else if(sells.length){ bd = ["b-inline", "Some selling"]; line = `No open-market purchases in 6 months; ${people(sells)} insider${people(sells) === 1 ? "" : "s"} sold (${fmtUSD(sum(sells))}). Usually routine: executives are paid in shares and sell to diversify or pay tax, often on pre-set plans.`; }
+  else { bd = ["b-inline", "Quiet"]; line = "No open-market buying or selling by insiders in the last 6 months."; }
+  const sd = sent.ok && Array.isArray(sent.v.data) ? sent.v.data.slice().sort((a, b) => (a.year - b.year) || (a.month - b.month)) : [];
+  const mspr3 = sd.slice(-3).map(x => x.mspr).filter(isNum), msprAvg = mspr3.length ? mspr3.reduce((a, b) => a + b, 0) / mspr3.length : NaN;
+  const top = recent.filter(r => r.transactionCode === "P" || r.transactionCode === "S").sort((a, b) => (b.transactionDate || "").localeCompare(a.transactionDate || "")).slice(0, 12);
+  const other = recent.filter(r => r.transactionCode !== "P" && r.transactionCode !== "S").length;
+  const paid = r => !r.ok && r.e.code === "premium";
+  const siData = si.ok && Array.isArray(si.v.data) ? si.v.data.slice().sort((a, b) => (a.settlementDate || "").localeCompare(b.settlementDate || "")) : [];
+  const siLast = siData[siData.length - 1];
+  const ownData = own.ok && Array.isArray(own.v.ownership) ? own.v.ownership.slice(0, 10) : [];
+  el.innerHTML = `
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div><p style="margin:0;flex:1;min-width:260px;max-width:760px">${line}</p></div>
+    ${isNum(msprAvg) ? `<p class="small" style="margin:0 0 10px"><b>Insider sentiment</b> (last 3 months): ${msprAvg.toFixed(0)} on a scale from −100 (all selling) to +100 (all buying). ${sparkSvg([{ v: sd.slice(-12).map(x => x.mspr), cls: "s-ln" }], 160, 26, 0)}</p>` : ""}
+    ${top.length ? `<div style="overflow-x:auto"><table style="max-width:820px"><thead><tr><th>Date</th><th>Insider</th><th></th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>
+      ${top.map(r => `<tr><td>${fmtDay(r.transactionDate)}</td><td>${esc(r.name || "")}</td><td><span class="badge ${r.transactionCode === "P" ? "b-cheap" : "b-inline"}">${r.transactionCode === "P" ? "Bought" : "Sold"}</span></td><td class="num">${fmt(Math.abs(r.change || 0), 0)}</td><td class="num">${isNum(r.transactionPrice) && r.transactionPrice > 0 ? fmt(r.transactionPrice) : "—"}</td><td class="num">${fmtUSD(val(r))}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    ${other ? `<p class="small muted">Plus ${other} other filing${other === 1 ? "" : "s"} in 6 months (share grants, option exercises, shares withheld for tax, gifts): these aren't buying or selling decisions, so they're left out.</p>` : ""}
+    <h3>Short interest</h3>
+    ${siLast ? `<p class="small" style="margin:0">${fmt(siLast.shortInterest, 0)} shares sold short on ${fmtDay(siLast.settlementDate)}.</p>` : `<p class="small muted" style="margin:0">${paid(si) ? "Not included in Finnhub's free plan." : si.ok ? "No data." : esc(si.e.message)} Free alternative: search the ticker on finra.org (short interest, updated twice a month) or look at "Short % of float" on a finance site.</p>`}
+    <h3>Biggest institutional owners</h3>
+    ${ownData.length ? `<table style="max-width:620px"><tbody>${ownData.map(o => `<tr><td>${esc(o.name)}</td><td class="num">${fmt(o.share, 0)} shares</td></tr>`).join("")}</tbody></table>` : `<p class="small muted" style="margin:0">${paid(own) ? "Not included in Finnhub's free plan." : own.ok ? "No data." : esc(own.e.message)}</p>`}
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): any open-market purchase in 6 months = Insiders buying (green); 3+ insiders selling in 3 months with no purchases = Heavy insider selling (amber); otherwise Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
+    </details>`;
+  glance("g-ins", `<span class="badge ${bd[0]}">${bd[1]}</span>`);
+}
 function renderRec(app, r){
   const el = $("#rec", app);
   if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings"); return; }
