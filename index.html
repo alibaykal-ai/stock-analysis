@@ -101,7 +101,11 @@ h3{font-size:14px;margin:18px 0 8px}
 #c-chart{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
 @media (prefers-color-scheme:dark){ #c-chart{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
 .chartwrap{position:relative;padding-right:0;touch-action:pan-y}
-.chartwrap svg{display:block;width:100%;height:340px}
+.chartwrap svg{display:block;width:100%;height:420px}
+.chartwrap .rsiband{fill:var(--neutralbg)}
+.chartwrap .rsiln{stroke:var(--ink);stroke-width:1.5;opacity:.85}
+.sig .stat b{font-size:16px;margin:2px 0}
+.sig .stat p{margin:4px 0 0;font-size:12px;color:var(--muted)}
 .chartwrap .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
 .chartwrap .ln{fill:none;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .chartwrap .vol{fill:var(--vol)}
@@ -110,7 +114,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .ylab b{right:-2px;font-size:11px;font-weight:600;background:var(--card);padding:0 2px}
 .ylab span{right:auto;left:2px;transform:translateY(-115%)}
 .ylab b i{display:inline-block;width:8px;height:2px;margin-right:3px;vertical-align:middle}
-.ylab{position:absolute;inset:0;pointer-events:none}
+.ylab{position:absolute;top:0;left:0;right:0;height:420px;pointer-events:none}
 .xlab{position:relative;height:16px;font-size:11px;color:var(--muted)}
 .xlab span{position:absolute;top:2px;white-space:nowrap}
 .vlab{position:absolute;left:4px;font-size:11px;color:var(--muted);pointer-events:none}
@@ -145,7 +149,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.5</b> · 21 Nov 2026 ·
+  <b>Version 3.6</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -431,6 +435,29 @@ async function tdDaily(sym, n){
 // Simple moving average over n days (NaN until there are n days).
 function sma(c, n){ const out = new Array(c.length).fill(NaN); let s = 0;
   for(let i = 0; i < c.length; i++){ s += c[i]; if(i >= n) s -= c[i-n]; if(i >= n-1) out[i] = s / n; } return out; }
+
+// RSI(14), Wilder's smoothing.
+function rsi(c, n){ n = n || 14; const out = new Array(c.length).fill(NaN); if(c.length <= n) return out;
+  let g = 0, l = 0; for(let i = 1; i <= n; i++){ const d = c[i] - c[i-1]; if(d > 0) g += d; else l -= d; }
+  g /= n; l /= n; out[n] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  for(let i = n + 1; i < c.length; i++){ const d = c[i] - c[i-1]; g = (g * (n-1) + Math.max(d, 0)) / n; l = (l * (n-1) + Math.max(-d, 0)) / n; out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); }
+  return out; }
+// Slope of a least-squares line through the last n points, as % of the mean per day.
+function trendPct(a, n){ const ys = a.slice(-n), m = ys.length; if(m < 10) return NaN;
+  const mx = (m-1)/2, my = ys.reduce((s,v)=>s+v,0)/m; let num = 0, den = 0;
+  ys.forEach((y,i) => { num += (i-mx)*(y-my); den += (i-mx)*(i-mx); });
+  const range = Math.max(...ys) - Math.min(...ys) || 1; return num/den * m / range * 100; } // change over the window as % of its range
+function technicals(h){
+  const c = h.c, v = h.v, n = c.length, last = n - 1;
+  const r = rsi(c, 14), m50 = sma(c, 50), m200 = sma(c, 200);
+  const avg30 = n > 31 ? v.slice(last-30, last).reduce((a,b)=>a+b,0) / 30 : NaN;
+  let up = 0, dn = 0; for(let i = Math.max(1, n-50); i < n; i++){ if(c[i] > c[i-1]) up += v[i]; else if(c[i] < c[i-1]) dn += v[i]; }
+  const obv = [0]; for(let i = 1; i < n; i++) obv.push(obv[i-1] + (c[i] > c[i-1] ? v[i] : c[i] < c[i-1] ? -v[i] : 0));
+  let cross = null; for(let i = last; i > 0; i--){ if(!isNum(m50[i]) || !isNum(m200[i]) || !isNum(m50[i-1]) || !isNum(m200[i-1])) break;
+    const a = m50[i] - m200[i], b = m50[i-1] - m200[i-1]; if(a > 0 && b <= 0){ cross = { kind: "golden", date: h.d[i] }; break; } if(a < 0 && b >= 0){ cross = { kind: "death", date: h.d[i] }; break; } }
+  return { rsi: r, rsiNow: r[last], relVol: avg30 > 0 ? v[last] / avg30 : NaN, upDown: dn > 0 ? up / dn : NaN,
+    obvTrend: trendPct(obv, 50), pxTrend: trendPct(c, 50), m50: m50[last], m200: m200[last], cross, lastDate: h.d[last] };
+}
 
 /* ---- Valuation history worked out from company reports + month-end prices ---- */
 function calcHistory(fin, finQ, monthly, prof){
@@ -1092,7 +1119,7 @@ function renderChartCard(app, sym, tok){
   tdDaily(sym).then(h => { if(live(tok)) drawChart(el, h); }, e => { if(live(tok)) el.innerHTML = `<p class="small muted" style="margin:0">${esc(e.message)}</p>`; });
 }
 function drawChart(el, h){
-  const m50 = sma(h.c, 50), m200 = sma(h.c, 200), n = h.c.length, last = n - 1;
+  const m50 = sma(h.c, 50), m200 = sma(h.c, 200), n = h.c.length, last = n - 1, tx = technicals(h);
   const months = (CHART_RANGES.find(r => r[0] === chartRange) || CHART_RANGES[2])[1];
   const from = new Date(h.d[last]); from.setMonth(from.getMonth() - months);
   let i0 = h.d.findIndex(d => d >= ymd(from)); if(i0 < 0) i0 = 0;
@@ -1102,8 +1129,11 @@ function drawChart(el, h){
   const summary = `Last close ${fmt(px)} is ${vs(m50[last], "50-day average")} and ${vs(m200[last], "200-day average")}.`;
   const first = h.c[i0], chg = (px/first - 1)*100;
   // geometry (viewBox units; scales to the card width)
-  const W = 1000, PH = 260, VH = 70, GAP = 14, L = 8, R = 64, T = 10, B = 22;
-  const H = T + PH + GAP + VH + B;
+  const W = 1000, PH = 260, VH = 70, GAP = 14, RH = 70, L = 8, R = 64, T = 10, B = 22;
+  const RT = T + PH + GAP + VH + GAP;              // top of the RSI panel
+  const H = RT + RH + B;
+  const yR = v => RT + (1 - v / 100) * RH;
+  const SVGH = 420; // must match .chartwrap svg height in CSS
   const xs = k => L + (idx.length > 1 ? k / (idx.length - 1) : 0.5) * (W - L - R);
   const ys = [...idx.map(i => h.c[i]), ...idx.map(i => m50[i]), ...idx.map(i => m200[i])].filter(isNum);
   let lo = Math.min(...ys), hi = Math.max(...ys); const pad = (hi - lo) * 0.06 || hi * 0.05; lo -= pad; hi += pad;
@@ -1138,15 +1168,21 @@ function drawChart(el, h){
         <path d="${path(m200)}" class="ln" style="stroke:var(--s3)"/>
         <path d="${path(m50)}" class="ln" style="stroke:var(--s2)"/>
         <path d="${path(h.c)}" class="ln" style="stroke:var(--s1)"/>
-        <line id="xh" class="xh" x1="0" x2="0" y1="${T}" y2="${T+PH+GAP+VH}" style="display:none"/>
+        <rect class="rsiband" x="${L}" width="${W-L-R}" y="${yR(70)}" height="${yR(30)-yR(70)}"/>
+        <line class="grid" x1="${L}" x2="${W-R}" y1="${yR(70)}" y2="${yR(70)}"/><line class="grid" x1="${L}" x2="${W-R}" y1="${yR(30)}" y2="${yR(30)}"/>
+        <path d="${(() => { let d = "", pen = false; idx.forEach((i, k) => { const v = tx.rsi[i]; if(!isNum(v)){ pen = false; return; } d += (pen ? "L" : "M") + xs(k).toFixed(1) + " " + yR(v).toFixed(1); pen = true; }); return d; })()}" class="ln rsiln"/>
+        <line id="xh" class="xh" x1="0" x2="0" y1="${T}" y2="${RT+RH}" style="display:none"/>
       </svg>
-      <div class="ylab">${ticks.map(v => `<span style="top:${(yP(v)/H*100).toFixed(2)}%">${v.toFixed(dec)}</span>`).join("")}
-        ${ends.map(e => `<b style="top:${(e.y/H*100).toFixed(2)}%;color:var(--ink)"><i style="background:${e.c}"></i>${e.t}</b>`).join("")}</div>
+      <div class="ylab">${ticks.map(v => `<span style="top:${(yP(v)/H*SVGH).toFixed(1)}px">${v.toFixed(dec)}</span>`).join("")}
+        ${ends.map(e => `<b style="top:${(e.y/H*SVGH).toFixed(1)}px;color:var(--ink)"><i style="background:${e.c}"></i>${e.t}</b>`).join("")}</div>
       <div class="xlab">${xl.map(([k, d], j) => `<span style="left:${(xs(k)/W*100).toFixed(2)}%;transform:translateX(${j===0?"0":j===nl-1?"-100%":"-50%"})">${dLab(d)}</span>`).join("")}</div>
-      <div class="vlab" style="top:${((T+PH+GAP)/H*100).toFixed(2)}%">Volume</div>
+      <div class="vlab" style="top:${((T+PH+GAP)/H*SVGH).toFixed(1)}px">Volume</div>
+      <div class="vlab" style="top:${(RT/H*SVGH).toFixed(1)}px">RSI (14)</div>
+      <div class="ylab">${[70,30].map(v => `<span style="top:${(yR(v)/H*SVGH).toFixed(1)}px;transform:translateY(-50%);left:auto;right:30px">${v}</span>`).join("")}</div>
       <div id="tip" class="tip" style="display:none"></div>
     </div>
     <p class="small muted" style="margin:8px 0 0">${chartRange}: ${fmtPct(chg,1)} (from ${fmt(first)}). Daily closing prices from Twelve Data. Moving averages smooth out daily swings: price above its 200-day average is usually read as a long-term uptrend.</p>
+    ${signalsHtml(tx)}
     <details class="more"><summary>Show the numbers</summary>${chartTable(h, m50, m200, idx)}</details>`;
   el.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { chartRange = b.dataset.r; drawChart(el, h); });
   // hover: crosshair snaps to the nearest day; one tooltip lists every series
@@ -1162,12 +1198,42 @@ function drawChart(el, h){
     row(fmt(h.c[i]), "close", "var(--s1)");
     if(isNum(m50[i])) row(fmt(m50[i]), "50-day avg", "var(--s2)");
     if(isNum(m200[i])) row(fmt(m200[i]), "200-day avg", "var(--s3)");
+    if(isNum(tx.rsi[i])) row(tx.rsi[i].toFixed(0), "RSI", null);
     row(Math.round(h.v[i]).toLocaleString(), "shares traded", null);
     tip.style.display = "";
     const left = xs(k) / W * r.width; tip.style.left = (left > r.width * 0.6 ? left - tip.offsetWidth - 12 : left + 12) + "px";
   };
   wrap.onpointermove = move; wrap.onpointerdown = move;
   wrap.onpointerleave = () => { xh.style.display = "none"; tip.style.display = "none"; };
+}
+// Technical signals: each tile = value, plain-English verdict, one-line rule.
+function signalsHtml(t){
+  const tile = (name, val, badgeCls, word, rule) => `<div class="stat"><span>${name}</span><b>${val} ${word ? `<span class="badge ${badgeCls}">${word}</span>` : ""}</b><p>${rule}</p></div>`;
+  const r = t.rsiNow;
+  const rsiT = !isNum(r) ? tile("RSI (14 days)", "—", "", "", "Needs more price history.")
+    : tile("RSI (14 days)", r.toFixed(0), r >= 70 ? "b-rich" : r <= 30 ? "b-cheap" : "b-inline", r >= 70 ? "Overbought" : r <= 30 ? "Oversold" : "Neutral",
+      "Momentum from 0 to 100. Above 70 = risen fast, often pauses; below 30 = fallen fast, often bounces.");
+  const tr = !isNum(t.m50) || !isNum(t.m200) ? tile("Trend (50 vs 200-day)", "—", "", "", "Needs 200 days of prices.")
+    : tile("Trend (50 vs 200-day)", t.m50 > t.m200 ? "Uptrend" : "Downtrend", t.m50 > t.m200 ? "b-cheap" : "b-rich",
+      t.cross ? (t.cross.kind === "golden" ? "Golden cross" : "Death cross") : "",
+      t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
+               : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`);
+  const rv = t.relVol;
+  const rvT = tile("Relative volume", isNum(rv) ? rv.toFixed(1) + "×" : "—", isNum(rv) && rv >= 2 ? "b-warn" : "b-inline", isNum(rv) ? (rv >= 2 ? "Unusually busy" : rv <= 0.5 ? "Quiet" : "Normal") : "",
+      `Latest day's shares traded vs the 30-day average. 2× or more usually means news. (If the market is open, today's figure is still building.)`);
+  const ud = t.upDown;
+  const udT = tile("Buying vs selling volume", isNum(ud) ? ud.toFixed(2) : "—", !isNum(ud) ? "" : ud >= 1.2 ? "b-cheap" : ud <= 0.8 ? "b-rich" : "b-inline",
+      !isNum(ud) ? "" : ud >= 1.2 ? "Buyers stronger" : ud <= 0.8 ? "Sellers stronger" : "Balanced",
+      "Volume on up days ÷ volume on down days, last 50 days. Above 1.2 suggests buying (accumulation); below 0.8 selling (distribution).");
+  const o = t.obvTrend, pT = t.pxTrend;
+  const dir = x => !isNum(x) ? "—" : x > 15 ? "Rising" : x < -15 ? "Falling" : "Flat";
+  const div = isNum(o) && isNum(pT) && ((o > 15 && pT < -15) || (o < -15 && pT > 15));
+  const obvT = tile("On-Balance Volume trend", dir(o), !isNum(o) ? "" : div ? "b-warn" : o > 15 ? "b-cheap" : o < -15 ? "b-rich" : "b-inline",
+      div ? (o > 15 ? "Hidden buying" : "Hidden selling") : "",
+      div ? `Volume is flowing ${o > 15 ? "in" : "out"} while the price is ${pT > 0 ? "rising" : "falling"}: the two disagree, which often comes before a turn.`
+          : `Running total of volume (added on up days, subtracted on down days), last 50 days. ${dir(o) === dir(pT) ? "Moving with the price: confirms the trend." : "Price is " + dir(pT).toLowerCase() + "."}`);
+  return `<h3 style="margin-top:16px">Technical signals <span class="small muted" style="font-weight:400">· supporting information for timing, not a reason to buy or sell on its own</span></h3>
+    <div class="grid sig">${rsiT}${tr}${rvT}${udT}${obvT}</div>`;
 }
 function chartTable(h, m50, m200, idx){
   // Weekly rows (every 5th trading day), newest first, at most 60
