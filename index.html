@@ -75,6 +75,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .stat{background:var(--neutralbg);border-radius:10px;padding:10px 12px}
 .stat b{display:block;font-size:17px}
 .stat span{font-size:12px;color:var(--muted)}
+.flags{display:flex;flex-wrap:wrap;gap:4px;max-width:340px}
 .flag{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
 .flag:last-child{border-bottom:none}
 .news a{display:block;padding:8px 0;border-bottom:1px solid var(--line);color:var(--ink)}
@@ -149,7 +150,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.6</b> · 21 Nov 2026 ·
+  <b>Version 3.7</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -271,6 +272,7 @@ const FIN_CONCEPTS = {
   deposits: ["Deposits","InterestBearingDepositLiabilities"],
   net:      ["NetIncomeLoss","ProfitLoss","NetIncomeLossAvailableToCommonStockholdersBasic","ProfitLossAttributableToOwnersOfParent"],
   shares:   ["WeightedAverageNumberOfDilutedSharesOutstanding","WeightedAverageNumberOfShareOutstandingBasicAndDiluted","WeightedAverageNumberOfSharesOutstandingBasic","AdjustedWeightedAverageShares","WeightedAverageShares"],
+  epsDil:   ["EarningsPerShareDiluted","EarningsPerShareBasicAndDiluted","EarningsPerShareBasic","DilutedEarningsLossPerShare","BasicEarningsLossPerShare"],
   cfo:      ["NetCashProvidedByUsedInOperatingActivities","NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","CashFlowsFromUsedInOperatingActivities"],
   capex:    ["PaymentsToAcquirePropertyPlantAndEquipment","PaymentsToAcquireProductiveAssets","PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
 };
@@ -289,6 +291,9 @@ function readReport(rep){
   }
   const y = { unit };
   for(const [k, names] of Object.entries(FIN_CONCEPTS)){ const n = names.find(n => isNum(items[n])); if(n) y[k] = items[n]; }
+  // Companies with several share classes (e.g. Alphabet) report share counts per class only:
+  // net income ÷ earnings per share gives the total (EPS is the same for every class).
+  if(!isNum(y.shares) && isNum(y.net) && isNum(y.epsDil) && y.epsDil !== 0 && y.net / y.epsDil > 0) y.shares = y.net / y.epsDil;
   return y;
 }
 const monthsBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / (30.44 * 864e5));
@@ -590,11 +595,15 @@ function viewHome(app, tok){
           <th>Stock</th><th class="num">Price</th><th class="num">Today</th>
           <th class="hide-sm">52-week range</th>
           ${homeTab==="mine" ? `<th class="num hide-sm">Shares</th><th class="num hide-sm">Value</th>` : ""}
-          <th>P/E vs its past</th><th></th>
+          <th>P/E vs its past</th><th class="num">Health</th><th>Flags</th><th></th>
         </tr></thead>
         <tbody>${list.map(h => rowSkeleton(h)).join("")}</tbody>
       </table></div>
-      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Tap a stock for the full valuation, including peers.</p>
+      <div class="row" style="margin-top:12px">
+        <button id="fullcheck" title="Fetches what's missing: company reports (Finnhub) and daily prices (Twelve Data, 1 request per stock, kept 12 hours)">Run full check</button>
+        <span id="checknote" class="small muted">Health and flags use data already saved. "Run full check" fetches what's missing for every stock.</span>
+      </div>
+      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>`;
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { homeTab = b.dataset.tab; viewHome(app, tok); });
@@ -623,6 +632,7 @@ function viewHome(app, tok){
   });
   app.querySelectorAll("tr[data-sym]").forEach(tr => tr.onclick = () => go(stockHref(tr.dataset.sym)));
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
+  const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
 }
 function alertInline(app, msg){
   let el = $("#inlinemsg", app);
@@ -639,6 +649,8 @@ function rowSkeleton(h){
     <td class="hide-sm" data-f="range"></td>
     ${mine ? `<td class="num hide-sm">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}</td><td class="num hide-sm" data-f="value"></td>` : ""}
     <td data-f="val">${h.type && h.type!=="stock" ? '<span class="small muted">Fund: no valuation</span>' : ""}</td>
+    <td class="num" data-f="health"></td>
+    <td data-f="flags"></td>
     <td><button class="link" data-del="${esc(h.symbol)}" title="Remove" aria-label="Remove ${esc(h.symbol)}">✕</button></td>
   </tr>`;
 }
@@ -677,6 +689,93 @@ async function fillRow(app, h, tok){
     if(!isNum(now) || now <= 0) set("val", `<span class="small muted">${isNum(now)?"Loss-making":"n/a"}</span>`);
     else set("val", `<span class="small">${fmtX(now)}</span> ${badge(hist && verdict(now, hist.median), "its usual P/E")}`);
   }
+  rowCtx.set(h.symbol, { isStock, mm, price, prof: p.ok ? p.v : {} });
+  drawRowFlags(app, h);
+  if(isStock){ const r = await safe(fh.rec(h.symbol)); if(!live(tok)) return; const c = rowCtx.get(h.symbol); if(c && r.ok){ c.rec = r.v; drawRowFlags(app, h); } }
+}
+
+/* ================= Risk flags (overview) ================= */
+// Read saved data without fetching (keeps daily request limits untouched).
+const peek = {
+  td:  s => cacheGet("td:daily:" + s + ":1600"),
+  av:  s => cacheGet("av:EARNINGS_ESTIMATES:" + s),
+  fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual"})),
+  finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly"})),
+};
+// Each flag: sev "red" (concern) or "amber" (watch), short text, one-line why.
+function riskFlags(c){
+  const f = [], add = (sev, text, why) => f.push({ sev, text, why });
+  const mm = c.mm || {}, px = c.price, stock = c.isStock;
+  if(c.td){
+    const t = technicals(c.td), last = c.td.c[c.td.c.length-1];
+    if(isNum(t.m200) && last < t.m200) add("amber", `Below 200-day avg (${fmtPct((last/t.m200-1)*100,0)})`, "Price is under its 200-day moving average, often read as a long-term downtrend.");
+    if(isNum(t.rsiNow) && t.rsiNow >= 70) add("amber", `RSI ${t.rsiNow.toFixed(0)}: overbought`, "Price has risen fast; it often pauses or pulls back.");
+    if(isNum(t.rsiNow) && t.rsiNow <= 30) add("amber", `RSI ${t.rsiNow.toFixed(0)}: oversold`, "Price has fallen fast; it often bounces, but check why it fell.");
+    if(t.cross && t.cross.kind === "death" && (Date.now() - new Date(t.cross.date)) < 90*864e5) add("red", "Death cross", `50-day average fell below the 200-day on ${t.cross.date}.`);
+    if(isNum(t.relVol) && t.relVol >= 2) add("amber", `Unusual volume (${t.relVol.toFixed(1)}×)`, "Latest day's trading at least twice the 30-day average: check the news.");
+  }
+  if(stock){
+    const hi = mm["52WeekHigh"], lo = mm["52WeekLow"];
+    if(isNum(px) && isNum(hi) && px >= hi*0.95) add("amber", "Near 52-week high", `Within 5% of its 1-year high (${fmt(hi)}).`);
+    if(isNum(px) && isNum(lo) && px <= lo*1.05) add("amber", "Near 52-week low", `Within 5% of its 1-year low (${fmt(lo)}).`);
+    const eps = pick(mm, ["epsTTM","epsBasicExclExtraItemsTTM","epsExclExtraItemsTTM"]);
+    if(isNum(eps) && eps < 0) add("red", "Losing money", "Earnings per share over the last 12 months is negative.");
+    if(isNum(mm.revenueGrowthTTMYoy) && mm.revenueGrowthTTMYoy < 0) add("red", "Revenue shrinking", `Sales down ${Math.abs(mm.revenueGrowthTTMYoy).toFixed(1)}% vs a year ago.`);
+    const fc = isFinancialCo(c.prof, c.fin);
+    const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
+    if(!fc && isNum(de) && de > 2) add("red", "High debt", `Debt is ${de.toFixed(1)}× shareholders' equity.`);
+    if(c.fin && c.fin.years && c.fin.years.length){
+      const H = healthScore(mm, c.prof, c.fin, c.finQ);
+      c.health = H.total;
+      if(isNum(H.total) && H.total < 40) add("red", `Weak health (${H.total}/100)`, "Financial health score below 40. Open the stock for the breakdown.");
+      const fy = c.fin.years.slice(0,3).filter(y => isNum(y.fcf));
+      if(!fc && fy.length >= 3 && fy.every(y => y.fcf < 0)) add("red", "Negative free cash flow 3 years", "Free cash flow below zero in each of the last 3 annual reports.");
+    }
+    if(c.av){
+      const e = parseAV(null, {ok:true, v:c.av}), y = e.fy2 || e.fy1;
+      if(y && isNum(y.eps) && isNum(y.eps90) && y.eps90 !== 0){ const ch = (y.eps / y.eps90 - 1) * 100 * Math.sign(y.eps90);
+        if(ch <= -3) add("red", `Analysts cutting estimates (${fmtPct(ch,0)})`, `Average earnings forecast for the year to ${y.date} is ${Math.abs(ch).toFixed(0)}% lower than 90 days ago.`); }
+    }
+    if(Array.isArray(c.rec) && c.rec.length > 1){
+      const sc = x => { const t = ["strongBuy","buy","hold","sell","strongSell"].reduce((a,k)=>a+(x[k]||0),0); return t ? ((x.strongBuy||0)*2+(x.buy||0)-(x.sell||0)-(x.strongSell||0)*2)/t : NaN; };
+      const cur = c.rec[0], old = c.rec.find(x => x.period <= ymd(new Date(new Date(cur.period).getTime() - 85*864e5)));
+      if(old && sc(cur) - sc(old) <= -0.25) add("amber", "Analysts less positive", "Buy/hold/sell ratings have shifted towards hold or sell over ~3 months.");
+    }
+  }
+  return f.sort((a, b) => (a.sev === "red" ? 0 : 1) - (b.sev === "red" ? 0 : 1));
+}
+function flagsCell(f, checked){
+  if(!f.length) return `<span class="small muted">${checked ? "None" : "None so far"}</span>`;
+  const b = x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(x.why)}">${esc(x.text)}</span>`;
+  const more = f.slice(3);
+  return `<div class="flags">${f.slice(0,3).map(b).join("")}${more.length ? `<span class="badge b-inline" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more</span>` : ""}</div>`;
+}
+const rowCtx = new Map(); // symbol -> data used for its flags, so a full check can redraw them
+function drawRowFlags(app, h){
+  const c = rowCtx.get(h.symbol); if(!c) return;
+  const tr = app.querySelector(`tr[data-sym="${CSS.escape(h.symbol)}"]`); if(!tr) return;
+  c.td = c.td || peek.td(h.symbol); c.fin = c.fin || peek.fin(h.symbol); c.finQ = c.finQ || peek.finQ(h.symbol); c.av = c.av || peek.av(h.symbol);
+  const f = riskFlags(c);
+  const checked = !!c.td && (!c.isStock || !!c.fin);
+  const hEl = tr.querySelector('[data-f="health"]'), fEl = tr.querySelector('[data-f="flags"]');
+  if(hEl) hEl.innerHTML = !c.isStock ? '<span class="small muted">—</span>' : isNum(c.health) ? `<span class="badge ${scoreClass(c.health)}" title="Financial health score">${c.health}</span>` : '<span class="small muted" title="Run the full check, or open the stock">?</span>';
+  if(fEl) fEl.innerHTML = flagsCell(f, checked);
+}
+async function runFullCheck(app, list, tok){
+  const btn = $("#fullcheck", app), note = $("#checknote", app);
+  btn.disabled = true;
+  for(let i = 0; i < list.length; i++){
+    if(!live(tok)) return;
+    const h = list[i], stock = !h.type || h.type === "stock";
+    note.textContent = `Checking ${h.symbol} (${i+1} of ${list.length})… Twelve Data allows 8 requests a minute, so this can take a few minutes.`;
+    const jobs = [ state.tdKey ? safe(tdDaily(h.symbol)) : Promise.resolve({ok:false}) ];
+    if(stock) jobs.push(safe(fh.fin(h.symbol)), safe(fh.finQ(h.symbol)));
+    const [td, fin, finQ] = await Promise.all(jobs);
+    const c = rowCtx.get(h.symbol);
+    if(c){ if(td.ok) c.td = td.v; if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
+  }
+  note.textContent = `Full check done${state.tdKey ? "" : " (no Twelve Data key, so technical flags are missing)"}. Results are kept: prices for 12 hours, company reports for a week.`;
+  btn.disabled = false;
 }
 
 /* ================= Search ================= */
