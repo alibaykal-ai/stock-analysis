@@ -249,6 +249,24 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .val-table th,.val-table td{padding-left:4px;padding-right:4px}
   .val-table .badge{white-space:normal}
 }
+
+/* ===== iPhone text & tap sizes (6.3): no text under 12px, buttons and links at least 44px tall ===== */
+@media (max-width:700px){
+  .stat.web{display:none!important}
+  small{font-size:max(12px,.833em)}
+  .rangecap,.hs-ring span,.ylab span,.ylab b,.xlab,.vlab{font-size:12px}
+  .xlab{height:18px}
+  button,select,input:not([type=range]):not([type=checkbox]):not([type=radio]){min-height:44px}
+  button.link{min-height:44px;padding:4px 10px}
+  summary,details.more>summary,.fvctl summary{padding:12px 0}
+  input[type=range]{height:44px}
+  button.link{min-width:44px}
+  #s-ex a{display:inline-block;padding:13px 4px;margin:-13px 0}
+  .jump a{min-height:44px;display:flex;align-items:center}
+  .tabs button{min-width:48px}
+  header .brand{display:inline-flex;align-items:center;min-height:44px}
+  nav.tabbar a{min-height:54px}
+}
 </style>
 </head>
 <body>
@@ -269,7 +287,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 6.2</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 6.3</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1243,6 +1261,7 @@ async function viewStock(app, sym, tok){
   const mm = met && met.metric || {};
   const nm = prof.name || (holding && holding.name); if(nm){ $("#s-name",app).textContent = nm; document.title = `${sym} · Stock Analysis`; }
   $("#s-ex",app).textContent = [prof.exchange, prof.finnhubIndustry, prof.country].filter(Boolean).join(" · ");
+  if(prof.weburl) $("#s-ex",app).insertAdjacentHTML("beforeend", `<span class="ph-lbl"> · <a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></span>`);
   let price = q.ok && isNum(q.v.c) && q.v.c>0 ? q.v.c : (holding && isNum(holding.manualPrice) ? holding.manualPrice : undefined);
   $("#s-price",app).textContent = isNum(price) ? `${fmt(price)} ${prof.currency||""}` : "No price data";
   if(q.ok && isNum(q.v.dp)) $("#s-chg",app).innerHTML = `<span class="${cls(q.v.dp)}">${fmtPct(q.v.dp,2)} today</span>`;
@@ -1256,13 +1275,13 @@ async function viewStock(app, sym, tok){
   const own = holding && isNum(holding.shares);
   if(own) stats.unshift(["Your value", isNum(price)?fmt(price*holding.shares):"—"], ["Your shares", fmt(holding.shares, holding.shares%1?4:0)]);
   // iPhone (6.2): 4 key tiles show, the rest behind "More numbers". Owned: your value & shares + 52-week range; else market cap, 52-week range, dividend.
-  const key = own ? ["Your value","Your shares","52-week high","52-week low"] : ["Market cap","52-week high","52-week low","Dividend yield"];
+  const key = own ? ["Your value","Your shares","52-week high","52-week low"] : ["Market cap","52-week high","52-week low","Dividend yield","Beta (vs market)"];
   $("#s-stats",app).innerHTML = stats.map(([k,v])=>`<div class="stat${key.includes(k) ? "" : " x"}"><span>${k}</span><b>${v}</b></div>`).join("") +
-    (prof.weburl ? `<div class="stat x"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "") +
+    (prof.weburl ? `<div class="stat x web"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "") +
     (splitF && splitF !== 1 ? `<div class="small muted" style="grid-column:1/-1;flex-basis:100%;margin-top:2px">Adjusted for ${/^(8|11|18)\b/.test(String(Math.round(splitF > 1 ? splitF : 1 / splitF))) ? "an" : "a"} ${splitF > 1 ? `${splitF}-for-1` : `1-for-${Math.round(1 / splitF)} reverse`} stock split: Finnhub's per-share figures (earnings, book value, 52-week range, share count) were still on the old basis, so they're converted here.</div>` : "");
 
-  { const sg = $("#s-stats",app); sg.insertAdjacentHTML("beforeend", `<button type="button" class="statmore">More numbers</button>`);
-    const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; }
+  { const sg = $("#s-stats",app); if(sg.querySelector(".stat.x:not(.web)")){ sg.insertAdjacentHTML("beforeend", `<button type="button" class="statmore">More numbers</button>`);
+    const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
     else { renderHealth(app, mm, price, prof); Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
