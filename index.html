@@ -159,7 +159,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.10</b> · 21 Nov 2026 ·
+  <b>Version 3.11</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -456,11 +456,6 @@ function rsi(c, n){ n = n || 14; const out = new Array(c.length).fill(NaN); if(c
   g /= n; l /= n; out[n] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
   for(let i = n + 1; i < c.length; i++){ const d = c[i] - c[i-1]; g = (g * (n-1) + Math.max(d, 0)) / n; l = (l * (n-1) + Math.max(-d, 0)) / n; out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); }
   return out; }
-// Slope of a least-squares line through the last n points, as % of the mean per day.
-function trendPct(a, n){ const ys = a.slice(-n), m = ys.length; if(m < 10) return NaN;
-  const mx = (m-1)/2, my = ys.reduce((s,v)=>s+v,0)/m; let num = 0, den = 0;
-  ys.forEach((y,i) => { num += (i-mx)*(y-my); den += (i-mx)*(i-mx); });
-  const range = Math.max(...ys) - Math.min(...ys) || 1; return num/den * m / range * 100; } // change over the window as % of its range
 function technicals(h){
   const c = h.c, v = h.v, n = c.length, last = n - 1;
   const r = rsi(c, 14), m50 = sma(c, 50), m200 = sma(c, 200);
@@ -469,8 +464,14 @@ function technicals(h){
   const obv = [0]; for(let i = 1; i < n; i++) obv.push(obv[i-1] + (c[i] > c[i-1] ? v[i] : c[i] < c[i-1] ? -v[i] : 0));
   let cross = null; for(let i = last; i > 0; i--){ if(!isNum(m50[i]) || !isNum(m200[i]) || !isNum(m50[i-1]) || !isNum(m200[i-1])) break;
     const a = m50[i] - m200[i], b = m50[i-1] - m200[i-1]; if(a > 0 && b <= 0){ cross = { kind: "golden", date: h.d[i] }; break; } if(a < 0 && b >= 0){ cross = { kind: "death", date: h.d[i] }; break; } }
+  // Price direction: % change of a straight line fitted through the last 50 closes.
+  const ys = c.slice(-50), m = ys.length, mx = (m-1)/2, my = ys.reduce((a,b)=>a+b,0)/m;
+  let num = 0, den = 0; ys.forEach((y,i) => { num += (i-mx)*(y-my); den += (i-mx)*(i-mx); });
+  const pxChg = m >= 20 ? num/den*(m-1)/my*100 : NaN;
+  // Volume flow: (up-day volume - down-day volume) / all volume, last 50 days (= On-Balance Volume's change over the window)
+  const flow = up + dn > 0 ? (up - dn) / (up + dn) * 100 : NaN;
   return { rsi: r, rsiNow: r[last], relVol: avg30 > 0 ? v[last] / avg30 : NaN, upDown: dn > 0 ? up / dn : NaN,
-    obvTrend: trendPct(obv, 50), pxTrend: trendPct(c, 50), m50: m50[last], m200: m200[last], cross, lastDate: h.d[last] };
+    obvTrend: flow, pxTrend: pxChg, m50: m50[last], m200: m200[last], cross, lastDate: h.d[last] };
 }
 
 /* ---- Valuation history worked out from company reports + month-end prices ---- */
@@ -480,7 +481,7 @@ function calcHistory(fin, finQ, monthly, prof){
   if(ys[0].unit && prof && prof.currency && ys[0].unit !== prof.currency) return null; // reports in another currency
   const sharesAt = end => { const q = qs.find(x => x.end === end && isNum(x.shares)); if(q) return q.shares;
     const y = ys.find(x => x.end <= end && isNum(x.shares)) || ys.find(x => isNum(x.shares)); return y && y.shares; };
-  const out = { pe: [], ps: [], pb: [], pfcf: [] };
+  const out = { pe: [], ps: [], pb: [], pfcf: [], peThin: [] }; // peThin: periods with losses or under 1% net margin
   const add = (k, end, cap, den) => { if(isNum(cap) && isNum(den) && den > 0) out[k].push({ period: end, v: cap / den }); };
   const points = [...ys.map(y => ({ end: y.end, t: y, annual: y })), ...qs.filter(q => !ys.some(y => y.end === q.end)).map(q => ({ end: q.end, t: ttmAt(fin, finQ, q.end), eq: q.equity }))];
   for(const p of points){
@@ -488,6 +489,7 @@ function calcHistory(fin, finQ, monthly, prof){
     if(!isNum(price) || !isNum(sh) || !p.t) continue;
     const cap = price * sh;
     add("pe", p.end, cap, p.t.net);
+    if(isNum(p.t.net) && isNum(p.t.revenue) && p.t.revenue > 0 && p.t.net / p.t.revenue < 0.01) out.peThin.push(p.end);
     add("ps", p.end, cap, p.t.revenue);
     add("pb", p.end, cap, p.annual ? p.annual.equity : p.eq);
     if(p.annual) add("pfcf", p.end, cap, p.annual.fcf);
@@ -525,6 +527,8 @@ function history(metricJson, r){
   }
   // Worked out by the app from company reports + month-end prices (see calcHistory)
   const c = metricJson && metricJson.calcHist && metricJson.calcHist[r.id];
+  // A P/E from years of losses or near-zero profit is huge and misleading as a "usual" level: skip it.
+  if(c && r.id === "pe" && (metricJson.calcHist.peThin || []).some(d => new Date(d) >= cutoff)) return null;
   if(c){
     const vals = c.filter(p => isNum(p.v) && p.v > 0 && new Date(p.period) >= cutoff).map(p => p.v);
     if(vals.length >= (r.id === "pfcf" ? 3 : 5)) return { vals, freq: "calc", median: median(vals), lo: quantile(vals,.25), hi: quantile(vals,.75) };
@@ -949,7 +953,9 @@ async function renderValuation(app, sym, met, prof, tok){
     histP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym)), safe(avq.monthly(sym))]).then(([f, fq, mo]) => {
       histState = "done";
       if(!mo.ok){ histNote = `Couldn't fetch past prices to work out the missing history: ${esc(mo.e.message)}`; return; }
-      try{ met.calcHist = calcHistory(f.ok ? f.v : null, fq.ok ? fq.v : null, mo.v, prof); }catch(e){ histNote = "Couldn't work out the missing history from the reports."; }
+      try{ met.calcHist = calcHistory(f.ok ? f.v : null, fq.ok ? fq.v : null, mo.v, prof);
+        if(met.calcHist && met.calcHist.peThin.some(d => new Date(d) >= new Date(Date.now() - state.settings.years*365.25*864e5)))
+          histNote = "P/E history left out: the company made a loss or almost no profit in part of the last " + state.settings.years + " years, so its past P/E isn't a fair benchmark (it would make today's price look cheap). Fair value skips \"its usual P/E\" for the same reason."; }catch(e){ histNote = "Couldn't work out the missing history from the reports."; }
     });
   }
   draw(null);
@@ -1084,7 +1090,7 @@ function fvMethods(inp, a, met, fx){
   if(epsOk && peHist){
     const ad = adjPE(peHist.median, gNow, inp.epsG5, a.r);
     out.push({ name:"Its usual P/E", v: ad.pe * inp.eps, counted:true, note: peNote(`its usual P/E (last ${state.settings.years} years)`, peHist.median, ad, inp.epsG5, "its past 5 years") });
-  } else out.push({ name:"Its usual P/E", v:NaN, note: epsOk ? "Skipped: not enough P/E history." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
+  } else out.push({ name:"Its usual P/E", v:NaN, note: !epsOk ? "Skipped: the company isn't profitable, so P/E doesn't apply." : met && met.calcHist && met.calcHist.peThin && met.calcHist.peThin.length ? "Skipped: profits were negative or close to zero in part of the last years, so its past P/E isn't a fair benchmark." : "Skipped: not enough P/E history." });
   const pm = peerInfo && peerInfo.medians.pe;
   if(!peerInfo) out.push({ name:"Peer P/E", v:NaN, loading:true, note:"Loading similar companies…" });
   else if(epsOk && isNum(pm)){
@@ -1367,12 +1373,13 @@ function signalsHtml(t){
       !isNum(ud) ? "" : ud >= 1.2 ? "Buyers stronger" : ud <= 0.8 ? "Sellers stronger" : "Balanced",
       "Volume on up days ÷ volume on down days, last 50 days. Above 1.2 suggests buying (accumulation); below 0.8 selling (distribution).");
   const o = t.obvTrend, pT = t.pxTrend;
-  const dir = x => !isNum(x) ? "—" : x > 15 ? "Rising" : x < -15 ? "Falling" : "Flat";
-  const div = isNum(o) && isNum(pT) && ((o > 15 && pT < -15) || (o < -15 && pT > 15));
-  const obvT = tile("On-Balance Volume trend", dir(o), !isNum(o) ? "" : div ? "b-warn" : o > 15 ? "b-cheap" : o < -15 ? "b-rich" : "b-inline",
-      div ? (o > 15 ? "Hidden buying" : "Hidden selling") : "",
-      div ? `Volume is flowing ${o > 15 ? "in" : "out"} while the price is ${pT > 0 ? "rising" : "falling"}: the two disagree, which often comes before a turn.`
-          : `Running total of volume (added on up days, subtracted on down days), last 50 days. ${dir(o) === dir(pT) ? "Moving with the price: confirms the trend." : "Price is " + dir(pT).toLowerCase() + "."}`);
+  const oDir = !isNum(o) ? "—" : o > 10 ? "Rising" : o < -10 ? "Falling" : "Flat";
+  const pDir = !isNum(pT) ? "flat" : pT > 3 ? "rising" : pT < -3 ? "falling" : "flat";
+  const div = (oDir === "Rising" && pDir === "falling") || (oDir === "Falling" && pDir === "rising");
+  const obvT = tile("On-Balance Volume trend", oDir, !isNum(o) ? "" : div ? "b-warn" : "b-inline",
+      div ? (oDir === "Rising" ? "Hidden buying" : "Hidden selling") : "",
+      `Last 50 days: price ${pDir} (${fmtPct(pT,0)}), volume ${oDir === "Rising" ? "flowing in" : oDir === "Falling" ? "flowing out" : "balanced"}. ` +
+      (div ? "The two disagree, which often comes before a turn." : oDir === "Flat" || pDir === "flat" ? "No clear signal." : "Volume confirms the price move."));
   return `<h3 style="margin-top:16px">Technical signals <span class="small muted" style="font-weight:400">· supporting information for timing, not a reason to buy or sell on its own</span></h3>
     <div class="grid sig">${rsiT}${tr}${rvT}${udT}${obvT}</div>`;
 }
@@ -1519,11 +1526,13 @@ function healthScore(mm, prof, fin, finQ){
     item("Revenue growth, last year", mm.revenueGrowthTTMYoy, v=>fmtPct(v), -5, 10, "Full marks ≥ 10% · zero at −5% or worse"),
   ]);
   // 5. Share dilution
-  const shOld = ys[3] || ys[ys.length-1];
-  const dil = y0 && shOld && shOld !== y0 ? cagr(ysS[0].shares, ysS[ys.indexOf(shOld)].shares, ys.indexOf(shOld)) : NaN;
+  const yrsBetween = (a, b) => (new Date(a.end) - new Date(b.end)) / (365.25*864e5);
+  const shOld = y0 ? ys.filter(y => y !== y0 && isNum(y.shares)).sort((a, b) => Math.abs(yrsBetween(y0, a) - 3) - Math.abs(yrsBetween(y0, b) - 3))[0] : null;
+  const dilYrs = shOld ? Math.round(yrsBetween(y0, shOld)) : 0;
+  const dil = y0 && shOld && dilYrs >= 1 ? cagr(ysS[0].shares, ysS[ys.indexOf(shOld)].shares, yrsBetween(y0, shOld)) : NaN;
   const splitNote = SA.splits.length ? ` · adjusted for ${SA.splits.map(x => `a ${x.ratio} stock split (${x.year})`).join(" and ")}` : "";
   pillar("dilution", "Share dilution", "Whether your slice of the company is shrinking (new shares) or growing (buybacks)", [
-    item("Change in share count (per year)", dil, v=>fmtPct(v), 4, 0, `Over the last ${shOld && y0 ? ys.indexOf(shOld) : 3} years. Full marks if flat or falling (buybacks) · zero at +4%/yr${splitNote}`),
+    item("Change in share count (per year)", dil, v=>fmtPct(v), 4, 0, `Annual reports ${shOld ? shOld.end.slice(0,4) : "?"} → ${y0 ? y0.end.slice(0,4) : "?"} (${dilYrs} years). Full marks if flat or falling (buybacks) · zero at +4%/yr${splitNote}`),
   ]);
 
   const have = pillars.filter(p => isNum(p.s));
