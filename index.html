@@ -126,7 +126,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.1</b> · 21 Nov 2026 ·
+  <b>Version 3.2</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1016,20 +1016,25 @@ function healthScore(mm, prof, fin, finQ){
   const item = (name, v, show, weak, strong, rule, s) => ({ name, v, show: isNum(v) ? show(v) : "—", s: s !== undefined ? s : scale(v, weak, strong), rule });
   // Finnhub's ready-made ratio (last 12 months) first; if missing, work it out from the latest annual report.
   const yrNote = y0 ? ` · from the annual report (year to ${y0.end})` : "";
-  const T = ttmFrom(fin, finQ);
+  // Cross-check: Finnhub's own 12-month earnings per share. If our sum from quarterly
+  // reports disagrees on whether the company made a profit, don't trust the sum.
+  const epsT = pick(mm, ["epsTTM","epsBasicExclExtraItemsTTM","epsExclExtraItemsTTM","epsInclExtraItemsTTM"]);
+  let T = ttmFrom(fin, finQ);
+  if(T && isNum(epsT) && epsT !== 0 && isNum(T.net) && Math.sign(T.net) !== Math.sign(epsT)) T = null;
   const ratio = (keys, num, den) => {
-    const v = pick(mm, keys); if(isNum(v)) return { v, note: "" };
+    const v = pick(mm, keys); if(isNum(v)) return { v, note: " · last 12 months (Finnhub)" };
     const tn = T && T[num], td = T && (den === "equity" ? (T.equity ?? (y0 && y0.equity)) : T[den]);
-    if(isNum(tn) && isNum(td) && td > 0) return { v: tn / td * 100, note: ` · last 12 months, from quarterly reports (to ${T.end})` };
+    if(isNum(tn) && isNum(td) && td > 0 && Math.abs(tn / td) <= 1.5) return { v: tn / td * 100, note: ` · last 12 months, from quarterly reports (to ${T.end})` };
     const n = y0 && y0[num], d = y0 && y0[den];
     return isNum(n) && isNum(d) && d > 0 ? { v: n / d * 100, note: yrNote } : { v: NaN, note: "" };
   };
   const fc = isFinancialCo(prof, fin);
 
   // 1. Profitability
-  const nm = ratio(["netProfitMarginTTM","netProfitMarginAnnual"], "net", "revenue");
-  const om = fc ? ratio(["pretaxMarginTTM","pretaxMarginAnnual"], "pretax", "revenue") : ratio(["operatingMarginTTM","operatingMarginAnnual"], "ebit", "revenue");
-  const roe = ratio(["roeTTM","roeRfy"], "net", "equity");
+  // Only Finnhub's 12-month ratios: its "annual" ones can be years out of date.
+  const nm = ratio(["netProfitMarginTTM"], "net", "revenue");
+  const om = fc ? ratio(["pretaxMarginTTM"], "pretax", "revenue") : ratio(["operatingMarginTTM"], "ebit", "revenue");
+  const roe = ratio(["roeTTM"], "net", "equity");
   pillar("profit", "Profitability", "How much profit it makes from sales and from shareholders' money", [
     item("Net profit margin", nm.v, pct, 0, 15, "Full marks ≥ 15% · zero at 0% or below" + nm.note),
     fc ? item("Pre-tax margin", om.v, pct, 0, 20, "Profit before tax ÷ revenue (used instead of operating margin for financial companies). Full marks ≥ 20% · zero at 0% or below" + om.note)
@@ -1093,7 +1098,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
   if(isNum(price)&&isNum(hi)&&price >= hi*0.95) flags.push(["b-warn","Near 52-week high", `Within 5% of its 1-year high (${fmt(hi)}). Good momentum, but less room for error if you're buying now.`]);
   if(isNum(price)&&isNum(lo)&&price <= lo*1.05) flags.push(["b-warn","Near 52-week low", `Within 5% of its 1-year low (${fmt(lo)}). Check whether something has changed in the business.`]);
   const nmItem = H.pillars.find(p => p.id === "profit").items.find(i => i.name === "Net profit margin");
-  if(nmItem && nmItem.v < 0) flags.push(["b-rich","Losing money", nmItem.rule.includes("annual report") ? "Net profit margin was negative in the last annual report." : "Net profit margin is negative over the last 12 months."]);
+  if(nmItem && nmItem.v < 0) flags.push(["b-rich","Losing money", `Net profit margin is ${nmItem.v.toFixed(1)}% (${nmItem.rule.split(" · ").pop()}).`]);
   if(isNum(mm.revenueGrowthTTMYoy)&&mm.revenueGrowthTTMYoy<0) flags.push(["b-rich","Revenue shrinking",`Sales are down ${Math.abs(mm.revenueGrowthTTMYoy).toFixed(1)}% vs a year ago.`]);
   if(!H.fc && isNum(de)&&de>2) flags.push(["b-rich","High debt",`Debt is ${de.toFixed(1)}× shareholders' equity.`]);
   if(!H.fc && isNum(cr)&&cr<1) flags.push(["b-warn","Tight short-term finances","Short-term debts exceed short-term assets (current ratio below 1)."]);
