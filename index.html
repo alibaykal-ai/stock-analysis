@@ -170,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 4.3</b> · 21 Nov 2026 ·
+  <b>Version 4.4</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2004,7 +2004,7 @@ function fedSummary(f, infl){
   else if(dir === "down"){ k = "b-cheap"; text = `<b>Rates more likely to fall than rise.</b> ${m === o ? "Bond markets and Fed officials both point lower" : m === "down" ? "Bond markets point lower" : "Fed officials point lower"}${hot ? ", though inflation above target may keep cuts slow" : ""}. Lower rates are usually a tailwind for stocks.`; }
   else if(dir === "flat"){ k = "b-inline"; text = `<b>Rates likely to stay roughly where they are</b> for now${hot ? ", with inflation still above target" : ""}.`; }
   else { k = "b-warn"; text = `<b>Mixed signals:</b> bond markets point ${m === "up" ? "higher" : "lower"} but Fed officials point ${o === "up" ? "higher" : "lower"}. Worth watching the next Fed meeting.`; }
-  return { k, text, word: dir === "up" ? "Rates heading up" : dir === "down" ? "Rates heading down" : dir === "flat" ? "Rates on hold" : "Mixed signals" };
+  return { k, text, dir, word: dir === "up" ? "Rates heading up" : dir === "down" ? "Rates heading down" : dir === "flat" ? "Rates on hold" : "Mixed signals" };
 }
 function renderFed(app, j){
   const el = $("#m-fed-b", app); if(!el) return;
@@ -2123,8 +2123,8 @@ function renderEcon(app, j){
       <span class="badge ${TAG[x.tag][0]}">${TAG[x.tag][1]}</span> <span class="small muted">${asOf(x)}</span>
       <p class="small muted" style="margin:4px 0 0">${x.why}</p></div>`;
   const group = (g, title) => { const a = items.filter(x => x.grp === g); return a.length ? `<h3>${title}</h3><div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">${a.map(tile).join("")}</div>` : ""; };
-  const h = cnt("head"), t = cnt("tail");
-  const sum = h >= t + 2 ? ["b-rich", "Mostly headwinds"] : t >= h + 2 ? ["b-cheap", "Mostly tailwinds"] : ["b-inline", "Mixed"];
+  const es = econSummary(items), h = es.h, t = es.t;
+  const sum = es.k === "head" ? ["b-rich", "Mostly headwinds"] : es.k === "tail" ? ["b-cheap", "Mostly tailwinds"] : ["b-inline", "Mixed"];
   const names = k => items.filter(x => x.tag === k).map(x => { const n = x.name.replace(/ \(.*\)| ".*"/, ""); return /^[A-Z][a-z]/.test(n) ? n[0].toLowerCase() + n.slice(1) : n; });
   el.classList.remove("muted", "small");
   el.innerHTML = `
@@ -2137,26 +2137,101 @@ function renderEcon(app, j){
       Small lines show the last 2 years (jobs: monthly jobs added; dotted line = zero). Economic data describes the backdrop, not when to buy or sell: markets often move before the economy does. Data: FRED (St. Louis Fed).</p>
     </details>`;
 }
+/* ================= Macro tab: overall verdict + Macro → your stocks ================= */
+function rotationKind(rows){
+  const ok = rows.filter(r => isNum(r.rel3)); if(ok.length < 6) return null;
+  const avg = g => { const v = ok.filter(r => r.grp === g).map(r => r.rel3); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : NaN; };
+  const gap = avg("def") - avg("cyc");
+  return gap >= 3 ? "def" : gap <= -3 ? "cyc" : "none";
+}
+const econSummary = items => { const h = items.filter(x => x.tag === "head").length, t = items.filter(x => x.tag === "tail").length;
+  return { h, t, k: h >= t + 2 ? "head" : t >= h + 2 ? "tail" : "mixed" }; };
+// How each sector usually reacts to rates and the economy (general tendencies, not rules).
+function sectorMacroNote(etf, rates, econ, oilTag){
+  const up = rates === "up", down = rates === "down";
+  switch(etf){
+    case "XLK": case "XLC": case "XLY":
+      return up ? "Rising rates usually weigh most on fast-growing companies valued on profits far in the future." : down ? "Falling rates usually help fast-growing companies most." : "Growth companies are sensitive to interest rates; rates look steady for now.";
+    case "XLF":
+      return `Banks often earn more when rates are higher, but lenders suffer if the economy weakens and defaults rise (economy now: ${econ === "head" ? "mostly headwinds" : econ === "tail" ? "mostly tailwinds" : "mixed"}).`;
+    case "XLRE": case "XLU":
+      return up ? "Rate-sensitive: these borrow heavily and compete with bond yields, so rising rates usually hurt." : down ? "Rate-sensitive: falling rates usually help." : "Rate-sensitive; rates look steady for now.";
+    case "XLV": case "XLP":
+      return "Defensive: people buy these whatever the economy does, so they tend to hold up better in a slowdown.";
+    case "XLE":
+      return `Moves mainly with oil prices (oil is currently a ${oilTag === "head" ? "headwind for the economy, which helps energy companies" : oilTag === "tail" ? "tailwind for the economy, falling, which hurts energy companies" : "neutral factor"}).`;
+    default:
+      return `Economy-sensitive: tends to follow growth and business spending (economy now: ${econ === "head" ? "mostly headwinds" : econ === "tail" ? "mostly tailwinds" : "mixed"}).`;
+  }
+}
+function renderTop(app, data, mine, fredJ){
+  const vb = $("#m-verdict-b", app), yb = $("#m-yours-b", app); if(!vb || !yb) return;
+  const spy = data.SPY && !data.SPY.err ? data.SPY : null;
+  const mood = spy ? marketMood(spy) : null;
+  const rows = spy ? sectorRows(data, spy) : [];
+  const rot = spy ? rotationKind(rows) : null;
+  let fedDir = null, econ = null, oilTag = null;
+  if(fredJ){
+    const S = fredJ.series, f = fedView(S);
+    if(f){ const infl = inflationItem("Core PCE", S.PCEPILFE, ""); fedDir = fedSummary(f, infl).dir; }
+    const items = econItems(S); if(items.length) econ = econSummary(items);
+    const oil = items.find(x => x.name.startsWith("Oil")); oilTag = oil && oil.tag;
+  }
+  // Score each part: +1 supportive, 0 neutral, -1 unsupportive
+  const parts = [];
+  if(mood) parts.push({ s: mood.word === "Bull market" ? 1 : mood.word === "Pullback" ? 0 : -1, t: mood.word === "Bull market" ? "stocks in a bull market" : mood.word === "Pullback" ? "stocks in a pullback" : mood.word === "Correction" ? "stocks in a correction" : "stocks in a bear market" });
+  if(rot) parts.push({ s: rot === "cyc" ? 1 : rot === "def" ? -1 : 0, t: rot === "cyc" ? "investors favouring growth sectors" : rot === "def" ? "investors moving to defensive sectors" : "no clear sector rotation" });
+  if(fedDir) parts.push({ s: fedDir === "down" ? 1 : fedDir === "up" ? -1 : 0, t: fedDir === "down" ? "rates heading down" : fedDir === "up" ? "rates heading up" : fedDir === "flat" ? "rates on hold" : "mixed signals on rates" });
+  if(econ) parts.push({ s: econ.k === "tail" ? 1 : econ.k === "head" ? -1 : 0, t: econ.k === "tail" ? "the economy mostly supportive" : econ.k === "head" ? "the economy mostly against" : "the economy itself holding up (mixed signals)" });
+  if(parts.length < 2){ vb.innerHTML = `<span class="spin"></span> Waiting for the sections below to load…`; }
+  else {
+    const score = parts.reduce((a, p) => a + p.s, 0);
+    const [k, word] = score >= 2 ? ["b-cheap", "Mostly tailwinds"] : score <= -2 ? ["b-rich", "Mostly headwinds"] : ["b-warn", "Mixed"];
+    const neg = parts.filter(p => p.s < 0).map(p => p.t), pos = parts.filter(p => p.s > 0).map(p => p.t), mid = parts.filter(p => p.s === 0).map(p => p.t);
+    const list = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length-1] : a[0];
+    const sentence = [neg.length ? `Against: ${list(neg)}.` : "", pos.length ? `For: ${list(pos)}.` : "", mid.length ? `Neutral: ${list(mid)}.` : ""].filter(Boolean).join(" ");
+    vb.classList.remove("muted", "small");
+    vb.innerHTML = `<div class="mood"><div><span class="badge big ${k}">${word}</span></div>
+      <div style="flex:1;min-width:260px;max-width:760px"><p style="margin:0 0 6px">${sentence}</p>
+      <p class="small muted" style="margin:0">Combines the four sections below: market mood, sector rotation, where rates are heading and the economy. Each counts +1 for, 0 neutral, −1 against; +2 or more = Mostly tailwinds, −2 or less = Mostly headwinds. It describes the backdrop for stocks in general, not a reason to buy or sell any one stock.${parts.length < 4 ? " Some sections are still loading." : ""}</p></div></div>`;
+  }
+  // Macro → your stocks: one line per sector you own (holdings first, then watchlist-only sectors)
+  const secs = SECTORS.map(([etf, name]) => ({ etf, name, t: mine[etf], r: rows.find(x => x.etf === etf) })).filter(x => x.t);
+  if(!state.apiKey){ yb.innerHTML = `Add your Finnhub key in Settings so the app can tell which sector each stock is in.`; return; }
+  if(!secs.length){ yb.innerHTML = state.holdings.length || state.watchlist.length ? `<span class="spin"></span> Matching your stocks to sectors…` : `Add stocks to My Stocks or the Watchlist to see how the backdrop affects them.`; return; }
+  secs.sort((a, b) => (b.t.mine.length ? 1 : 0) - (a.t.mine.length ? 1 : 0) || ((b.r && b.r.rel3) || 0) - ((a.r && a.r.rel3) || 0));
+  yb.classList.remove("muted", "small");
+  yb.innerHTML = secs.map(x => {
+    const r = x.r, rel = r && isNum(r.rel3) ? r.rel3 : NaN;
+    const perf = isNum(rel) ? `${rel >= 2 ? "Leading" : rel <= -2 ? "Lagging" : "In line with"} the S&amp;P 500 ${rel >= 2 || rel <= -2 ? `by ${Math.abs(rel).toFixed(1)} points ` : ""}over 3 months${r.above === true ? ", above its 200-day average" : r.above === false ? ", below its 200-day average" : ""}.` : "";
+    const tick = [...x.t.mine.map(s => `<b>${esc(s)}</b>`), ...x.t.watch.map(s => `<span class="muted">${esc(s)}</span>`)].join(", ");
+    return `<div class="flag"><div style="min-width:74px">${relBadge(rel)}</div><div><b>${esc(x.name)}</b> (${tick}): ${perf} ${sectorMacroNote(x.etf, fedDir, econ && econ.k, oilTag)}</div></div>`;
+  }).join("") + `<p class="small muted" style="margin:8px 0 0">Holdings in bold, watchlist in grey; ETFs and funds left out. Sector notes describe how these sectors usually react, not a forecast for any one company.</p>`;
+}
 async function viewMacro(app, tok){
   app.innerHTML = `
+    <div class="card" id="m-verdict"><h2>Overall: the backdrop for stocks</h2><div id="m-verdict-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card" id="m-yours"><h2>Macro → your stocks</h2><div id="m-yours-b" class="muted small"><span class="spin"></span> Loading…</div></div>
     <div class="card" id="m-mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
     <div class="card" id="m-sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
     <div class="card" id="m-fed"><h2>Inflation &amp; the Fed</h2><div id="m-fed-b" class="muted small"><span class="spin"></span> Loading…</div></div>
     <div class="card" id="m-econ"><h2>The economy: tailwinds and headwinds</h2><div id="m-econ-b" class="muted small"><span class="spin"></span> Loading…</div></div>
-    <div class="card"><h2>Coming next</h2><p class="small muted" style="margin:0">An overall verdict at the top and "Macro → your stocks".</p></div>`;
-  macroData().then(j => { if(live(tok)){ renderFed(app, j); renderEcon(app, j); } }, e => { ["#m-fed-b","#m-econ-b"].forEach(id => { const el = $(id, app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }); });
+`;
+  const data = {};
+  let mine = {}, fredJ = null;
+  const top = () => { if(live(tok)) renderTop(app, data, mine, fredJ); };
+  macroData().then(j => { if(live(tok)){ fredJ = j; renderFed(app, j); renderEcon(app, j); top(); } }, e => { ["#m-fed-b","#m-econ-b"].forEach(id => { const el = $(id, app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }); });
   if(!state.tdKey){
     $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (13 requests, kept 12 hours).`;
     $("#m-sect-b", app).textContent = "";
+    holdingSectors().then(m => { mine = m; top(); });
     return;
   }
-  const data = {};
   const syms = ["SPY", "RSP", ...SECTORS.map(s => s[0])];
   const cached = syms.filter(s => cacheGet("td:daily:" + s + ":" + (s === "SPY" ? 1600 : MKT_N)) !== undefined).length;
   const note = $("#m-sect-b", app);
   const mineP = holdingSectors();
-  let mine = {};
-  mineP.then(m => { mine = m; if(live(tok)) draw(); });
+  mineP.then(m => { mine = m; if(live(tok)){ draw(); top(); } });
   let done = 0;
   const draw = () => {
     if(!live(tok)) return;
@@ -2229,10 +2304,10 @@ async function viewMacro(app, tok){
     if(!live(tok)) return;
     data[s] = r.ok ? r.v : { err: r.e.message };
     done++;
-    if(s === "SPY" || s === "RSP" || done === syms.length || done % 2 === 0) draw();
+    if(s === "SPY" || s === "RSP" || done === syms.length || done % 2 === 0){ draw(); top(); }
     if(!r.ok && (r.e.code === "auth" || r.e.code === "rate")){ syms.forEach(x => { if(!data[x]) data[x] = { err: r.e.message }; }); break; }
   }
-  done = syms.length; draw();
+  done = syms.length; draw(); top();
 }
 
 /* ================= Settings ================= */
