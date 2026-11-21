@@ -114,7 +114,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 2.4</b> · 21 Nov 2026 ·
+  <b>Version 2.5</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -613,9 +613,9 @@ function impliedGrowth(price, fcf, r, gt){
   for(let i=0; i<80; i++){ const m = (lo+hi)/2; if(dcfPerShare(fcf, m, r, gt) < price) lo = m; else hi = m; }
   return (lo+hi)/2;
 }
-// Growth fades as companies get bigger: start at g0 next year, reach gt by year 10.
-// This returns the average over years 1-5 of that path, to feed the 5-year DCF stage.
-const fadeAvg5 = (g0, gt) => g0 - (g0 - gt) * 2 / 9;
+// Fast growth rarely lasts: year 1 grows at g0, then the growth above long-term growth gt
+// halves each year. Returns the average over years 1-5, to feed the 5-year DCF stage.
+const fadeAvg5 = (g0, gt) => gt + (g0 - gt) * (1 + 0.5 + 0.25 + 0.125 + 0.0625) / 5;
 const avNum = v => { const n = parseFloat(v); return isFinite(n) ? n : NaN; };
 function parseAV(ovRes, estRes){
   const out = { errs: [] };
@@ -662,12 +662,13 @@ function fvInputs(met, prof, price, av){
     how: `analysts' average earnings estimate goes from ${fmt(f1.eps)} per share this fiscal year to ${fmt(f2.eps)} next fiscal year` };
   else if(av.fwdPE > 0 && eps > 0 && isNum(price)){ const fe = price / av.fwdPE; exp = { g: (fe/eps - 1) * 100,
     how: `analysts expect about ${fmt(fe)} per share of earnings over the next year, vs ${fmt(eps)} over the last 12 months` }; }
-  // With analyst forecasts: start from their expected growth and let it fade.
-  // Without them: past growth rarely repeats at high rates, so stay cautious (0–15%).
-  const startG = exp ? Math.round(fadeAvg5(exp.g, 2.5) * 2) / 2
-    : isNum(pastMid) ? Math.round(Math.min(15, Math.max(0, pastMid)) * 2) / 2 : 5;
-  const startHow = exp ? `analysts expect earnings to grow ${fmtPct(exp.g,1)} next year`
-    : isNum(pastMid) ? `no analyst forecasts, so the middle of its past 5-year growth (${fmtPct(pastMid,1)}), kept between 0% and 15% because fast growth rarely lasts` : null;
+  // Start from analysts' expected growth for next year (or, without forecasts, the middle
+  // of past 5-year growth) and let the growth above 2.5% halve each year.
+  const g0 = exp ? exp.g : pastMid;
+  const startG = isNum(g0) ? Math.round(fadeAvg5(g0, 2.5) * 2) / 2 : 5;
+  const fadeTxt = "with the growth above 2.5% halving each year after that, because fast growth rarely lasts";
+  const startHow = exp ? `analysts expect earnings to grow ${fmtPct(exp.g,1)} next year, ${fadeTxt}`
+    : isNum(pastMid) ? `no analyst forecasts, so the middle of its past 5-year growth (${fmtPct(pastMid,1)}) for next year, ${fadeTxt}` : null;
   return { eps, bvps, fcf, past, pastMid, exp, startG, startHow, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av };
 }
 function fvAssump(sym, inp){
@@ -684,7 +685,7 @@ function adjPE(pe, gNow, gThen, r){
   return { pe: basePE + (pe - basePE) * f, adj:true, basePE };
 }
 function fvMethods(inp, a, met, fx){
-  const out = [], peerInfo = fx.peerInfo, gNow = inp.exp ? inp.exp.g : inp.startG, gWho = inp.exp ? "analysts now expect" : "the app now assumes (no forecasts)";
+  const out = [], peerInfo = fx.peerInfo, gNow = a.g, gWho = "the growth now assumed for the next 5 years is";
   if(isNum(inp.fcf) && inp.fcf > 0){
     out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
       note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.` });
@@ -692,9 +693,9 @@ function fvMethods(inp, a, met, fx){
   const epsOk = isNum(inp.eps) && inp.eps > 0;
   const peNote = (label, raw, ad, gThen, who) => {
     let t = `Earnings of ${fmt(inp.eps)} per share × ${label} of ${fmtX(raw)}`;
-    if(ad.adj) t += `, growth-adjusted to ${fmtX(ad.pe)}: that P/E went with ${fmtPct(gThen,0)} yearly earnings growth (${who}), but ${gWho} ${fmtPct(gNow,0)}, so the growth part of the P/E is scaled down to match.`;
-    else if(isNum(gNow) && isNum(gThen) && gNow >= gThen) t += `. Expected growth (${fmtPct(gNow,0)}) at least as fast as when that P/E applied (${fmtPct(gThen,0)}), so no adjustment.`;
-    else if(!isNum(gNow)) t += `. Not growth-checked: no analyst estimates available.`;
+    if(ad.adj) t += `, growth-adjusted to ${fmtX(ad.pe)}: that P/E went with ${fmtPct(gThen,0)} yearly earnings growth (${who}), but ${gWho} ${fmtPct(gNow,1)} a year (growth slider), so the growth part of the P/E is scaled down to match.`;
+    else if(isNum(gNow) && isNum(gThen) && gNow >= gThen) t += `. Growth assumed for the next 5 years (${fmtPct(gNow,1)}) is at least as fast as when that P/E applied (${fmtPct(gThen,0)}), so no adjustment.`;
+    else if(!isNum(gThen)) t += `. Not growth-checked: no past growth figure to compare with.`;
     else t += ".";
     return t;
   };
@@ -778,7 +779,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     ["gt", "Long-term growth", 0, 4, 0.5, "Growth after year 10, forever. Keep this near inflation (2–3%)."],
   ];
   el.innerHTML = `<div id="fv-out"></div>
-    <details class="fvctl" ${state.fv[sym] ? "open" : ""}><summary><b>Adjust the assumptions</b> <span class="small muted">(changes the cash flow method, the reverse DCF and the growth adjustment)</span></summary>
+    <details class="fvctl" ${state.fv[sym] ? "open" : ""}><summary><b>Adjust the assumptions</b> <span class="small muted">(changes every method's growth view and the reverse DCF)</span></summary>
       ${sliders.map(([k,l,mn,mx,st,h]) => `<label class="sl"><span>${l} <b id="fv-v-${k}"></b></span>
         <input type="range" id="fv-${k}" min="${mn}" max="${mx}" step="${st}"><small class="muted">${h}</small></label>`).join("")}
       <div class="row"><button id="fv-reset" type="button">Reset to defaults</button><span class="small muted" id="fv-def"></span></div>
@@ -794,7 +795,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
     else {
       const igp = ig * 100, ref = inp.startG;
-      const expTxt = inp.exp ? `Analysts expect earnings to grow <b>${fmtPct(inp.exp.g,1)}</b> next year; if growth then slows steadily to ${a.gt}% by year 10, that averages about <b>${fmtPct(fadeAvg5(inp.exp.g, a.gt),1)}</b> a year over the next 5. ` : "";
+      const expTxt = inp.exp ? `Analysts expect earnings to grow <b>${fmtPct(inp.exp.g,1)}</b> next year; if the growth above ${a.gt}% then halves each year, that averages about <b>${fmtPct(fadeAvg5(inp.exp.g, a.gt),1)}</b> a year over the next 5. ` : "";
       const pastTxt = inp.past.length ? `Over the last 5 years it grew ${inp.past.map(([n,v]) => `${n} <b>${fmtPct(v,1)}</b>`).join(", ")} a year.` : "";
       let vb;
       if(igp === -Infinity) vb = `<span class="badge b-cheap">Very low expectations</span>`;
