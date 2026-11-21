@@ -175,6 +175,63 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .val-table td:nth-child(3),.val-table th:nth-child(3),
   .val-table td:nth-child(5),.val-table th:nth-child(5){display:none}
 }
+
+/* ===== iPhone layout (6.0): bottom tab bar, swipeable sections, stock cards, "+ Add" folded ===== */
+.tabbar,.addbtn{display:none}
+.ph-lbl{display:none}
+@media (max-width:700px){
+  header nav:not(.tabbar){display:none}
+  header .bar{justify-content:center}
+  .brand span{display:inline}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:20;margin:0;gap:0;
+    background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border-top:1px solid var(--line);padding:4px max(4px,env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(4px,env(safe-area-inset-left))}
+  .tabbar a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0 4px;min-height:50px;
+    font-size:12px;font-weight:600;color:var(--muted);border-radius:10px;background:none}
+  .tabbar a svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .tabbar a.on{color:var(--accent);background:none}
+  body{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  #updbar{bottom:calc(80px + env(safe-area-inset-bottom))}
+  /* My Stocks sections: one row you swipe sideways */
+  .homegrid{grid-template-columns:minmax(0,1fr)}
+  .side{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px 4px;scroll-padding:0 12px}
+  .side::-webkit-scrollbar{display:none}
+  .side button{flex:0 0 auto;white-space:nowrap;min-height:44px;border-radius:22px;border-color:var(--line);background:var(--card)}
+  .side small{display:inline;margin-left:6px;font-size:13px}
+  /* "+ Add" folds the add form and "Record a purchase or sale" */
+  .addbtn{display:inline-block;min-height:44px}
+  .addfold:not(.open){display:none}
+  #refresh{min-height:44px}
+  /* My Stocks / Watchlist: each stock is a card instead of a table row */
+  .listwrap{overflow:visible}
+  .listtbl,.listtbl tbody{display:block}
+  .listtbl thead{display:none}
+  .listtbl tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:10px;row-gap:6px;align-items:center;
+    grid-template-areas:"sym price chg" "val val health" "flags flags del";padding:12px 2px;border-bottom:1px solid var(--line)}
+  .listtbl.mine tr{grid-template-areas:"sym price chg" "val value health" "flags flags del"}
+  .listtbl td{display:block;padding:0;border:0;min-width:0}
+  .listtbl td.c-range,.listtbl td.c-shares{display:none}
+  .listtbl td.c-sym{grid-area:sym;overflow:hidden}
+  .listtbl td.c-sym b{font-size:17px}
+  .listtbl td.sym small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .listtbl td.c-price{grid-area:price;font-weight:600;font-size:16px}
+  .listtbl td.c-chg{grid-area:chg;min-width:62px;text-align:right}
+  .listtbl td.c-val{grid-area:val}
+  .listtbl td.c-value{grid-area:value;display:block!important;text-align:right;color:var(--muted)}
+  .listtbl td.c-value:not(:empty)::before{content:"Value ";font-size:13px}
+  .listtbl td.c-health{grid-area:health;text-align:right}
+  .listtbl td.c-health:not(:empty)::before{content:"Health ";font-size:13px;color:var(--muted)}
+  .listtbl td.c-flags{grid-area:flags}
+  .listtbl td.c-flags .flags{max-width:none}
+  .listtbl td.c-flags:empty{display:none}
+  .listtbl td.c-del{grid-area:del;align-self:end}
+  .listtbl td.c-del button{min-width:44px;min-height:44px;margin:-10px -6px -10px 0}
+  .ph-lbl{display:inline}
+  /* small charts and period buttons fit the screen (Performance) */
+  .spark{max-width:100%}
+  .mood>div{min-width:0;max-width:100%}
+  .tabs{flex-wrap:wrap}
+}
 </style>
 </head>
 <body>
@@ -188,8 +245,14 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   </nav>
 </div></header>
 <main id="app"></main>
+<nav class="tabbar" aria-label="Main">
+  <a href="#home" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>My Stocks</a>
+  <a href="#search" data-nav="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Search</a>
+  <a href="#macro" data-nav="macro"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.8 2.6 14.2 0 17M12 3.5c-2.6 2.8-2.6 14.2 0 17"/></svg>Macro</a>
+  <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
+</nav>
 <footer>
-  <b id="appver">Version 5.27</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 6.0</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -626,7 +689,7 @@ const routes = { home: viewHome, search: viewSearch, macro: viewMacro, settings:
 let renderToken = 0;
 function route(){
   const h = (location.hash || "#home").slice(1);
-  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", h === a.dataset.nav));
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", h === a.dataset.nav || a.dataset.nav === "home" && h.startsWith("stock-") && a.closest(".tabbar")));
   const app = $("#app"); document.body.classList.remove("wide");
   // Tab title follows the page (a stock page sets its own once the name is known)
   document.title = h.startsWith("stock-") ? `${normSym(decodeURIComponent(h.slice(6)))} · Stock Analysis` : (({ search: "Search", macro: "Macro", settings: "Settings" })[h] ? ({ search: "Search", macro: "Macro", settings: "Settings" })[h] + " · Stock Analysis" : "Stock Analysis");
@@ -661,7 +724,7 @@ function myHoldings(){
     return { ...h, shares: Math.round((base + m) * 1e6) / 1e6, baseShares: base, bankShares, manualShares: m, accts }; })
     .filter(h => !(h.accts && h.shares <= 1e-9)); // fully sold with typed sales: row hidden (still counted in your results)
 }
-let buyOpen = false;
+let buyOpen = false, addOpen = false; // addOpen: phone only, the "+ Add" fold
 let homeTab = "mine", homeSec = "list"; // left menu: list (My Stocks / Watchlist), earn, risk, perf
 function viewHome(app, tok){
   document.body.classList.add("wide");
@@ -685,10 +748,11 @@ function viewHome(app, tok){
     <div class="card" data-home="list">
       <div class="row" style="justify-content:space-between;margin-bottom:12px">
         <h2 style="margin:0">${homeTab==="mine" ? "My Stocks" : "Watchlist"}</h2>
-        <button id="refresh" class="link" title="Refresh prices">↻ Refresh</button>
+        <span class="row" style="gap:4px"><button id="refresh" class="link" title="Refresh prices">↻ Refresh</button><button id="addbtn" class="addbtn primary" aria-expanded="${addOpen}">${addOpen ? "Close" : "+ Add"}</button></span>
       </div>
       <div id="alertbanner" class="callout" hidden style="margin:0 0 12px"></div>
       ${homeTab==="mine" && hasMine ? `<div id="mytotal" class="total"><span class="spin"></span> Adding up your holdings…</div>` : ""}
+      <div class="addfold${addOpen ? " open" : ""}">
       <form id="addform" class="row" style="margin-bottom:12px">
         <input id="addsym" placeholder="Ticker, e.g. AAPL" autocapitalize="characters" autocomplete="off" style="width:140px" required>
         ${homeTab==="mine" ? `
@@ -698,8 +762,9 @@ function viewHome(app, tok){
         <span class="small muted">Don't know the ticker? <a href="#search">Search by name</a></span>
       </form>
       ${homeTab==="mine" ? buyBox() : ""}
+      </div>
       ${list.length ? `
-      <div class="listwrap"><table class="listtbl">
+      <div class="listwrap"><table class="listtbl${homeTab==="mine" ? " mine" : ""}">
         <thead><tr>
           <th>Stock</th><th class="num">Price</th><th class="num">Today</th>
           <th class="hide-sm">52-week range</th>
@@ -727,6 +792,7 @@ function viewHome(app, tok){
   app.querySelectorAll(".side [data-sec]").forEach(b => b.onclick = () => { homeSec = b.dataset.sec; showSec(); if(homeSec === "alerts") renderAlerts(app); window.scrollTo(0, 0); });
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { const same = homeTab === b.dataset.tab; homeTab = b.dataset.tab;
     if(same && homeSec !== "list"){ homeSec = "list"; showSec(); window.scrollTo(0, 0); } else { homeSec = "list"; viewHome(app, ++renderToken); } });
+  $("#addbtn", app).onclick = () => { addOpen = !addOpen; const f = $(".addfold", app); f.classList.toggle("open", addOpen); const b = $("#addbtn", app); b.textContent = addOpen ? "Close" : "+ Add"; b.setAttribute("aria-expanded", addOpen); if(addOpen) $("#addsym", app).focus(); };
   $("#refresh", app).onclick = () => { cacheDel(k => k.startsWith("/quote"));
     viewHome(app, ++renderToken); };
   $("#addform", app).onsubmit = e => {
@@ -827,15 +893,15 @@ function rowSkeleton(h){
   const mine = homeTab==="mine";
   const typeTag = h.type && h.type!=="stock" ? ` <span class="badge b-inline">${h.type.toUpperCase()}</span>` : "";
   return `<tr class="click" data-sym="${esc(h.symbol)}">
-    <td class="sym"><b>${esc(h.symbol)}</b>${typeTag} <small class="muted" data-f="name">${esc(h.name||"")}</small></td>
-    <td class="num" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
-    <td class="num" data-f="chg"></td>
-    <td class="hide-sm" data-f="range"></td>
-    ${mine ? `<td class="num hide-sm">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}${h.accts && Object.values(h.accts).filter(v => Math.abs(v) > 1e-9).length > 1 ? `<div class="small muted" style="white-space:nowrap">${Object.entries(h.accts).filter(([, v]) => Math.abs(v) > 1e-9).map(([a, v]) => `${esc(a)} ${fmt(v, v%1?4:0)}`).join(" · ")}</div>` : h.accts ? `<div class="small muted">${esc(Object.keys(h.accts).find(a => Math.abs(h.accts[a]) > 1e-9) || "")}</div>` : ""}</td><td class="num hide-sm" data-f="value"></td>` : ""}
-    <td data-f="val">${h.type && h.type!=="stock" ? '<span class="small muted">Fund: no valuation</span>' : ""}</td>
-    <td class="num" data-f="health"></td>
-    <td data-f="flags"></td>
-    <td><button class="link" data-del="${esc(h.symbol)}" title="Remove" aria-label="Remove ${esc(h.symbol)}">✕</button></td>
+    <td class="sym c-sym"><b>${esc(h.symbol)}</b>${typeTag} <small class="muted" data-f="name">${esc(h.name||"")}</small></td>
+    <td class="num c-price" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
+    <td class="num c-chg" data-f="chg"></td>
+    <td class="hide-sm c-range" data-f="range"></td>
+    ${mine ? `<td class="num hide-sm c-shares">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}${h.accts && Object.values(h.accts).filter(v => Math.abs(v) > 1e-9).length > 1 ? `<div class="small muted" style="white-space:nowrap">${Object.entries(h.accts).filter(([, v]) => Math.abs(v) > 1e-9).map(([a, v]) => `${esc(a)} ${fmt(v, v%1?4:0)}`).join(" · ")}</div>` : h.accts ? `<div class="small muted">${esc(Object.keys(h.accts).find(a => Math.abs(h.accts[a]) > 1e-9) || "")}</div>` : ""}</td><td class="num hide-sm c-value" data-f="value"></td>` : ""}
+    <td class="c-val" data-f="val">${h.type && h.type!=="stock" ? '<span class="small muted">Fund: no valuation</span>' : ""}</td>
+    <td class="num c-health" data-f="health"></td>
+    <td class="c-flags" data-f="flags"></td>
+    <td class="c-del"><button class="link" data-del="${esc(h.symbol)}" title="Remove" aria-label="Remove ${esc(h.symbol)}">✕</button></td>
   </tr>`;
 }
 function rangeBar(lo, hi, p){
@@ -879,7 +945,7 @@ async function fillRow(app, h, tok){
     const ps = RATIOS[1], psNow = nowValue(met, ps), psHist = (!hist || !isNum(now) || now <= 0) ? history(met, ps) : null;
     if(psHist && isNum(psNow) && psNow > 0) set("val", `<span class="small" title="${esc(`No usable P/E history: losses or very small profits in the last ${state.settings.years} years make the past P/E meaningless${isNum(now) && now > 0 ? ` (P/E today ${fmtX(now)})` : ""}. Price/sales is compared with its own past instead.`)}"><b>P/S</b> ${fmtX(psNow)}</span> ${badge(verdict(psNow, psHist.median), "its usual P/S")}`);
     else if(!isNum(now) || now <= 0) set("val", `<span class="small muted">${isNum(now)?"Loss-making":"n/a"}</span>`);
-    else set("val", `<span class="small">${fmtX(now)}</span> ${badge(hist && verdict(now, hist.median), "its usual P/E")}`);
+    else set("val", `<span class="small"><span class="ph-lbl">P/E </span>${fmtX(now)}</span> ${badge(hist && verdict(now, hist.median), "its usual P/E")}`);
   }
   rowCtx.set(h.symbol, { isStock, mm, price, prof: p.ok ? p.v : {} });
   drawRowFlags(app, h);
