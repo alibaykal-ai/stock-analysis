@@ -134,6 +134,14 @@ h3{font-size:14px;margin:18px 0 8px}
 .callout{background:var(--neutralbg);border-left:3px solid var(--mid);border-radius:8px;padding:10px 12px;margin:8px 0}
 details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:6px 0}
+.mood{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.mood .big{font-size:20px;padding:6px 14px}
+.spark{display:block}
+.spark .s-ln{fill:none;stroke:var(--accent);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.spark .s-ma{fill:none;stroke:#1baf7a;stroke-width:1.4;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.spark .s-base{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke;opacity:.7}
+.sect td{vertical-align:middle}
+.mine-tags b{font-weight:600} .mine-tags span{color:var(--muted)}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
 .hide-sm{}
 @media (max-width:700px){
@@ -155,12 +163,13 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <nav>
     <a href="#home" data-nav="home">My Stocks</a>
     <a href="#search" data-nav="search">Search</a>
+    <a href="#macro" data-nav="macro">Macro</a>
     <a href="#settings" data-nav="settings">Settings</a>
   </nav>
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.12</b> · 21 Nov 2026 ·
+  <b>Version 4.0</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -560,7 +569,7 @@ function nowValue(metricJson, r){
 }
 
 /* ================= Router ================= */
-const routes = { home: viewHome, search: viewSearch, settings: viewSettings };
+const routes = { home: viewHome, search: viewSearch, macro: viewMacro, settings: viewSettings };
 let renderToken = 0;
 function route(){
   const h = (location.hash || "#home").slice(1);
@@ -1787,6 +1796,209 @@ async function importBankFile(app, file){
     viewSettings(app);
     const m = $("#bankout", app); m.innerHTML = `<p class="small">✓ Saved ${fresh.length} holdings. <a href="#home">See My Stocks</a></p>`;
   };
+}
+
+/* ================= Macro tab: market mood & sectors ================= */
+// S&P 500 via the SPY fund; equal-weight S&P 500 via RSP; the 11 sectors via the SPDR sector funds.
+const SECTORS = [
+  ["XLK","Technology","cyc"], ["XLC","Communication","cyc"], ["XLY","Consumer discretionary","cyc"],
+  ["XLF","Financials","cyc"], ["XLI","Industrials","cyc"], ["XLB","Materials","cyc"], ["XLE","Energy","cyc"],
+  ["XLV","Health care","def"], ["XLP","Consumer staples","def"], ["XLU","Utilities","def"], ["XLRE","Real estate","def"],
+];
+// Finnhub industry -> sector fund (order matters: first match wins).
+const INDUSTRY_SECTOR = [
+  [/utilit/i, "XLU"], [/real estate|reit/i, "XLRE"],
+  [/bank|financ|insurance|capital markets|credit|lending|mortgage|thrift/i, "XLF"],
+  [/pharma|biotech|health|life sciences|medical/i, "XLV"],
+  [/semiconductor|technology|software|it services|electronic|communications equipment/i, "XLK"],
+  [/media|telecom|communication|entertainment|interactive/i, "XLC"],
+  [/beverage|food|tobacco|personal products|household products|consumer products|staples/i, "XLP"],
+  [/retail|automobile|auto comp|hotel|restaurant|leisure|textile|apparel|luxury|household durables|consumer services|distributors/i, "XLY"],
+  [/energy|oil|gas|coal/i, "XLE"],
+  [/chemical|metal|mining|packaging|paper|forest|construction materials|steel/i, "XLB"],
+  [/aerospace|defense|airline|machinery|industrial|logistics|transport|road|rail|marine|building|construction|electrical|commercial services|professional services|trading compan/i, "XLI"],
+];
+const sectorOf = ind => { for(const [re, etf] of INDUSTRY_SECTOR) if(re.test(ind || "")) return etf; return null; };
+const MKT_N = 300; // ~14 months of trading days: enough for the 200-day average and 6-month returns
+const retN = (h, n) => h && h.c.length > n ? (h.c[h.c.length-1] / h.c[h.c.length-1-n] - 1) * 100 : NaN;
+const lastOf = a => a[a.length-1];
+
+function marketMood(spy){
+  const c = spy.c, last = lastOf(c);
+  const yr = c.slice(-252), high = Math.max(...yr), dd = (last / high - 1) * 100;
+  const m200 = lastOf(sma(c, 200)), m50 = lastOf(sma(c, 50));
+  const vs200 = (last / m200 - 1) * 100;
+  let k, word, why;
+  if(dd <= -20){ k = "b-rich"; word = "Bear market"; why = `The S&P 500 is ${Math.abs(dd).toFixed(1)}% below its 12-month high. A fall of 20% or more is the usual definition of a bear market.`; }
+  else if(dd <= -10){ k = "b-warn"; word = "Correction"; why = `The S&P 500 is ${Math.abs(dd).toFixed(1)}% below its 12-month high: a 10–20% fall is called a correction. These happen about once a year or two on average and most don't turn into bear markets.`; }
+  else if(isNum(m200) && last >= m200){ k = "b-cheap"; word = "Bull market"; why = `The S&P 500 is above its 200-day average (long-term uptrend) and only ${Math.abs(dd).toFixed(1)}% below its 12-month high.`; }
+  else { k = "b-warn"; word = "Pullback"; why = `The S&P 500 is ${Math.abs(dd).toFixed(1)}% below its 12-month high (less than a 10% correction) but has slipped below its 200-day average, so the long-term uptrend is being tested.`; }
+  return { k, word, why, last, high, dd, m50, m200, vs200, r1: retN(spy,21), r3: retN(spy,63), r6: retN(spy,126), r12: retN(spy,251) };
+}
+// Small line chart. series: [{v:[...], cls}], base: horizontal reference value (optional).
+function sparkSvg(series, w, h, base){
+  const all = series.flatMap(s => s.v.filter(isNum)).concat(isNum(base) ? [base] : []);
+  if(all.length < 2) return "";
+  const lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1, n = Math.max(...series.map(s => s.v.length));
+  const X = i => (i / (n - 1) * w).toFixed(1), Y = v => (h - 2 - (v - lo) / span * (h - 4)).toFixed(1);
+  const path = v => { let d = "", pen = false; v.forEach((y, i) => { if(!isNum(y)){ pen = false; return; } d += (pen ? "L" : "M") + X(i) + " " + Y(y); pen = true; }); return d; };
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="none" aria-hidden="true">
+    ${isNum(base) ? `<line class="s-base" x1="0" x2="${w}" y1="${Y(base)}" y2="${Y(base)}"/>` : ""}
+    ${series.map(s => `<path class="${s.cls}" d="${path(s.v)}"/>`).join("")}</svg>`;
+}
+// Sector ÷ S&P 500 over the last n days, matched by date, scaled to 100 at the start (rising = beating the market).
+function relLine(h, spy, n){
+  const sp = new Map(spy.d.map((d, i) => [d, spy.c[i]]));
+  const pts = []; for(let i = Math.max(0, h.c.length - n); i < h.c.length; i++){ const s = sp.get(h.d[i]); if(s) pts.push(h.c[i] / s); }
+  return pts.length ? pts.map(v => v / pts[0] * 100) : [];
+}
+function sectorRows(data, spy){
+  const s3 = retN(spy, 63), s1 = retN(spy, 21), s6 = retN(spy, 126);
+  return SECTORS.map(([etf, name, grp]) => {
+    const h = data[etf];
+    if(!h || h.err) return { etf, name, grp, err: h && h.err };
+    const r1 = retN(h,21), r3 = retN(h,63), r6 = retN(h,126), m200 = lastOf(sma(h.c, 200));
+    return { etf, name, grp, r1, r3, r6, rel1: r1 - s1, rel3: r3 - s3, rel6: r6 - s6, above: isNum(m200) ? lastOf(h.c) >= m200 : null, rel: relLine(h, spy, 126) };
+  });
+}
+const relBadge = v => !isNum(v) ? `<span class="badge b-inline">n/a</span>`
+  : v >= 2 ? `<span class="badge b-cheap" title="${fmtPct(v,1)} points better than the S&P 500 over 3 months">Leading</span>`
+  : v <= -2 ? `<span class="badge b-rich" title="${fmtPct(v,1)} points worse than the S&P 500 over 3 months">Lagging</span>`
+  : `<span class="badge b-inline" title="Within 2 points of the S&P 500 over 3 months">In line</span>`;
+function rotationText(rows){
+  const ok = rows.filter(r => isNum(r.rel3));
+  if(ok.length < 6) return "";
+  const avg = (g, k) => { const v = ok.filter(r => r.grp === g).map(r => r[k]).filter(isNum); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : NaN; };
+  const gap3 = avg("def","rel3") - avg("cyc","rel3"), gap1 = avg("def","rel1") - avg("cyc","rel1");
+  const by = ok.slice().sort((a,b) => b.rel3 - a.rel3), names = a => a.map(r => r.name.toLowerCase()).join(" and ");
+  let main;
+  if(gap3 >= 3) main = `<b>Defensive sectors are leading</b> (staples, utilities, health care, real estate): over 3 months they beat the economy-sensitive sectors by ${gap3.toFixed(1)} points on average. Money moving into defensive areas usually means investors are getting more cautious ("risk-off").`;
+  else if(gap3 <= -3) main = `<b>Growth and economy-sensitive sectors are leading</b> (tech, consumer discretionary, financials, industrials…): over 3 months they beat the defensive sectors by ${Math.abs(gap3).toFixed(1)} points on average. That usually means investors are confident ("risk-on").`;
+  else main = `<b>No clear rotation</b> between defensive and economy-sensitive sectors over 3 months (gap ${Math.abs(gap3).toFixed(1)} points).`;
+  let turn = "";
+  if(gap3 >= 3 && gap1 <= -2) turn = ` In the last month this has started to reverse, with economy-sensitive sectors doing better.`;
+  else if(gap3 <= -3 && gap1 >= 2) turn = ` In the last month this has started to reverse, with defensive sectors doing better: worth watching.`;
+  else if(Math.abs(gap3) < 3 && Math.abs(gap1) >= 3) turn = gap1 > 0 ? ` In the last month defensive sectors have pulled ahead by ${gap1.toFixed(1)} points: a possible early shift to caution.` : ` In the last month economy-sensitive sectors have pulled ahead by ${Math.abs(gap1).toFixed(1)} points.`;
+  return `${main}${turn} Strongest over 3 months: ${names(by.slice(0,2))}. Weakest: ${names(by.slice(-2).reverse())}.`;
+}
+function breadthText(spy, rsp, rows){
+  const parts = [];
+  const gap = retN(rsp, 63) - retN(spy, 63);
+  if(isNum(gap)){
+    if(gap <= -3) parts.push(`<span class="badge b-warn">Narrow</span> The average S&P 500 company (equal-weighted) trailed the index by ${Math.abs(gap).toFixed(1)} points over 3 months: a few of the biggest companies are doing the heavy lifting. Narrow markets are more fragile.`);
+    else if(gap >= 3) parts.push(`<span class="badge b-cheap">Broad</span> The average S&P 500 company (equal-weighted) beat the index by ${gap.toFixed(1)} points over 3 months: gains are spread widely, a healthy sign.`);
+    else parts.push(`<span class="badge b-inline">Fairly broad</span> The average S&P 500 company (equal-weighted) moved in line with the index over 3 months (gap ${fmtPct(gap,1).replace("%","")} points): not just a handful of giants.`);
+  }
+  const ab = rows.filter(r => r.above !== null && r.above !== undefined);
+  if(ab.length) parts.push(`${ab.filter(r => r.above).length} of ${ab.length} sectors are above their 200-day average.`);
+  return parts.join(" ");
+}
+async function holdingSectors(){
+  const out = {}; // etf -> {mine:[], watch:[]}
+  const add = async (sym, kind) => {
+    const p = await safe(fh.profile(sym)); const etf = p.ok && p.v ? sectorOf(p.v.finnhubIndustry) : null;
+    if(etf){ (out[etf] = out[etf] || { mine: [], watch: [] })[kind].push(sym); }
+  };
+  if(!state.apiKey) return out;
+  await Promise.all([
+    ...state.holdings.filter(h => !h.type || h.type === "stock").map(h => add(h.symbol, "mine")),
+    ...state.watchlist.filter(s => !state.holdings.some(h => h.symbol === s)).map(s => add(s, "watch")),
+  ]);
+  return out;
+}
+async function viewMacro(app, tok){
+  app.innerHTML = `
+    <div class="card" id="m-mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
+    <div class="card" id="m-sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
+    <div class="card"><h2>Coming next</h2><p class="small muted" style="margin:0">Inflation &amp; the Fed (latest inflation, where interest rates are heading), economy indicators (jobs, growth, yield curve, fear index, credit, dollar, oil), an overall verdict and "Macro → your stocks". These need a free FRED key; steps will follow.</p></div>`;
+  if(!state.tdKey){
+    $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (13 requests, kept 12 hours).`;
+    $("#m-sect-b", app).textContent = "";
+    return;
+  }
+  const data = {};
+  const syms = ["SPY", "RSP", ...SECTORS.map(s => s[0])];
+  const cached = syms.filter(s => cacheGet("td:daily:" + s + ":" + (s === "SPY" ? 1600 : MKT_N)) !== undefined).length;
+  const note = $("#m-sect-b", app);
+  const mineP = holdingSectors();
+  let mine = {};
+  mineP.then(m => { mine = m; if(live(tok)) draw(); });
+  let done = 0;
+  const draw = () => {
+    if(!live(tok)) return;
+    const spy = data.SPY;
+    const mb = $("#m-mood-b", app);
+    if(spy && !spy.err){
+      const m = marketMood(spy);
+      const n = 252, cs = spy.c.slice(-n), ma = sma(spy.c, 200).slice(-n);
+      mb.classList.remove("muted", "small");
+      mb.innerHTML = `
+        <div class="mood">
+          <div><span class="badge big ${m.k}">${m.word}</span></div>
+          <div style="flex:1;min-width:260px;max-width:620px">
+            <p style="margin:0 0 6px">${m.why}</p>
+            <p class="small muted" style="margin:0">S&amp;P 500 (via the SPY fund) ${fmt(m.last)} on ${esc(lastOf(spy.d))} · 3 months ${fmtPct(m.r3,1)} · 12 months ${fmtPct(m.r12,1)}</p>
+          </div>
+          <div>${sparkSvg([{v: ma, cls:"s-ma"}, {v: cs, cls:"s-ln"}], 260, 70)}
+            <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--accent)"></i>S&amp;P 500, 12 months</span><span><i class="lk" style="background:#1baf7a"></i>200-day average</span></div></div>
+        </div>
+        <div id="m-breadth" style="margin-top:12px"></div>
+        <details class="more"><summary>Show the numbers and rules</summary>
+          <table style="max-width:520px"><tbody>
+            <tr><td>Below its 12-month high</td><td class="num">${fmtPct(m.dd,1)}</td></tr>
+            <tr><td>vs 200-day average (${fmt(m.m200)})</td><td class="num">${fmtPct(m.vs200,1)}</td></tr>
+            <tr><td>vs 50-day average (${fmt(m.m50)})</td><td class="num">${fmtPct((m.last/m.m50-1)*100,1)}</td></tr>
+            <tr><td>1 month · 3 months · 6 months</td><td class="num">${fmtPct(m.r1,1)} · ${fmtPct(m.r3,1)} · ${fmtPct(m.r6,1)}</td></tr>
+          </tbody></table>
+          <p class="small muted">Rules: 20% or more below the 12-month high = Bear market (red). 10–20% below = Correction (amber). Less than 10% below and above the 200-day average = Bull market (green); below the 200-day average = Pullback (amber). For a long-term investor these describe the backdrop; they aren't buy or sell signals.</p>
+        </details>`;
+    } else if(spy && spy.err){ mb.innerHTML = `<span class="err">Couldn't load the S&P 500: ${esc(spy.err)}</span>`; }
+    const rsp = data.RSP;
+    if(spy && !spy.err){
+      const rows = sectorRows(data, spy);
+      const br = $("#m-breadth", app);
+      if(br) br.innerHTML = rsp && !rsp.err ? `<p style="margin:0"><b>Is the move broad or narrow?</b> ${breadthText(spy, rsp, rows)}</p>` : rsp && rsp.err ? `<p class="small muted" style="margin:0">Breadth unavailable: ${esc(rsp.err)}</p>` : "";
+      const sorted = rows.slice().sort((a,b) => (isNum(b.rel3) ? b.rel3 : -1e9) - (isNum(a.rel3) ? a.rel3 : -1e9));
+      const tags = etf => { const t = mine[etf]; if(!t) return ""; return `<span class="mine-tags small">${t.mine.map(s=>`<b>${esc(s)}</b>`).join(", ")}${t.mine.length && t.watch.length ? ", " : ""}${t.watch.map(s=>`<span>${esc(s)}</span>`).join(", ")}</span>`; };
+      const loaded = rows.filter(r => isNum(r.rel3)).length, pending = done < syms.length;
+      note.classList.remove("muted", "small");
+      note.innerHTML = `
+        ${loaded >= 6 ? `<p style="margin:0 0 12px">${rotationText(rows)}</p>` : ""}
+        ${pending ? `<p class="small muted"><span class="spin"></span> Loading sectors (${done} of ${syms.length} funds)… Twelve Data allows 8 requests a minute, so the first load takes about 2 minutes. Kept for 12 hours after that.</p>` : ""}
+        <div style="overflow-x:auto"><table class="sect"><thead><tr>
+          <th>Sector</th><th>vs S&amp;P 500</th><th class="num">1 month</th><th class="num">3 months</th><th class="num">6 months</th>
+          <th class="hide-sm">6 months vs S&amp;P 500</th><th>200-day avg</th><th>Your stocks</th></tr></thead><tbody>
+          ${sorted.map(r => r.err ? `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td><td colspan="7" class="small muted">${esc(r.err)}</td></tr>`
+            : !isNum(r.r3) ? `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td><td colspan="6" class="small muted">${data[r.etf] ? "Not enough history" : '<span class="spin"></span>'}</td><td>${tags(r.etf)}</td></tr>`
+            : `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td>
+              <td>${relBadge(r.rel3)}</td>
+              <td class="num"><span class="${cls(r.r1)}">${fmtPct(r.r1,1)}</span></td>
+              <td class="num"><span class="${cls(r.r3)}">${fmtPct(r.r3,1)}</span><br><small class="muted">${fmtPct(r.rel3,1).replace("%","")} pts vs index</small></td>
+              <td class="num"><span class="${cls(r.r6)}">${fmtPct(r.r6,1)}</span></td>
+              <td class="hide-sm">${sparkSvg([{v: r.rel, cls:"s-ln"}], 120, 28, 100)}</td>
+              <td>${r.above === null ? "—" : r.above ? '<span class="badge b-cheap">Above</span>' : '<span class="badge b-rich">Below</span>'}</td>
+              <td>${tags(r.etf)}</td></tr>`).join("")}
+          <tr><td class="muted">S&amp;P 500 <small>SPY</small></td><td></td><td class="num muted">${fmtPct(retN(spy,21),1)}</td><td class="num muted">${fmtPct(retN(spy,63),1)}</td><td class="num muted">${fmtPct(retN(spy,126),1)}</td><td class="hide-sm"></td><td></td><td></td></tr>
+        </tbody></table></div>
+        <details class="more"><summary>How to read this</summary>
+          <p class="small muted">Each sector is measured with its sector fund (e.g. XLK for technology), sorted by how much it beat or trailed the S&amp;P 500 over 3 months. <b>Leading</b> = 2+ points ahead of the index, <b>Lagging</b> = 2+ points behind (green / red), otherwise In line. The small line shows the sector divided by the S&amp;P 500 over 6 months: rising = beating the market; the dotted line is where it started.
+          <b>Rotation</b> compares defensive sectors (staples, utilities, health care, real estate: people buy these whatever the economy does) with economy-sensitive ones (tech, communication, consumer discretionary, financials, industrials, materials, energy): a gap of 3+ points on average over 3 months counts as a rotation.
+          <b>Broad or narrow</b> compares the equal-weighted S&amp;P 500 (RSP fund, every company counts the same) with the normal index, where the biggest companies dominate.
+          <b>Your stocks</b>: holdings in bold, watchlist in grey, matched by Finnhub's industry; ETFs and funds are left out. Sector moves are context, not buy or sell signals.</p>
+        </details>`;
+    } else if(!spy){ note.innerHTML = `<span class="spin"></span> Waiting for the S&P 500…`; }
+  };
+  if(cached < syms.length) note.innerHTML = `<span class="spin"></span> Loading ${syms.length - cached} funds from Twelve Data…`;
+  for(const s of syms){
+    if(!live(tok)) return;
+    const r = await safe(tdDaily(s, s === "SPY" ? 1600 : MKT_N)); // SPY: same request as its price chart
+    if(!live(tok)) return;
+    data[s] = r.ok ? r.v : { err: r.e.message };
+    done++;
+    if(s === "SPY" || s === "RSP" || done === syms.length || done % 2 === 0) draw();
+    if(!r.ok && (r.e.code === "auth" || r.e.code === "rate")){ syms.forEach(x => { if(!data[x]) data[x] = { err: r.e.message }; }); break; }
+  }
+  done = syms.length; draw();
 }
 
 /* ================= Settings ================= */
