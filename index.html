@@ -88,6 +88,18 @@ h3{font-size:14px;margin:18px 0 8px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 0.8s linear infinite;vertical-align:-2px}
 @keyframes s{to{transform:rotate(360deg)}}
+.hs{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.hs>div:last-child{max-width:560px}
+.hs-ring{width:96px;height:96px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:conic-gradient(var(--c) calc(var(--p)*1%), var(--neutralbg) 0)}
+.hs-ring>div{width:76px;height:76px;border-radius:50%;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1}
+.hs-ring b{font-size:26px} .hs-ring span{font-size:11px;color:var(--muted)}
+.hp{display:grid;grid-template-columns:120px 1fr 44px;gap:8px;align-items:center;margin:5px 0;font-size:13px}
+.hp-bar{height:8px;background:var(--neutralbg);border-radius:4px;overflow:hidden}
+.hp-bar i{display:block;height:100%;border-radius:4px}
+.hp-v{text-align:right;font-variant-numeric:tabular-nums}
+details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:6px 0}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
 .hide-sm{}
 @media (max-width:700px){
@@ -114,7 +126,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 2.5</b> · 21 Nov 2026 ·
+  <b>Version 3.0</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -164,7 +176,7 @@ async function throttle(){
     await new Promise(r => setTimeout(r, 60000 - (now - callTimes[0]) + 50));
   }
 }
-const TTL = { quote: 60e3, metric: 12*3600e3, profile: 7*24*3600e3, peers: 7*24*3600e3, rec: 12*3600e3, news: 30*60e3, search: 24*3600e3 };
+const TTL = { quote: 60e3, metric: 12*3600e3, profile: 7*24*3600e3, peers: 7*24*3600e3, rec: 12*3600e3, news: 30*60e3, search: 24*3600e3, fin: 7*24*3600e3 };
 const memCache = new Map();
 function cacheGet(k){
   const m = memCache.get(k); if(m && m.exp > Date.now()) return m.v;
@@ -179,7 +191,7 @@ function pruneCache(){
   try{ Object.keys(localStorage).filter(k=>k.startsWith("sa.c.")).forEach(k=>localStorage.removeItem(k)); }catch(e){}
 }
 const inflight = new Map();
-async function api(path, params, ttlKind){
+async function api(path, params, ttlKind, shape){
   if(!state.apiKey) throw new ApiError("No API key yet. Add your free Finnhub key in Settings.", "nokey");
   const qs = new URLSearchParams(params).toString();
   const ck = path + "?" + qs;
@@ -197,8 +209,9 @@ async function api(path, params, ttlKind){
       if(!r.ok) throw new ApiError(`Data service error (${r.status}).`, "http");
       const j = await r.json();
       if(j && j.error) throw new ApiError(String(j.error), "api");
-      cacheSet(ck, j, TTL[ttlKind] || 60e3);
-      return j;
+      const v = shape ? shape(j) : j;
+      cacheSet(ck, v, TTL[ttlKind] || 60e3);
+      return v;
     }
     throw new ApiError("Too many requests right now. Wait a minute and try again.", "rate");
   })();
@@ -213,7 +226,55 @@ const fh = {
   rec:     s => api("/stock/recommendation", {symbol:s}, "rec"),
   news:    s => { const to=new Date(), from=new Date(Date.now()-14*864e5); return api("/company-news",{symbol:s,from:ymd(from),to:ymd(to)},"news"); },
   search:  q => api("/search", {q}, "search"),
+  // Annual reports as filed (10-K). Large reply, so only a small summary per year is kept.
+  fin:     s => api("/stock/financials-reported", {symbol:s, freq:"annual"}, "fin", shapeFinancials),
 };
+/* ---- Annual reports: pick the few numbers the health score needs ---- */
+const FIN_CONCEPTS = {
+  assets:   ["Assets"],
+  curA:     ["AssetsCurrent","CurrentAssets"],
+  curL:     ["LiabilitiesCurrent","CurrentLiabilities"],
+  liab:     ["Liabilities"],
+  liabEq:   ["LiabilitiesAndStockholdersEquity","EquityAndLiabilities"],
+  equity:   ["StockholdersEquity","StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest","Equity","EquityAttributableToOwnersOfParent"],
+  retained: ["RetainedEarningsAccumulatedDeficit","RetainedEarnings"],
+  ltDebt:   ["LongTermDebtNoncurrent","LongTermDebtAndCapitalLeaseObligations","LongTermDebt","NoncurrentPortionOfNoncurrentBorrowings","LongtermBorrowings"],
+  revenue:  ["Revenues","RevenueFromContractWithCustomerExcludingAssessedTax","SalesRevenueNet","RevenueFromContractWithCustomerIncludingAssessedTax","Revenue"],
+  cogs:     ["CostOfRevenue","CostOfGoodsAndServicesSold","CostOfGoodsSold","CostOfSales"],
+  gross:    ["GrossProfit"],
+  ebit:     ["OperatingIncomeLoss","ProfitLossFromOperatingActivities"],
+  net:      ["NetIncomeLoss","ProfitLoss","NetIncomeLossAvailableToCommonStockholdersBasic","ProfitLossAttributableToOwnersOfParent"],
+  shares:   ["WeightedAverageNumberOfDilutedSharesOutstanding","WeightedAverageNumberOfShareOutstandingBasicAndDiluted","WeightedAverageNumberOfSharesOutstandingBasic","AdjustedWeightedAverageShares","WeightedAverageShares"],
+  cfo:      ["NetCashProvidedByUsedInOperatingActivities","NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","CashFlowsFromUsedInOperatingActivities"],
+  capex:    ["PaymentsToAcquirePropertyPlantAndEquipment","PaymentsToAcquireProductiveAssets","PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
+};
+function shapeFinancials(j){
+  const rows = (j && Array.isArray(j.data) ? j.data : []).filter(d => d && d.report && /^(10-K|20-F|40-F)/.test(d.form||"10-K"));
+  const byYear = new Map();
+  for(const d of rows){
+    const end = String(d.endDate||"").slice(0,10); if(!end) continue;
+    const yr = end.slice(0,4);
+    if(byYear.has(yr) && !/\/A$/.test(byYear.get(yr).form||"")) continue; // keep the original filing over amendments
+    const items = {}; let unit = "";
+    for(const part of ["bs","ic","cf"]){
+      let arr = d.report[part]; if(!arr) continue;
+      if(!Array.isArray(arr)) arr = Object.entries(arr).map(([concept,value]) => ({concept, value}));
+      for(const it of arr){
+        if(!it || !isNum(it.value)) continue;
+        const c = String(it.concept||"").replace(/^[A-Za-z-]+_/, "");
+        if(!(c in items)) items[c] = it.value;
+        if(!unit && it.unit && /^[a-z]{3}$/i.test(it.unit) && c === "Assets") unit = it.unit.toUpperCase();
+      }
+    }
+    const y = { end, form: d.form, unit };
+    for(const [k, names] of Object.entries(FIN_CONCEPTS)){ const n = names.find(n => isNum(items[n])); if(n) y[k] = items[n]; }
+    if(!isNum(y.liab) && isNum(y.liabEq) && isNum(y.equity)) y.liab = y.liabEq - y.equity;
+    if(!isNum(y.gross) && isNum(y.revenue) && isNum(y.cogs)) y.gross = y.revenue - y.cogs;
+    if(isNum(y.cfo)) y.fcf = y.cfo - Math.abs(y.capex || 0);
+    byYear.set(yr, y);
+  }
+  return { years: [...byYear.values()].sort((a,b) => b.end.localeCompare(a.end)).slice(0, 6) };
+}
 /* ================= Alpha Vantage client (second free source) ================= */
 // Free key: 25 requests/day. Results are cached for a day so each stock costs at most 2 a day.
 const AV = "https://www.alphavantage.co/query";
@@ -490,7 +551,7 @@ async function viewStock(app, sym, tok){
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
-    <div class="card" id="c-health"><h2>Quick health check</h2><div id="health"><span class="spin"></span></div></div>
+    <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
     <div class="card"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>`}
     <div class="card"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
   $("#b-watch", app).onclick = () => {
@@ -526,7 +587,7 @@ async function viewStock(app, sym, tok){
 
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
-    else { renderHealth(app, mm, price); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
+    else { renderHealth(app, mm, price, prof); fh.fin(sym).then(f => live(tok) && renderHealth(app, mm, price, prof, f), () => live(tok) && renderHealth(app, mm, price, prof, null)); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
   }
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
@@ -852,40 +913,169 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); setSliders(); draw(); });
 }
 
-function renderHealth(app, mm, price){
-  // Each check: value, rule, label. Thresholds are general rules of thumb, shown to the user.
-  const checks = [];
-  const add = (name, v, show, good, bad, rule) => {
-    if(!isNum(v)) return;
-    const k = good(v) ? "good" : bad(v) ? "bad" : "ok";
-    checks.push({ name, show: show(v), k, rule });
-  };
-  const pct = v => v.toFixed(1)+"%";
-  add("Net profit margin", mm.netProfitMarginTTM, pct, v=>v>=10, v=>v<0, "Good ≥ 10% · Weak if negative");
-  add("Operating margin", mm.operatingMarginTTM, pct, v=>v>=15, v=>v<0, "Good ≥ 15% · Weak if negative");
-  add("Return on equity", mm.roeTTM, pct, v=>v>=15, v=>v<5, "Good ≥ 15% · Weak < 5%");
-  add("Revenue growth (1y)", mm.revenueGrowthTTMYoy, v=>fmtPct(v), v=>v>=5, v=>v<0, "Good ≥ 5% · Weak if shrinking");
-  add("EPS growth (1y)", mm.epsGrowthTTMYoy, v=>fmtPct(v), v=>v>=5, v=>v<0, "Good ≥ 5% · Weak if shrinking");
-  const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
-  add("Debt / equity", de, v=>v.toFixed(2), v=>v<=1, v=>v>2, "Good ≤ 1 · Weak > 2 (banks & utilities often run higher)");
-  const cr = pick(mm, ["currentRatioQuarterly","currentRatioAnnual"]);
-  add("Current ratio", cr, v=>v.toFixed(2), v=>v>=1.5, v=>v<1, "Good ≥ 1.5 · Weak < 1 (can it pay its short-term bills?)");
+/* ================= Financial health score ================= */
+// 0 at the "weak" level, 1 at the "strong" level, straight line in between.
+const scale = (v, weak, strong) => isNum(v) ? Math.max(0, Math.min(1, (v - weak) / (strong - weak))) : NaN;
+const isFinancialCo = prof => /bank|insurance|financial|capital markets|thrift/i.test((prof && prof.finnhubIndustry) || "");
+function cagr(now, then, yrs){ return isNum(now) && isNum(then) && now > 0 && then > 0 && yrs > 0 ? (Math.pow(now/then, 1/yrs) - 1) * 100 : NaN; }
 
+// Piotroski F-Score: 9 yes/no tests comparing the latest year with the one before.
+function piotroski(y0, y1){
+  if(!y0 || !y1 || !isNum(y0.assets) || !isNum(y1.assets)) return null;
+  const roa0 = isNum(y0.net) ? y0.net / y0.assets : NaN, roa1 = isNum(y1.net) ? y1.net / y1.assets : NaN;
+  const lev = y => isNum(y.ltDebt) ? y.ltDebt / y.assets : (isNum(y.assets) ? 0 : NaN);
+  const cr = y => isNum(y.curA) && isNum(y.curL) && y.curL > 0 ? y.curA / y.curL : NaN;
+  const gm = y => isNum(y.gross) && isNum(y.revenue) && y.revenue > 0 ? y.gross / y.revenue : NaN;
+  const at = y => isNum(y.revenue) ? y.revenue / y.assets : NaN;
+  const t = (name, ok, why) => ({ name, ok: ok === null ? null : !!ok, why });
+  const cmp = (a, b, f) => isNum(a) && isNum(b) ? f(a, b) : null;
+  const tests = [
+    t("Profitable", isNum(roa0) ? roa0 > 0 : null, "Net income above zero"),
+    t("Cash from operations positive", isNum(y0.cfo) ? y0.cfo > 0 : null, "The business brings in cash"),
+    t("Return on assets improved", cmp(roa0, roa1, (a,b)=>a>b), "Profit per $ of assets up vs last year"),
+    t("Cash beats reported profit", cmp(y0.cfo, y0.net, (a,b)=>a>b), "Operating cash flow above net income (earnings are 'real')"),
+    t("Long-term debt lower", cmp(lev(y0), lev(y1), (a,b)=>a<=b), "Long-term debt as a share of assets didn't rise"),
+    t("Short-term cover better", cmp(cr(y0), cr(y1), (a,b)=>a>b), "Current ratio up vs last year"),
+    t("No new shares issued", cmp(y0.shares, y1.shares, (a,b)=>a<=b*1.005), "Share count didn't grow"),
+    t("Gross margin improved", cmp(gm(y0), gm(y1), (a,b)=>a>b), "Keeps more of each $ of sales"),
+    t("Uses assets better", cmp(at(y0), at(y1), (a,b)=>a>b), "More sales per $ of assets"),
+  ];
+  const known = tests.filter(x => x.ok !== null);
+  if(known.length < 6) return null;
+  return { tests, score: known.filter(x => x.ok).length, of: known.length };
+}
+// Altman Z-Score (original version): bankruptcy-risk score. Not meant for banks and insurers.
+function altman(y0, mcapM, prof){
+  if(!y0 || isFinancialCo(prof)) return null;
+  const ta = y0.assets, tl = y0.liab;
+  if(![ta, tl, y0.curA, y0.curL, y0.retained, y0.ebit, y0.revenue].every(isNum) || ta <= 0 || tl <= 0 || !isNum(mcapM)) return null;
+  if(y0.unit && prof && prof.currency && y0.unit !== prof.currency) return null; // reports and share price in different currencies
+  const mve = mcapM * 1e6;
+  const z = 1.2*(y0.curA - y0.curL)/ta + 1.4*y0.retained/ta + 3.3*y0.ebit/ta + 0.6*mve/tl + 1.0*y0.revenue/ta;
+  return { z, zone: z > 2.99 ? "safe" : z >= 1.81 ? "grey" : "distress" };
+}
+
+function healthScore(mm, prof, fin){
+  const ys = fin && fin.years || [], y0 = ys[0], y1 = ys[1];
+  const pct = v => v.toFixed(1) + "%";
+  const pillars = [];
+  const pillar = (id, name, what, items) => {
+    const got = items.filter(x => isNum(x.s));
+    pillars.push({ id, name, what, items: got, s: got.length ? got.reduce((a, x) => a + x.s, 0) / got.length : NaN });
+  };
+  const item = (name, v, show, weak, strong, rule, s) => ({ name, v, show: isNum(v) ? show(v) : "—", s: s !== undefined ? s : scale(v, weak, strong), rule });
+
+  // 1. Profitability
+  pillar("profit", "Profitability", "How much profit it makes from sales and from shareholders' money", [
+    item("Net profit margin", mm.netProfitMarginTTM, pct, 0, 15, "Full marks ≥ 15% · zero at 0% or below"),
+    item("Operating margin", mm.operatingMarginTTM, pct, 0, 20, "Full marks ≥ 20% · zero at 0% or below"),
+    item("Return on equity", mm.roeTTM, pct, 5, 20, "Full marks ≥ 20% · zero below 5%"),
+  ]);
+  // 2. Balance sheet
+  const fc = isFinancialCo(prof);
+  const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
+  const cr = pick(mm, ["currentRatioQuarterly","currentRatioAnnual"]);
+  const az = altman(y0, prof && prof.marketCapitalization || mm.marketCapitalization, prof);
+  const negEq = y0 && isNum(y0.equity) && y0.equity < 0;
+  pillar("balance", "Balance sheet", "Debt and the ability to pay the bills", [
+    fc ? null : item("Debt / equity", de, v=>v.toFixed(2), 2, 0.5, "Full marks ≤ 0.5 · zero at 2 or more (or if equity is negative)", negEq || (isNum(de) && de < 0) ? 0 : undefined),
+    fc ? null : item("Current ratio", cr, v=>v.toFixed(2), 1, 2, "Full marks ≥ 2 · zero at 1 or below (can it pay short-term bills?)"),
+    az ? item("Altman Z-Score", az.z, v=>v.toFixed(1), 1.81, 2.99, "Above 3 = safe zone · 1.8–3 grey zone · below 1.8 = distress zone") : null,
+  ].filter(Boolean));
+  // 3. Free cash flow
+  const fcfYears = ys.slice(0, 3).filter(y => isNum(y.fcf));
+  const fcfMargin = y0 && isNum(y0.fcf) && isNum(y0.revenue) && y0.revenue > 0 ? y0.fcf / y0.revenue * 100 : NaN;
+  const conv = y0 && isNum(y0.fcf) && isNum(y0.net) && y0.net > 0 ? y0.fcf / y0.net : NaN;
+  const posYears = fcfYears.length >= 2 ? fcfYears.filter(y => y.fcf > 0).length : NaN;
+  pillar("cash", "Free cash flow", "Cash left after running and investing in the business", [
+    item("Free cash flow margin", fcfMargin, pct, 0, 15, "Free cash flow ÷ sales, last year. Full marks ≥ 15% · zero at 0% or below"),
+    item("Cash vs reported profit", conv, v=>Math.round(v*100)+"%", 0.5, 1, "Free cash flow ÷ net income. Full marks ≥ 100% · zero at 50% or below"),
+    item("Years with positive free cash flow", posYears, v=>`${v} of ${fcfYears.length}`, 0, fcfYears.length, "Last 3 years", isNum(posYears) ? posYears / fcfYears.length : undefined),
+  ]);
+  // 4. Growth
+  const revOld = ys[3] || ys[ys.length-1];
+  const rev3 = y0 && revOld && revOld !== y0 ? cagr(y0.revenue, revOld.revenue, ys.indexOf(revOld)) : NaN;
+  pillar("growth", "Growth", "Whether sales and profits are rising", [
+    item("Revenue growth, 5 years (per year)", isNum(mm.revenueGrowth5Y) ? mm.revenueGrowth5Y : rev3, v=>fmtPct(v), 0, 10, "Full marks ≥ 10%/yr · zero if shrinking"),
+    item("EPS growth, 5 years (per year)", mm.epsGrowth5Y, v=>fmtPct(v), 0, 10, "Full marks ≥ 10%/yr · zero if shrinking"),
+    item("Revenue growth, last year", mm.revenueGrowthTTMYoy, v=>fmtPct(v), -5, 10, "Full marks ≥ 10% · zero at −5% or worse"),
+  ]);
+  // 5. Share dilution
+  const shOld = ys[3] || ys[ys.length-1];
+  const dil = y0 && shOld && shOld !== y0 ? cagr(y0.shares, shOld.shares, ys.indexOf(shOld)) : NaN;
+  pillar("dilution", "Share dilution", "Whether your slice of the company is shrinking (new shares) or growing (buybacks)", [
+    item("Change in share count (per year)", dil, v=>fmtPct(v), 4, 0, `Over the last ${shOld && y0 ? ys.indexOf(shOld) : 3} years. Full marks if flat or falling (buybacks) · zero at +4%/yr`),
+  ]);
+
+  const have = pillars.filter(p => isNum(p.s));
+  const total = have.length >= 3 ? Math.round(have.reduce((a, p) => a + p.s, 0) / have.length * 100) : NaN;
+  return { total, pillars, f: piotroski(y0, y1), az, fc, year: y0 && y0.end };
+}
+
+const scoreClass = v => !isNum(v) ? "b-inline" : v >= 70 ? "b-cheap" : v >= 40 ? "b-warn" : "b-rich";
+const scoreWord = v => !isNum(v) ? "Not enough data" : v >= 70 ? "Strong" : v >= 40 ? "Average" : "Weak";
+const scoreColor = v => !isNum(v) ? "var(--line)" : v >= 70 ? "var(--good)" : v >= 40 ? "var(--mid)" : "var(--bad)";
+
+function renderHealth(app, mm, price, prof, fin){
+  const el = $("#health", app); if(!el) return;
+  const finState = fin === undefined ? "loading" : fin && fin.years && fin.years.length ? "ok" : "none";
+  const H = healthScore(mm, prof, finState === "ok" ? fin : null);
   const flags = [];
   const hi = mm["52WeekHigh"], lo = mm["52WeekLow"];
+  const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
+  const cr = pick(mm, ["currentRatioQuarterly","currentRatioAnnual"]);
   if(isNum(price)&&isNum(hi)&&price >= hi*0.95) flags.push(["b-warn","Near 52-week high", `Within 5% of its 1-year high (${fmt(hi)}). Good momentum, but less room for error if you're buying now.`]);
   if(isNum(price)&&isNum(lo)&&price <= lo*1.05) flags.push(["b-warn","Near 52-week low", `Within 5% of its 1-year low (${fmt(lo)}). Check whether something has changed in the business.`]);
   if(isNum(mm.netProfitMarginTTM)&&mm.netProfitMarginTTM<0) flags.push(["b-rich","Losing money","Net profit margin is negative over the last 12 months."]);
   if(isNum(mm.revenueGrowthTTMYoy)&&mm.revenueGrowthTTMYoy<0) flags.push(["b-rich","Revenue shrinking",`Sales are down ${Math.abs(mm.revenueGrowthTTMYoy).toFixed(1)}% vs a year ago.`]);
-  if(isNum(de)&&de>2) flags.push(["b-rich","High debt",`Debt is ${de.toFixed(1)}× shareholders' equity.`]);
-  if(isNum(cr)&&cr<1) flags.push(["b-warn","Tight short-term finances","Short-term debts exceed short-term assets (current ratio below 1)."]);
+  if(!H.fc && isNum(de)&&de>2) flags.push(["b-rich","High debt",`Debt is ${de.toFixed(1)}× shareholders' equity.`]);
+  if(!H.fc && isNum(cr)&&cr<1) flags.push(["b-warn","Tight short-term finances","Short-term debts exceed short-term assets (current ratio below 1)."]);
+  if(H.az && H.az.zone === "distress") flags.push(["b-rich","Altman Z in distress zone",`Z-Score ${H.az.z.toFixed(1)} (below 1.8). Historically linked with higher bankruptcy risk.`]);
+  if(H.f && H.f.of >= 8 && H.f.score <= 3) flags.push(["b-rich","Weak Piotroski score",`Passes only ${H.f.score} of ${H.f.of} health tests vs last year.`]);
+  const dp = H.pillars.find(p => p.id === "dilution").items[0];
+  if(dp && dp.v >= 4) flags.push(["b-warn","Shares being diluted",`Share count growing ${dp.v.toFixed(1)}% a year, so each share owns a smaller slice.`]);
+  const cp = H.pillars.find(p => p.id === "cash").items.find(i => i.name.startsWith("Years"));
+  if(cp && cp.v === 0) flags.push(["b-rich","Negative free cash flow","Free cash flow below zero in each of the last years shown."]);
 
-  const label = {good:["b-cheap","Strong"], ok:["b-inline","OK"], bad:["b-rich","Weak"]};
-  $("#health", app).innerHTML = checks.length ? `
-    ${flags.length ? `<div style="margin-bottom:12px">${flags.map(([c,t,d])=>`<div class="flag"><span class="badge ${c}">⚑ ${t}</span><span class="small">${d}</span></div>`).join("")}</div>` : `<p class="small" style="margin-top:0"><span class="badge b-cheap">No red flags</span> from the checks below.</p>`}
-    <table><tbody>${checks.map(c=>`<tr><td>${c.name}<div class="small muted">${c.rule}</div></td><td class="num"><b>${c.show}</b></td><td><span class="badge ${label[c.k][0]}">${label[c.k][1]}</span></td></tr>`).join("")}</tbody></table>
-    <p class="small muted" style="margin-bottom:0">General rules of thumb; what's normal differs by industry. A fuller health score comes in a later phase.</p>`
-    : `<p class="muted">No financial data available for this symbol.</p>`;
+  const anyData = H.pillars.some(p => isNum(p.s));
+  if(!anyData && finState !== "loading"){ el.innerHTML = `<p class="muted">No financial data available for this symbol.</p>`; return; }
+  const lvl = s => s >= 0.7 ? ["b-cheap","Strong"] : s >= 0.4 ? ["b-warn","OK"] : ["b-rich","Weak"];
+  const pBar = p => `<div class="hp">
+      <div class="hp-l"><b>${p.name}</b></div>
+      <div class="hp-bar"><i style="width:${isNum(p.s)?Math.max(3,p.s*100):0}%;background:${scoreColor(p.s*100)}"></i></div>
+      <div class="hp-v">${isNum(p.s) ? Math.round(p.s*20) + "<span class='muted'>/20</span>" : '<span class="muted small">n/a</span>'}</div>
+    </div>`;
+  const total = H.total;
+  el.innerHTML = `
+    <div class="hs">
+      <div class="hs-ring" style="--p:${isNum(total)?total:0};--c:${scoreColor(total)}"><div><b>${isNum(total)?total:"—"}</b><span>of 100</span></div></div>
+      <div style="flex:1;min-width:0">
+        <div style="margin-bottom:8px"><span class="badge ${scoreClass(total)}">${scoreWord(total)}</span>
+          ${H.f ? `<span class="badge b-inline" title="Piotroski F-Score">Piotroski ${H.f.score}/${H.f.of}</span>` : ""}
+          ${H.az ? `<span class="badge ${H.az.zone==="safe"?"b-cheap":H.az.zone==="grey"?"b-warn":"b-rich"}" title="Altman Z-Score">Altman Z ${H.az.z.toFixed(1)}</span>` : ""}
+        </div>
+        ${H.pillars.map(pBar).join("")}
+      </div>
+    </div>
+    ${finState === "loading" ? `<p class="small muted"><span class="spin"></span> Loading annual reports for the full score…</p>` : ""}
+    ${flags.length ? `<div style="margin-top:12px">${flags.map(([c,t,d])=>`<div class="flag"><span class="badge ${c}">⚑ ${t}</span><span class="small">${d}</span></div>`).join("")}</div>` : `<p class="small" style="margin:12px 0 0"><span class="badge b-cheap">No red flags</span></p>`}
+    <details class="more">
+      <summary>Show the breakdown</summary>
+      ${H.pillars.map(p => `<h3>${p.name} <span class="small muted" style="font-weight:400">· ${p.what}</span></h3>
+        ${p.items.length ? `<table><tbody>${p.items.map(i=>`<tr><td>${i.name}<div class="small muted">${i.rule}</div></td><td class="num"><b>${i.show}</b></td><td class="num"><span class="badge ${lvl(i.s)[0]}">${lvl(i.s)[1]}</span></td></tr>`).join("")}</tbody></table>`
+          : `<p class="small muted">${p.id==="balance" && H.fc ? "Debt ratios work differently for banks and insurers, so they're left out." : "Not enough data."}</p>`}`).join("")}
+      <h3>Piotroski F-Score <span class="small muted" style="font-weight:400">· 9 tests, latest year vs the one before</span></h3>
+      ${H.f ? `<table><tbody>${H.f.tests.map(t=>`<tr><td>${t.name}<div class="small muted">${t.why}</div></td><td class="num">${t.ok===null?'<span class="muted small">n/a</span>':t.ok?'<span class="badge b-cheap">✓ Pass</span>':'<span class="badge b-rich">✗ Fail</span>'}</td></tr>`).join("")}</tbody></table>
+        <p class="small muted">${H.f.score} of ${H.f.of} passed. 7–9 is strong, 4–6 average, 0–3 weak.</p>`
+        : `<p class="small muted">${finState==="loading"?"Loading…":"Needs two years of annual reports, which aren't available for this stock."}</p>`}
+      <h3>Altman Z-Score <span class="small muted" style="font-weight:400">· bankruptcy-risk check</span></h3>
+      <p class="small muted">${H.az ? `Z = <b>${H.az.z.toFixed(2)}</b>: ${H.az.zone==="safe"?"safe zone (above 3)":H.az.zone==="grey"?"grey zone (1.8–3)":"distress zone (below 1.8)"}. Combines working capital, retained earnings, operating profit, market value vs debts, and sales, each compared with total assets.`
+        : H.fc ? "Not used for banks, insurers and other financial companies." : finState==="loading" ? "Loading…" : "Not enough data in the annual reports."}</p>
+      <p class="small muted" style="margin-bottom:0"><b>How the score works:</b> each measure gets 0 to full marks between a weak and a strong level (shown under its name).
+        Each of the 5 areas is worth 20 points; areas without data are left out and the rest scaled up to 100.
+        70+ is strong, 40–69 average, below 40 weak. These are general rules of thumb; what's normal differs by industry.
+        ${H.year ? `Latest annual report: year ending ${esc(H.year)}.` : ""}</p>
+    </details>`;
 }
 
 function renderRec(app, r){
