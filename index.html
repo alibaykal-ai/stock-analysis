@@ -252,7 +252,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 6.0</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 6.1</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1379,6 +1379,60 @@ function parseAV(ovRes, estRes){
   }
   return out;
 }
+// Boom-and-bust companies (6.1, after MU): memory makers and the like swing from big profits to losses and back.
+// When such a company's profit margin today is far above its own usual level, valuing it on today's profits as if they
+// lasted forever overstates it (MU: fair value 2,878 at a price of 595). Rule (shown in the app):
+//   * boom-and-bust history: a year with a net margin of 10%+ followed later by a loss year (margin below −2%)
+//   * profits at a high: today's net margin ≥ 1.5× its usual margin and at least 10 points above it
+//   * usual margin = median of the yearly net margins before the latest year (up to 7 years; profitable years only if that median is ≤ 2%)
+// Then the DCF counts the high profits (analysts' forecasts for the next two years when available) and lets them fade back
+// to its usual margins, on next year's sales level, over N years (slider, default 5). Peer P/E is skipped.
+function cycleInfo(met, eps, fcf, price, av){
+  const mm = met && met.metric || {}, ann = met && met.series && met.series.annual || {};
+  const byYear = arr => { const seen = new Set(), out = []; for(const x of (arr || [])) { const y = String(x.period || "").slice(0, 4); if(!y || seen.has(y) || !isNum(x.v)) continue; seen.add(y); out.push({ y, v: x.v }); } return out.sort((a, b) => b.y.localeCompare(a.y)); };
+  const nm = byYear(ann.netMargin).slice(0, 10);
+  if(nm.length < 4 || !(eps > 0)) return null;
+  let boom = false;
+  for(let i = nm.length - 1; i >= 0 && !boom; i--) if(nm[i].v >= 0.10) for(let j = i - 1; j >= 0; j--) if(nm[j].v < -0.02){ boom = true; break; }
+  if(!boom) return null;
+  const prior = nm.slice(1, 8).map(x => x.v);
+  const usualOf = vals => { const m = median(vals); if(isNum(m) && m > 0.02) return { v: m, how: "" }; const pos = vals.filter(v => v > 0.02); return pos.length ? { v: median(pos), how: " (profitable years only)" } : null; };
+  const un = usualOf(prior); if(!un) return null;
+  const ttm = isNum(mm.netProfitMarginTTM) ? mm.netProfitMarginTTM / 100 : NaN;
+  const cur = isNum(ttm) && ttm > 0 ? ttm : nm[0].v;
+  if(!(cur >= 1.5 * un.v && cur - un.v >= 0.10)) return null;
+  const fm = byYear(ann.fcfMargin).filter(x => x.y < nm[0].y).slice(0, 7).map(x => x.v);
+  const conv = isNum(fcf) && fcf > 0 ? Math.max(0.3, Math.min(1, fcf / eps)) : 0.6;
+  const uf = fm.length >= 3 ? usualOf(fm) : null;
+  const usualFcf = uf ? uf.v : un.v * conv;
+  const ps = pick(mm, ["psTTM","psAnnual"]);
+  const sales = isNum(mm.revenuePerShareTTM) && mm.revenuePerShareTTM > 0 ? mm.revenuePerShareTTM : isNum(ps) && ps > 0 && isNum(price) ? price / ps : NaN;
+  if(!isNum(sales)) return null;
+  av = av || {};
+  const f = [av.fy1, av.fy2].filter(e => e && e.eps > 0).map(e => e.eps);
+  const lift = f.length ? Math.max(1, Math.min(4, f[0] / eps)) : 1;
+  const salesBase = sales * lift;
+  return { cur, usual: un.v, usualHow: un.how, usualFcf, fcfHow: uf ? uf.how : " (estimated from its usual profit margin)", years: prior.length,
+    sales, salesBase, lift, fcfEps: conv, fcst: f, normEps: salesBase * un.v, normFcf: salesBase * usualFcf, peakYear: nm[0].y };
+}
+// DCF for a company at a cyclical high: year-by-year free cash flow follows analysts' forecasts (converted at today's
+// cash-to-profit ratio), then fades in a straight line to its usual level, reached in year N; after that it grows at gt forever.
+function cycleDcf(cy, fcf0, N, r, gt){
+  const pts = [fcf0, ...cy.fcst.map(e => e * cy.fcfEps)].slice(0, Math.max(1, N));
+  const k = pts.length - 1, norm = t => cy.normFcf * Math.pow(1 + gt, t);
+  let v = 0;
+  for(let t = 1; t <= N; t++){
+    const f = t <= k ? pts[t] : pts[k] + (norm(N) - pts[k]) * (t - k) / (N - k);
+    v += f / Math.pow(1 + r, t);
+  }
+  return v + norm(N) * (1 + gt) / (r - gt) / Math.pow(1 + r, N);
+}
+// Reverse of the above: how many years of high profits today's price assumes (1–30), or ±Infinity outside that.
+function impliedCycleYears(price, cy, fcf0, r, gt){
+  if(cycleDcf(cy, fcf0, 1, r, gt) >= price) return -Infinity;
+  for(let n = 2; n <= 30; n++) if(cycleDcf(cy, fcf0, n, r, gt) >= price) return n;
+  return Infinity;
+}
 function fvInputs(met, prof, price, av){
   const mm = met && met.metric || {};
   const eps = pick(mm, ["epsTTM","epsExclExtraItemsTTM","epsBasicExclExtraItemsTTM","epsInclExtraItemsTTM","epsAnnual"]);
@@ -1409,11 +1463,13 @@ function fvInputs(met, prof, price, av){
   const fadeTxt = "with the growth above 2.5% halving each year after that, because fast growth rarely lasts";
   const startHow = exp ? `analysts expect earnings to grow ${fmtPct(exp.g,1)} next year, ${fadeTxt}`
     : isNum(pastMid) ? `no analyst forecasts, so the middle of its past 5-year growth (${fmtPct(pastMid,1)}) for next year, ${fadeTxt}` : null;
-  return { eps, bvps, fcf, past, pastMid, exp, startG, startHow, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av };
+  const fin = isFinancialCo(prof);
+  const cy = fin ? null : cycleInfo(met, eps, fcf, price, av);
+  return { fin, eps, bvps, fcf, past, pastMid, exp, startG, startHow, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
 }
 function fvAssump(sym, inp){
   const s = state.fv[sym] || {};
-  return { g: isNum(s.g) ? s.g : inp.startG, r: isNum(s.r) ? s.r : state.settings.fvR, gt: isNum(s.gt) ? s.gt : 2.5, custom: !!state.fv[sym] };
+  return { g: isNum(s.g) ? s.g : inp.startG, r: isNum(s.r) ? s.r : state.settings.fvR, gt: isNum(s.gt) ? s.gt : 2.5, cy: isNum(s.cy) ? s.cy : 5, custom: !!state.fv[sym] };
 }
 // Growth-adjust a P/E: a business with no growth is worth about 1 / required return
 // (10× at 10%). The rest of a P/E is a premium for growth. If the growth expected now
@@ -1426,7 +1482,24 @@ function adjPE(pe, gNow, gThen, r){
 }
 function fvMethods(inp, a, met, fx){
   const out = [], peerInfo = fx.peerInfo, gNow = a.g, gWho = "the growth now assumed for the next 5 years is";
-  if(isNum(inp.fcf) && inp.fcf > 0){
+  const cy = inp.cy;
+  if(cy){
+    const pc = v => (v * 100).toFixed(0) + "%";
+    const fc = cy.fcst.length ? `analysts' forecasts for the next ${cy.fcst.length === 1 ? "year" : cy.fcst.length + " years"} (earnings ${cy.fcst.map(e => fmt(e)).join(", then ")} per share, turned into cash at today's ${pc(cy.fcfEps)} cash-to-profit ratio)` : "no analysts' forecasts, so it starts from today's level";
+    if(isNum(inp.fcf) && inp.fcf > 0) out.push({ name:"Discounted cash flow (profits back to normal)", v: cycleDcf(cy, inp.fcf, a.cy, a.r/100, a.gt/100), counted:true,
+      note:`Free cash flow of ${fmt(inp.fcf)} per share today; ${fc}; then fading to its usual level by year ${a.cy} (slider): ${pc(cy.usualFcf)} of sales${cy.fcfHow}, on sales of ${fmt(cy.salesBase)} per share${cy.lift > 1.001 ? " (next year's level, estimated from the forecasts)" : ""}, i.e. ${fmt(cy.normFcf)} per share; growing ${a.gt}% a year after that, valued at your ${a.r}% required return.` });
+    else out.push({ name:"Discounted cash flow (profits back to normal)", v:NaN, note:"Skipped: free cash flow is negative, so there is nothing to discount yet." });
+    const peHist = history(met, RATIOS[0]);
+    if(peHist && peHist.median > 0) out.push({ name:"Its usual P/E on normal profits", v: peHist.median * cy.normEps, counted:true,
+      note:`Earnings at its usual ${pc(cy.usual)} profit margin${cy.usualHow} on sales of ${fmt(cy.salesBase)} per share = ${fmt(cy.normEps)} per share (today: ${fmt(inp.eps)}), × its usual P/E (last ${state.settings.years} years) of ${fmtX(peHist.median)}. Its usual P/E was earned over good and bad years alike, so it goes with normal profits, not today's.` });
+    else out.push({ name:"Its usual P/E on normal profits", v:NaN, note:"Skipped: not enough P/E history." });
+    out.push({ name:"Peer P/E", v:NaN, note:"Skipped: profits are at a cyclical high, and similar companies' P/Es are earned on steadier profits, so the two don't compare." });
+    if(isNum(inp.bvps) && inp.bvps > 0) out.push({ name:"Graham Number", v: Math.sqrt(22.5 * inp.eps * inp.bvps), counted:false,
+      note:"√(22.5 × earnings per share × book value per share). Shown but not counted: built for steady companies, and today's earnings are at a cyclical high." });
+    return out;
+  }
+  if(inp.fin) out.push({ name:"Discounted cash flow", v:NaN, note:"Skipped: for banks, lenders and insurers, cash flow includes loans made and customers' money held (e.g. premiums waiting to pay claims), so it isn't free cash the owners can take out." });
+  else if(isNum(inp.fcf) && inp.fcf > 0){
     out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
       note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.` });
   } else out.push({ name:"Discounted cash flow", v:NaN, note: isNum(inp.fcf) ? "Skipped: free cash flow is negative, so there is nothing to discount yet." : "Skipped: no free cash flow data." });
@@ -1514,7 +1587,11 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so fair value can't be compared.</p>`; return; }
   const fx = { peerInfo: null, avState: avP ? "loading" : "none", av: {} };
   let inp = fvInputs(met, prof, price, fx.av);
-  const sliders = [
+  const sliders = inp.cy ? [
+    ["cy", "Years until profits are back to normal", 1, 10, 1, "How long the high profits last before margins return to the company's usual level. Short = the boom ends soon; long = it lasts."],
+    ["r", "Required return", 6, 15, 0.5, "The yearly return you want. Higher = stricter, lower fair value."],
+    ["gt", "Long-term growth", 0, 4, 0.5, "Growth once profits are back to normal, forever. Keep this near inflation (2–3%)."],
+  ] : [
     ["g", "Growth, years 1–5", -20, 60, 0.5, "How fast free cash flow grows each year for the next 5 years."],
     ["r", "Required return", 6, 15, 0.5, "The yearly return you want. Higher = stricter, lower fair value."],
     ["gt", "Long-term growth", 0, 4, 0.5, "Growth after year 10, forever. Keep this near inflation (2–3%)."],
@@ -1525,7 +1602,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
         <input type="range" id="fv-${k}" min="${mn}" max="${mx}" step="${st}"><small class="muted">${h}</small></label>`).join("")}
       <div class="row"><button id="fv-reset" type="button">Reset to defaults</button><span class="small muted" id="fv-def"></span></div>
     </details>`;
-  const setSliders = () => { const a = fvAssump(sym, inp); sliders.forEach(([k]) => { $("#fv-"+k, el).value = a[k]; $("#fv-v-"+k, el).textContent = a[k] + "%"; }); };
+  const unit = k => k === "cy" ? " years" : "%";
+  const setSliders = () => { const a = fvAssump(sym, inp); sliders.forEach(([k]) => { const i = $("#fv-"+k, el); if(!i) return; i.value = a[k]; $("#fv-v-"+k, el).textContent = a[k] + unit(k); }); };
   const draw = () => {
     const a = fvAssump(sym, inp);
     const methods = fvMethods(inp, a, met, fx);
@@ -1533,7 +1611,17 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     const ig = impliedGrowth(price, inp.fcf, a.r/100, a.gt/100);
     // Reverse DCF block: compare the growth priced in with the data-based expectation
     let rev, revHead = "", revPast = "";
-    if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
+    const cy = inp.cy;
+    if(cy && isNum(inp.fcf) && inp.fcf > 0){
+      const n = impliedCycleYears(price, cy, inp.fcf, a.r/100, a.gt/100);
+      revHead = n === -Infinity ? `Today's price is covered even if profits fall back to normal <b>within a year</b>.`
+        : n === Infinity ? `Today's price needs the high profits to last <b>more than 30 years</b>.`
+        : `Today's price assumes the high profits last about <b>${n} years</b> before margins are back to normal.`;
+      const vb = n === -Infinity || n <= a.cy - 2 ? `<span class="badge b-cheap">Less than your ${a.cy} years</span>` : n >= a.cy + 2 ? `<span class="badge b-rich">More than your ${a.cy} years</span>` : `<span class="badge b-inline">About your ${a.cy} years</span>`;
+      rev = `<p style="margin:0 0 6px">${vb}</p><p style="margin:0">${revHead} The slider is set to ${a.cy} years.</p>
+        <p class="small muted" style="margin-bottom:0">Same cash-flow model as the fair value above (forecasts, then a fade to its usual margins); only the number of years changes.</p>`;
+    } else if(inp.fin) rev = `<p class="muted small">Not used for banks, lenders and insurers: their cash flow isn't free cash (see the discounted cash flow note below).</p>`;
+    else if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
     else {
       const igp = ig * 100, ref = inp.startG;
       const expTxt = inp.exp ? `Analysts expect earnings to grow <b>${fmtPct(inp.exp.g,1)}</b> next year; if the growth above ${a.gt}% then halves each year, that averages about <b>${fmtPct(fadeAvg5(inp.exp.g, a.gt),1)}</b> a year over the next 5. ` : "";
@@ -1560,7 +1648,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       const lo = Math.min(...vals), hi = Math.max(...vals), mid = median(vals);
       const buyAt = mid * (1 - state.settings.fvBuy/100), richAt = mid * (1 + state.settings.fvRich/100);
       const diff = price / mid - 1, pct = Math.abs(diff*100).toFixed(0);
-      const vb = price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
+      const noFc = cy && !cy.fcst.length;
+      const vb = noFc ? `<span class="badge b-inline">Needs forecasts</span>` : price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
       // Price far above every method: the stock is priced on growth or new businesses that today's
       // numbers don't show. "Expensive, 1234% above" isn't useful; lead with what the price assumes.
       const future = price > 3 * hi;
@@ -1570,6 +1659,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       if(vals.length === 1) notes.push("Only one method fits this company, so treat the range with extra caution.");
       if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
       if(loadingAny) notes.push("Still loading some data; this may change.");
+      const cyNote = cy ? `<div class="callout"><b>Profits at a cyclical high.</b> ${esc(sym)}'s profit margin is ${(cy.cur*100).toFixed(0)}% against a usual ${(cy.usual*100).toFixed(0)}%${cy.usualHow} (median of the ${cy.years} years before ${cy.peakYear}), and it has been through boom and bust before. So fair value counts the high profits${cy.fcst.length ? " (analysts' forecasts)" : ""}, then assumes margins return to normal within <b>${a.cy} years</b> (change it under <b>Adjust the assumptions</b>).
+          ${noFc ? `<br><b>No analysts' forecasts loaded</b>${state.avKey ? " (Alpha Vantage limit or no data; try again tomorrow)" : ' (add a free <a href="#settings">Alpha Vantage key</a>)'}, so the high profits are assumed to fade from today's level, which undercounts a shortage that is still growing. No verdict until forecasts load.` : ""}</div>` : "";
       if(future) top = `<p style="margin-top:0"><span class="badge b-warn">Priced for future growth</span>
           Price ${fmt(price)} is <b>${(price/hi).toFixed(1)}×</b> the highest value today's earnings and cash flow support (${lo === hi ? "only one method fits: " + fmt(hi) : "methods range " + fmt(lo) + "–" + fmt(hi)}).</p>
         <div class="callout"><b>What the price assumes:</b> ${revHead ? revHead + " " + revPast : "can't be worked out: the reverse DCF needs positive free cash flow."}</div>
@@ -1578,12 +1669,13 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       else top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
           ${price > buyAt ? `With your ${state.settings.fvBuy}% safety margin, it would be attractive below <b>${fmt(buyAt)}</b>.` : `That's beyond your ${state.settings.fvBuy}% safety margin.`}</p>
         ${fvBar(lo, mid, hi, price, buyAt, richAt, inp.av && inp.av.target > 0 ? inp.av.target : NaN)}
+        ${cyNote}
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
     }
     $("#fv-out", el).innerHTML = `${top}
       <details class="more" id="fv-more" ${fvMoreOpen ? "open" : ""}><summary>Show the details: analysts' forecasts, what growth the price assumes, each method's value</summary>
       <h3>What analysts expect</h3>${fvAnalysts(inp, price, fx)}
-      <h3>What growth is the price assuming? <span class="small muted">(reverse DCF)</span></h3>${rev}
+      <h3>${cy ? "How long does the price assume the high profits last?" : "What growth is the price assuming?"} <span class="small muted">(reverse DCF)</span></h3>${rev}
       <h3>How each method values it</h3>
       <table class="fvm"><tbody>${methods.map(m => `<tr class="${m.counted && isNum(m.v) ? "" : "muted"}">
         <td><b>${m.name}</b>${m.ref ? ' <span class="badge b-inline">reference</span>' : ""}<div class="small muted">${esc(m.note)}</div></td>
@@ -1594,12 +1686,12 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
         "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it (change in <a href="#settings">Settings</a>).
         These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p></details>`;
     $("#fv-more", el).ontoggle = e => { fvMoreOpen = e.target.open; };
-    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.startHow || "no growth data, so a cautious 5%"}.`;
+    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : cy ? "Starting point: 5 years until profits are back to normal." : `Starting growth ${inp.startG}%: ${inp.startHow || "no growth data, so a cautious 5%"}.`;
   };
   sliders.forEach(([k]) => { $("#fv-"+k, el).oninput = e => {
     const cur = fvAssump(sym, inp);
-    state.fv[sym] = { g: cur.g, r: cur.r, gt: cur.gt, [k]: parseFloat(e.target.value) }; save();
-    $("#fv-v-"+k, el).textContent = e.target.value + "%"; draw();
+    state.fv[sym] = { g: cur.g, r: cur.r, gt: cur.gt, cy: cur.cy, [k]: parseFloat(e.target.value) }; save();
+    $("#fv-v-"+k, el).textContent = e.target.value + unit(k); draw();
   }; });
   $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
   setSliders(); draw();
