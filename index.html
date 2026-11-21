@@ -628,8 +628,11 @@ function parseAV(ovRes, estRes){
       if(Array.isArray(arr)){
         const pack = e => e && { date: e.date || e.fiscalDateEnding, eps: avNum(e.eps_estimate_average), n: avNum(e.eps_estimate_analyst_count),
           eps90: avNum(e.eps_estimate_average_90_days_ago), up30: avNum(e.eps_estimate_revision_up_trailing_30_days), down30: avNum(e.eps_estimate_revision_down_trailing_30_days) };
-        out.fy1 = pack(arr.find(e => /current fiscal year/i.test(String(e.horizon||""))));
-        out.fy2 = pack(arr.find(e => /next fiscal year/i.test(String(e.horizon||""))));
+        // Alpha Vantage labels every year just "fiscal year": take the next two that haven't ended yet.
+        const today = ymd(new Date());
+        const years = arr.filter(e => /fiscal year/i.test(String(e.horizon||"")) && String(e.date||"") >= today && isNum(avNum(e.eps_estimate_average)))
+          .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        out.fy1 = pack(years[0]); out.fy2 = pack(years[1]);
       }
     } else out.errs.push(estRes.e.message);
   }
