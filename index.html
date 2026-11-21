@@ -188,7 +188,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.21</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.22</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1899,7 +1899,9 @@ async function renderInsiders(app, sym, tok){
 /* ================= AI summary (stock page, Claude API) ================= */
 // On demand only: the facts this page already shows are sent to Claude with the owner's own Anthropic key,
 // using Anthropic's official JavaScript library (vendor/anthropic-sdk.js, loaded only when needed).
-const AI_MODEL = "claude-opus-5-5", AI_PRICE = { in: 4, out: 20 }; // US$ per million tokens
+// Everyday summaries on Haiku (about 0.1p); "More careful" on Opus (about 2-5p). Prices: US$ per million tokens.
+const AI_MODELS = { quick: { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", in: 0.10, out: 0.50 }, careful: { id: "claude-opus-5-5", name: "Claude Opus 5.5", in: 4, out: 20 } };
+const AI_MODEL = AI_MODELS.quick.id;
 let aiSdkP = null;
 function loadAnthropic(){
   if(window.Anthropic) return Promise.resolve(window.Anthropic);
@@ -1947,35 +1949,37 @@ const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split("\n").re
 function renderAiCard(app, sym){
   const el = $("#ai", app); if(!el) return;
   const saved = cacheGet("ai:" + sym);
-  const est = "about 2–5p";
+  const est = "under 1p, or about 2–5p for a more careful one";
   if(!state.aiKey){ el.innerHTML = `<p class="small muted" style="margin:0">Add an Anthropic API key in <a href="#settings">Settings</a> to get a short plain-English summary of everything on this page, written by Claude (${est} per summary, paid from your Anthropic account).</p>`; return; }
   const body = saved ? (() => { const r = mdLite(saved.text); return r.html + (r.inList ? "</ul>" : ""); })() : "";
-  el.innerHTML = `${saved ? `<div class="ai-text">${body}</div><p class="small muted" style="margin:6px 0 0">Written ${hhmm(saved.at)} by Claude from this page's figures${saved.cost ? ` · cost about ${saved.cost}` : ""}. AI can misread numbers: check anything important in the sections below.</p>` : ""}
-    <div class="row" style="margin-top:${saved ? 8 : 0}px"><button id="ai-go" class="${saved ? "" : "primary"}">${saved ? "Write a fresh summary" : "Write a plain-English summary"}</button><span id="ai-msg" class="small muted">${saved ? "" : `Uses your Anthropic key; ${est}. Saved for a day.`}</span></div>`;
-  $("#ai-go", el).onclick = async () => {
-    const btn = $("#ai-go", el), m = $("#ai-msg", el); btn.disabled = true; m.className = "small muted"; m.innerHTML = `<span class="spin"></span> Gathering this page's figures…`;
+  el.innerHTML = `${saved ? `<div class="ai-text">${body}</div><p class="small muted" style="margin:6px 0 0">Written ${hhmm(saved.at)} by ${esc(saved.by || "Claude")} from this page's figures${saved.cost ? ` · cost ${/^under/.test(saved.cost) ? "" : "about "}${saved.cost}` : ""}. AI can misread numbers: check anything important in the sections below.</p>` : ""}
+    <div class="row" style="margin-top:${saved ? 8 : 0}px"><button data-ai="quick" class="${saved ? "" : "primary"}">${saved ? "Write a fresh summary" : "Write a plain-English summary"}</button>
+      <button data-ai="careful" title="Claude Opus 5.5: reads the figures more carefully and connects them better">More careful summary (Opus, about 2–5p)</button>
+      <span id="ai-msg" class="small muted">${saved ? "" : "Uses your Anthropic key: under 1p (Haiku). Saved for a day."}</span></div>`;
+  const aiWrite = async kind => {
+    const M = AI_MODELS[kind], m = $("#ai-msg", el); el.querySelectorAll("[data-ai]").forEach(x => x.disabled = true); m.className = "small muted"; m.innerHTML = `<span class="spin"></span> Gathering this page's figures…`;
     let Anthropic;
     try{
       const facts = await stockFacts(app, sym);
-      m.innerHTML = `<span class="spin"></span> Claude is writing (usually 10–30 seconds)…`;
+      m.innerHTML = `<span class="spin"></span> ${M.name} is writing (usually ${kind === "quick" ? "5–15" : "10–30"} seconds)…`;
       const c = await aiClient(); Anthropic = c.Anthropic;
-      const r = await c.client.beta.messages.create({
-        model: AI_MODEL, max_tokens: 16000,
+      const req = { model: M.id, max_tokens: 16000,
         output_config: { effort: "low" }, // a summary of figures the app already worked out: no deep reasoning needed
-        betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", // if Claude declines, Anthropic retries on a backup model
-        system: AI_SYSTEM,
-        messages: [{ role: "user", content: facts }],
-      });
-      if(r.stop_reason === "refusal"){ m.className = "small err"; m.textContent = "Claude declined to write this summary."; btn.disabled = false; return; }
+        system: AI_SYSTEM, messages: [{ role: "user", content: facts }] };
+      const r = kind === "careful"
+        ? await c.client.beta.messages.create({ ...req, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }) // if Opus declines, Anthropic retries on a backup model
+        : await c.client.messages.create(req); // Haiku has no server-side fallback
+      if(r.stop_reason === "refusal"){ m.className = "small err"; m.textContent = kind === "quick" ? "Claude Haiku declined to write this summary. Try the more careful summary." : "Claude declined to write this summary."; el.querySelectorAll("[data-ai]").forEach(x => x.disabled = false); return; }
       const text = r.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim();
       if(!text) throw new Error("Claude returned an empty answer. Try again.");
-      const usd = (r.usage.input_tokens * AI_PRICE.in + r.usage.output_tokens * AI_PRICE.out) / 1e6;
-      const fx = (await hvFor(renderToken).catch(() => ({}))).usdPerGbp;
-      const cost = isNum(fx) ? `${Math.max(1, Math.round(usd / fx * 100))}p` : `$${usd.toFixed(3)}`;
-      cacheSet("ai:" + sym, { text, at: new Date().toISOString(), cost, model: r.model }, 24*3600e3);
+      const usd = (r.usage.input_tokens * M.in + r.usage.output_tokens * M.out) / 1e6;
+      const fx = (await hvFor(renderToken).catch(() => ({}))).usdPerGbp, pence = isNum(fx) ? usd / fx * 100 : NaN;
+      const cost = isNum(pence) ? (pence < 1 ? "under 1p" : `${Math.round(pence)}p`) : `$${usd.toFixed(3)}`;
+      cacheSet("ai:" + sym, { text, at: new Date().toISOString(), cost, model: r.model, by: M.name }, 24*3600e3);
       renderAiCard(app, sym);
-    }catch(e){ m.className = "small err"; m.textContent = Anthropic ? aiError(Anthropic, e) : (e.message || "Something went wrong."); btn.disabled = false; }
+    }catch(e){ m.className = "small err"; m.textContent = Anthropic ? aiError(Anthropic, e) : (e.message || "Something went wrong."); el.querySelectorAll("[data-ai]").forEach(x => x.disabled = false); }
   };
+  el.querySelectorAll("[data-ai]").forEach(b => b.onclick = () => aiWrite(b.dataset.ai));
 }
 function renderRec(app, r){
   const el = $("#rec", app);
@@ -3319,7 +3323,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Anthropic API key <span class="small muted">(optional, for AI summaries)</span></h2>
-      <p class="small muted" style="margin-top:0">Lets Claude write a plain-English summary on any stock's page, only when you click the button (about 2–5p each, paid from your Anthropic account). Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → API keys; add a little credit under Billing and set a monthly spend limit there. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
+      <p class="small muted" style="margin-top:0">Lets Claude write a plain-English summary on any stock's page, only when you click the button: under 1p with Claude Haiku, or about 2–5p for a "more careful" one with Claude Opus, paid from your Anthropic account. Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → API keys; add a little credit under Billing and set a monthly spend limit there. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="aiform" class="row">
         <input id="aikey" type="password" placeholder="Paste your Anthropic key (starts with sk-ant-)" value="${esc(state.aiKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
