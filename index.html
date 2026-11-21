@@ -105,6 +105,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .chartwrap svg{display:block;width:100%;height:420px}
 .chartwrap .rsiband{fill:var(--neutralbg)}
 .chartwrap .rsiln{stroke:var(--ink);stroke-width:1.5;opacity:.85}
+.stat .b-inline{background:var(--card)}
 .sig .stat b{font-size:16px;margin:2px 0}
 .sig .stat p{margin:4px 0 0;font-size:12px;color:var(--muted)}
 .chartwrap .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
@@ -169,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 4.2</b> · 21 Nov 2026 ·
+  <b>Version 4.3</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2051,13 +2052,99 @@ function renderFed(app, j){
     </details>
     ${stale ? `<p class="small err" style="margin:8px 0 0">The economic data is more than 3 days old: the daily update may have stopped. Tell Claude.</p>` : ""}`;
 }
+/* ================= Macro tab: economy indicators (FRED) ================= */
+// Last valid value on or before a date.
+function obsAt(s, date){ if(!s) return null; for(let i = s.d.length - 1; i >= 0; i--) if(s.d[i] <= date && isNum(s.v[i])) return { d: s.d[i], v: s.v[i] }; return null; }
+const monthsBefore = (date, m) => { const d = new Date(date + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() - m); return ymd(d); };
+// Values over the last 2 years (for the small line), missing values dropped.
+function last2y(s){ if(!s) return []; const from = monthsBefore(ymd(new Date()), 24); return s.v.filter((v, i) => s.d[i] >= from && isNum(v)); }
+const TAG = { tail: ["b-cheap","Tailwind"], neutral: ["b-inline","Neutral"], head: ["b-rich","Headwind"] };
+function econItems(S){
+  const items = [], add = (grp, name, unit, cur, tag, why, line, base) => items.push({ grp, name, unit, cur, tag, why, line, base });
+  // 10-year Treasury yield
+  let c = lastObs(S.DGS10), p = c && obsAt(S.DGS10, monthsBefore(c.d, 3));
+  if(c && p){ const ch = c.v - p.v;
+    const tag = c.v >= 4.75 || ch >= 0.4 ? "head" : c.v <= 3.5 || ch <= -0.4 ? "tail" : "neutral";
+    add("rates", "10-year Treasury yield", "%", c, tag, `${c.v.toFixed(2)}%, ${ch >= 0 ? "up" : "down"} ${Math.abs(ch).toFixed(2)} points in 3 months. ${tag === "head" ? "High or fast-rising long-term rates make borrowing dearer and future profits worth less today, which weighs most on growth stocks." : tag === "tail" ? "Low or falling long-term rates support stock valuations." : "Neither high nor moving fast."}`, last2y(S.DGS10)); }
+  // Yield curve
+  c = lastObs(S.T10Y2Y);
+  if(c){ const from = monthsBefore(c.d, 12), past = S.T10Y2Y.v.filter((v, i) => S.T10Y2Y.d[i] >= from && isNum(v)), wasInv = past.some(v => v < 0);
+    const tag = c.v < 0 ? "head" : wasInv || c.v < 0.5 ? "neutral" : "tail";
+    add("rates", "Yield curve (10-year minus 2-year)", " pts", c, tag, c.v < 0 ? `Inverted (${c.v.toFixed(2)}): short-term rates above long-term ones. Historically this has come before most US recessions, often 6–24 months later.`
+      : wasInv ? `${c.v.toFixed(2)} points, positive again after being inverted in the last 12 months. Recessions have often started around the time the curve turns positive again, so worth watching.`
+      : c.v < 0.5 ? `Flat (${c.v.toFixed(2)} points): long-term rates only a little above short-term ones. Not a warning on its own.` : `Normal (${c.v.toFixed(2)} points): long-term rates comfortably above short-term ones, the usual shape in a healthy economy.`, last2y(S.T10Y2Y), 0); }
+  // High-yield credit spread
+  c = lastObs(S.BAMLH0A0HYM2); p = c && obsAt(S.BAMLH0A0HYM2, monthsBefore(c.d, 3));
+  if(c && p){ const ch = c.v - p.v;
+    const tag = c.v > 5.5 || ch >= 1 ? "head" : ch >= 0.5 || c.v >= 4 ? "neutral" : "tail";
+    add("rates", "Credit spreads (riskier company bonds)", " pts", c, tag, `Riskier companies pay ${c.v.toFixed(2)} points more than the government to borrow, ${ch >= 0 ? "up" : "down"} ${Math.abs(ch).toFixed(2)} in 3 months. ${tag === "head" ? "Lenders are getting nervous about defaults: often an early sign of stress." : tag === "neutral" ? (ch >= 0.5 ? "Widening quickly, though from a low level: lenders are getting more cautious." : "Somewhat above calm levels.") : "Low and steady: lenders are relaxed about the economy."}`, last2y(S.BAMLH0A0HYM2)); }
+  // Unemployment (with the Sahm rule)
+  const U = S.UNRATE;
+  if(U){ const v = U.v.map((x, i) => ({ d: U.d[i], x })).filter(o => isNum(o.x)); const n = v.length;
+    if(n >= 15){ const avg3 = k => (v[k].x + v[k-1].x + v[k-2].x) / 3, now3 = avg3(n-1);
+      let low = Infinity; for(let k = n - 13; k < n - 1; k++) low = Math.min(low, avg3(k));
+      const sahm = now3 - low, c = { d: v[n-1].d, v: v[n-1].x }, ago = v[n-4].x;
+      const tag = sahm >= 0.5 ? "head" : sahm >= 0.3 || c.v - ago >= 0.3 ? "neutral" : "tail";
+      add("jobs", "Unemployment rate", "%", c, tag, `${c.v.toFixed(1)}% (${ago.toFixed(1)}% 3 months earlier). ${tag === "head" ? `The 3-month average is ${sahm.toFixed(1)} points above its low of the past year: this "Sahm rule" has signalled the start of every US recession since 1970.` : tag === "neutral" ? "Edging up: worth watching." : "Steady or falling: people are keeping their jobs and spending."}`, last2y(U)); } }
+  // Payrolls: average jobs added per month over 3 months
+  const P = S.PAYEMS;
+  if(P){ const v = P.v.map((x, i) => ({ d: P.d[i], x })).filter(o => isNum(o.x)), n = v.length;
+    if(n >= 5){ const avg = (v[n-1].x - v[n-4].x) / 3, ch = []; for(let k = 1; k < n; k++) ch.push(v[k].x - v[k-1].x);
+      const tag = avg >= 150 ? "tail" : avg >= 50 ? "neutral" : "head";
+      add("jobs", "Jobs added (payrolls)", "k", { d: v[n-1].d, v: avg }, tag, `About ${Math.round(avg)}k jobs a month on average over the last 3 months. ${tag === "tail" ? "Solid hiring." : tag === "neutral" ? "Hiring has slowed but is still positive." : avg < 0 ? "Jobs are being lost: a recession warning." : "Hiring has nearly stalled."}`, ch.slice(-24), 0); } }
+  // GDP growth (annualised, quarterly)
+  c = lastObs(S.A191RL1Q225SBEA);
+  if(c){ const tag = c.v >= 2 ? "tail" : c.v >= 0 ? "neutral" : "head", q = new Date(c.d + "T12:00:00Z");
+    add("jobs", "Economic growth (GDP)", "%", c, tag, `${c.v.toFixed(1)}% a year in ${["Jan–Mar","Apr–Jun","Jul–Sep","Oct–Dec"][Math.floor(q.getUTCMonth()/3)]} ${q.getUTCFullYear()} (after inflation). ${tag === "tail" ? "Healthy growth supports company profits." : tag === "neutral" ? "Slow growth." : "The economy shrank: two quarters in a row is a common definition of recession."}`, last2y(S.A191RL1Q225SBEA).slice(-8), 0); }
+  // VIX
+  c = lastObs(S.VIXCLS);
+  if(c){ const tag = c.v < 20 ? "tail" : c.v <= 30 ? "neutral" : "head";
+    add("mkt", "VIX \"fear index\"", "", c, tag, `${c.v.toFixed(1)}. ${tag === "tail" ? "Below 20: investors are calm." : tag === "neutral" ? "20–30: investors are nervous and prices are swinging more than usual." : "Above 30: fear. Sharp falls are common, though for long-term investors fear has often been a better time to buy than to sell."}`, last2y(S.VIXCLS)); }
+  // US dollar
+  c = lastObs(S.DTWEXBGS); p = c && obsAt(S.DTWEXBGS, monthsBefore(c.d, 3));
+  if(c && p){ const ch = (c.v / p.v - 1) * 100, tag = ch >= 3 ? "head" : ch <= -3 ? "tail" : "neutral";
+    add("mkt", "US dollar (vs major currencies)", "", c, tag, `${ch >= 0 ? "Up" : "Down"} ${Math.abs(ch).toFixed(1)}% in 3 months. ${tag === "head" ? "A fast-rising dollar shrinks the overseas earnings of US companies (big tech earns a lot abroad)." : tag === "tail" ? "A weaker dollar boosts the overseas earnings of US companies." : "No big move."}`, last2y(S.DTWEXBGS)); }
+  // Oil
+  c = lastObs(S.DCOILWTICO); p = c && obsAt(S.DCOILWTICO, monthsBefore(c.d, 3));
+  if(c && p){ const ch = (c.v / p.v - 1) * 100, tag = c.v >= 100 || ch >= 20 ? "head" : ch <= -20 ? "tail" : "neutral";
+    add("mkt", "Oil (US crude, per barrel)", "$", c, tag, `$${c.v.toFixed(0)}, ${ch >= 0 ? "up" : "down"} ${Math.abs(ch).toFixed(0)}% in 3 months. ${tag === "head" ? "Expensive or fast-rising oil pushes up inflation and costs for most companies (good for energy stocks)." : tag === "tail" ? "Falling oil eases inflation and costs (but hurts energy stocks)." : "No big move."}`, last2y(S.DCOILWTICO)); }
+  return items;
+}
+function renderEcon(app, j){
+  const el = $("#m-econ-b", app); if(!el) return;
+  const items = econItems(j.series);
+  if(!items.length){ el.innerHTML = `<span class="err">No economy data in the file.</span>`; return; }
+  const cnt = k => items.filter(x => x.tag === k).length;
+  const val = x => x.unit === "%" ? x.cur.v.toFixed(x.name.startsWith("Unemp") || x.name.startsWith("Econ") ? 1 : 2) + "%" : x.unit === " pts" ? (x.cur.v > 0 ? "+" : "") + x.cur.v.toFixed(2) : x.unit === "k" ? (x.cur.v >= 0 ? "+" : "") + Math.round(x.cur.v) + "k/month" : x.unit === "$" ? "$" + x.cur.v.toFixed(2) : x.cur.v.toFixed(x.cur.v < 50 ? 1 : 0);
+  const asOf = x => x.name.startsWith("Jobs") ? "3 months to " + fmtMonth(x.cur.d) : x.name.startsWith("Unemp") ? fmtMonth(x.cur.d) : x.name.startsWith("Econ") ? "latest quarter" : fmtDay(x.cur.d);
+  const tile = x => `<div class="stat">
+      <span>${esc(x.name)}</span>
+      <div class="row" style="justify-content:space-between;align-items:flex-end;gap:6px;margin:2px 0"><b style="margin:0">${val(x)}</b>${sparkSvg([{v: x.line, cls:"s-ln"}], 110, 26, x.base)}</div>
+      <span class="badge ${TAG[x.tag][0]}">${TAG[x.tag][1]}</span> <span class="small muted">${asOf(x)}</span>
+      <p class="small muted" style="margin:4px 0 0">${x.why}</p></div>`;
+  const group = (g, title) => { const a = items.filter(x => x.grp === g); return a.length ? `<h3>${title}</h3><div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">${a.map(tile).join("")}</div>` : ""; };
+  const h = cnt("head"), t = cnt("tail");
+  const sum = h >= t + 2 ? ["b-rich", "Mostly headwinds"] : t >= h + 2 ? ["b-cheap", "Mostly tailwinds"] : ["b-inline", "Mixed"];
+  const names = k => items.filter(x => x.tag === k).map(x => { const n = x.name.replace(/ \(.*\)| ".*"/, ""); return /^[A-Z][a-z]/.test(n) ? n[0].toLowerCase() + n.slice(1) : n; });
+  el.classList.remove("muted", "small");
+  el.innerHTML = `
+    <div class="mood"><div><span class="badge big ${sum[0]}">${sum[1]}</span></div>
+      <p style="margin:0;flex:1;min-width:260px;max-width:760px"><b>${t} tailwind${t === 1 ? "" : "s"}, ${cnt("neutral")} neutral, ${h} headwind${h === 1 ? "" : "s"}.</b>
+      ${h ? `Headwinds: ${names("head").join(", ")}.` : ""} ${t ? `Tailwinds: ${names("tail").join(", ")}.` : ""}</p></div>
+    ${group("rates", "Rates &amp; credit")}${group("jobs", "Jobs &amp; growth")}${group("mkt", "Markets")}
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted"><b>Tailwind</b> (green) = usually helps stocks, <b>Headwind</b> (red) = usually weighs on them, <b>Neutral</b> (grey) = in between or mixed. Rules: 10-year yield headwind at 4.75%+ or up 0.4+ points in 3 months, tailwind at 3.5% or below or down 0.4+. Yield curve: below 0 headwind, under 0.5 or recently inverted neutral. Credit spreads: above 5.5 or up 1+ point in 3 months headwind; up 0.5+ or above 4 neutral. Unemployment: Sahm rule (3-month average 0.5+ above its 12-month low) headwind; up 0.3+ neutral. Jobs: 150k+/month tailwind, 50–150k neutral, below 50k headwind. GDP: 2%+ tailwind, 0–2% neutral, below 0 headwind. VIX: below 20 tailwind, 20–30 neutral, above 30 headwind. Dollar: ±3% in 3 months. Oil: $100+ or up 20%+ in 3 months headwind, down 20%+ tailwind.
+      Small lines show the last 2 years (jobs: monthly jobs added; dotted line = zero). Economic data describes the backdrop, not when to buy or sell: markets often move before the economy does. Data: FRED (St. Louis Fed).</p>
+    </details>`;
+}
 async function viewMacro(app, tok){
   app.innerHTML = `
     <div class="card" id="m-mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
     <div class="card" id="m-sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
     <div class="card" id="m-fed"><h2>Inflation &amp; the Fed</h2><div id="m-fed-b" class="muted small"><span class="spin"></span> Loading…</div></div>
-    <div class="card"><h2>Coming next</h2><p class="small muted" style="margin:0">Economy indicators (jobs, growth, yield curve, fear index, credit, dollar, oil), an overall verdict and "Macro → your stocks".</p></div>`;
-  macroData().then(j => { if(live(tok)) renderFed(app, j); }, e => { const el = $("#m-fed-b", app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+    <div class="card" id="m-econ"><h2>The economy: tailwinds and headwinds</h2><div id="m-econ-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card"><h2>Coming next</h2><p class="small muted" style="margin:0">An overall verdict at the top and "Macro → your stocks".</p></div>`;
+  macroData().then(j => { if(live(tok)){ renderFed(app, j); renderEcon(app, j); } }, e => { ["#m-fed-b","#m-econ-b"].forEach(id => { const el = $(id, app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }); });
   if(!state.tdKey){
     $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (13 requests, kept 12 hours).`;
     $("#m-sect-b", app).textContent = "";
