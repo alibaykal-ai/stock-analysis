@@ -126,7 +126,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.2</b> · 21 Nov 2026 ·
+  <b>Version 3.3</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1020,9 +1020,14 @@ function healthScore(mm, prof, fin, finQ){
   // reports disagrees on whether the company made a profit, don't trust the sum.
   const epsT = pick(mm, ["epsTTM","epsBasicExclExtraItemsTTM","epsExclExtraItemsTTM","epsInclExtraItemsTTM"]);
   let T = ttmFrom(fin, finQ);
+  // Finnhub's ratios can also be out of step: e.g. a loss-making margin while its own
+  // 12-month EPS and P/E show a profit. Then skip its ratios and use the reports.
+  const profitSign = isNum(epsT) && epsT !== 0 ? Math.sign(epsT) : (isNum(mm.peTTM) && mm.peTTM > 0 ? 1 : NaN);
+  const fhNm = mm.netProfitMarginTTM;
+  const fhStale = isNum(profitSign) && isNum(fhNm) && fhNm !== 0 && Math.sign(fhNm) !== profitSign;
   if(T && isNum(epsT) && epsT !== 0 && isNum(T.net) && Math.sign(T.net) !== Math.sign(epsT)) T = null;
   const ratio = (keys, num, den) => {
-    const v = pick(mm, keys); if(isNum(v)) return { v, note: " · last 12 months (Finnhub)" };
+    const v = fhStale ? undefined : pick(mm, keys); if(isNum(v)) return { v, note: " · last 12 months (Finnhub)" };
     const tn = T && T[num], td = T && (den === "equity" ? (T.equity ?? (y0 && y0.equity)) : T[den]);
     if(isNum(tn) && isNum(td) && td > 0 && Math.abs(tn / td) <= 1.5) return { v: tn / td * 100, note: ` · last 12 months, from quarterly reports (to ${T.end})` };
     const n = y0 && y0[num], d = y0 && y0[den];
@@ -1080,7 +1085,7 @@ function healthScore(mm, prof, fin, finQ){
 
   const have = pillars.filter(p => isNum(p.s));
   const total = have.length >= 3 ? Math.round(have.reduce((a, p) => a + p.s, 0) / have.length * 100) : NaN;
-  return { total, pillars, f: fc ? null : piotroski(y0, y1), az, fc, year: y0 && y0.end };
+  return { fhStale, fhNm, total, pillars, f: fc ? null : piotroski(y0, y1), az, fc, year: y0 && y0.end };
 }
 
 const scoreClass = v => !isNum(v) ? "b-inline" : v >= 70 ? "b-cheap" : v >= 40 ? "b-warn" : "b-rich";
@@ -1130,6 +1135,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
       </div>
     </div>
     ${H.fc ? `<p class="small muted" style="margin:10px 0 0">Scored as a <b>financial company</b> (bank, lender or insurer): debt and cash-flow rules for ordinary companies don't apply, so a capital-cushion check is used instead and free cash flow is left out.</p>` : ""}
+    ${H.fhStale ? `<p class="small muted" style="margin:6px 0 0">Finnhub's ready-made ratios were skipped: they show a net margin of ${H.fhNm.toFixed(1)}% (a loss), but its own 12-month earnings per share shows a profit. Worked out from the company's reports instead.</p>` : ""}
     ${finState === "loading" ? `<p class="small muted"><span class="spin"></span> Loading annual reports for the full score…</p>` : ""}
     ${flags.length ? `<div style="margin-top:12px">${flags.map(([c,t,d])=>`<div class="flag"><span class="badge ${c}">⚑ ${t}</span><span class="small">${d}</span></div>`).join("")}</div>` : `<p class="small" style="margin:12px 0 0"><span class="badge b-cheap">No red flags</span></p>`}
     <details class="more">
