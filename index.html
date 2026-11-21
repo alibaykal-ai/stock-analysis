@@ -183,7 +183,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.11</b> · 21 Nov 2026 ·
+  <b>Version 5.12</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -192,7 +192,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", gh: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -2879,7 +2879,30 @@ async function renderEarnings(app, tok){
 /* ================= Settings ================= */
 function viewSettings(app){
   const funds = state.holdings.filter(h => h.type && h.type !== "stock");
+  const g = state.gh || {}, defRepo = /\.github\.io$/.test(location.hostname) ? location.hostname.split(".")[0] + "/stock-analysis-data" : "";
   app.innerHTML = `
+    <div class="card" id="ghcard">
+      <h2>Save to GitHub (use on any device)</h2>
+      ${ghOn() ? `<p style="margin-top:0">Connected to <b>${esc(g.repo)}</b> (private). Your lists and API keys are saved there after every change and loaded on any browser or device you connect. <span class="small muted">${esc(g.status || "")}</span></p>
+        <div class="row"><button id="ghsave">Save now</button><button id="ghload">Load from GitHub</button><button id="ghoff" class="link">Disconnect this browser</button><span id="ghmsg" class="small"></span></div>`
+      : `<p class="small muted" style="margin-top:0">Saves your holdings, purchases, Barclays orders, watchlist, settings and API keys as one file in a <b>private</b> GitHub repository you own, after every change. On another computer, browser or phone, paste the same two things below and everything loads: no re-entering or re-importing. The token stays in this browser only and is never uploaded.</p>
+        <form id="ghform" class="row">
+          <input id="ghrepo" placeholder="owner/repository" value="${esc(g.repo || defRepo)}" style="width:260px" autocomplete="off" aria-label="Repository">
+          <input id="ghtok" type="password" placeholder="Paste the GitHub token" style="flex:1;min-width:220px" autocomplete="off" aria-label="GitHub token">
+          <button class="primary">Connect</button><span id="ghmsg" class="small"></span>
+        </form>
+        <details class="more"><summary>How to set it up (about 5 minutes, once)</summary>
+          <ol class="small">
+            <li><b>Create the private repository.</b> On github.com click <b>+</b> (top right) → <b>New repository</b>. Name: <code>stock-analysis-data</code>. Choose <b>Private</b>. Click <b>Create repository</b>.</li>
+            <li><b>Create the token.</b> Click your picture (top right) → <b>Settings</b> → <b>Developer settings</b> (bottom of the left menu) → <b>Personal access tokens</b> → <b>Fine-grained tokens</b> → <b>Generate new token</b>.</li>
+            <li>Token name: <code>Stock Analysis app</code>. Expiration: <b>1 year</b> (put a reminder in your calendar to renew it).</li>
+            <li>Repository access: <b>Only select repositories</b> → pick <code>stock-analysis-data</code>.</li>
+            <li>Permissions → <b>Repository permissions</b> → <b>Contents</b> → <b>Read and write</b>. Leave everything else as it is.</li>
+            <li>Click <b>Generate token</b>, copy it (it starts with <code>github_pat_</code>), paste it above and click <b>Connect</b>.</li>
+          </ol>
+          <p class="small muted">The token can only read and write files in that one repository. If you ever think it leaked, delete it in the same GitHub page and make a new one.</p>
+        </details>`}
+    </div>
     <div class="card">
       <h2>Finnhub API key</h2>
       <p class="small muted" style="margin-top:0">Free at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>, no card needed. Your key is saved only in this browser on this device.</p>
@@ -2956,6 +2979,20 @@ function viewSettings(app){
       <div class="row" style="margin-top:8px"><button id="restbtn">Restore (replaces current lists)</button><span id="rmsg" class="small"></span></div>
     </div>`;
   const msg = (id, t, err) => { const e=$(id,app); e.textContent=t; e.className="small "+(err?"err":"muted"); };
+  const ghm = (t, err) => { const e = $("#ghmsg", app); if(e){ e.textContent = t; e.className = "small " + (err ? "err" : "muted"); } };
+  if($("#ghform", app)) $("#ghform", app).onsubmit = async e => { e.preventDefault();
+    const repo = $("#ghrepo", app).value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, ""), tok = $("#ghtok", app).value.trim();
+    if(!/^[\w.-]+\/[\w.-]+$/.test(repo)) return ghm("Repository should look like owner/name.", true);
+    if(!tok) return ghm("Paste the token.", true);
+    ghm("Connecting…");
+    try{ const how = await ghConnect(repo, tok); route(); setTimeout(() => ghm(how === "loaded" ? "✓ Connected and loaded your data from GitHub." : "✓ Connected and saved your data to GitHub."), 50); }
+    catch(err){ ghm(err.message, true); } };
+  if($("#ghsave", app)) $("#ghsave", app).onclick = async () => { state.gh.dirty = true; await ghPush(); ghm(state.gh.status || ""); };
+  if($("#ghload", app)) $("#ghload", app).onclick = async () => {
+    if(!confirm("Load your data from GitHub? This replaces what's in this browser.")) return;
+    try{ const r = await ghRead(); if(!r) return ghm("Nothing saved on GitHub yet.", true); applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); route(); }
+    catch(err){ ghm(err.message, true); } };
+  if($("#ghoff", app)) $("#ghoff", app).onclick = () => { if(!confirm("Disconnect this browser from GitHub? Your data stays here and on GitHub; this browser just stops saving there.")) return; state.gh = null; save(); setSync(""); route(); };
   $("#bankfile",app).onchange = e => { const f = e.target.files && e.target.files[0]; if(f) importBankFile(app, f); };
   $("#kform",app).onsubmit = e => { e.preventDefault(); const nk = $("#key",app).value.trim(); if(nk !== state.apiKey) cacheDel(k => k.startsWith("/")); state.apiKey = nk; save(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
   $("#avform",app).onsubmit = e => { e.preventDefault(); state.avKey = $("#avkey",app).value.trim(); save(); msg("#avmsg", state.avKey ? "Saved." : "Key removed."); };
@@ -3030,7 +3067,99 @@ function viewSettings(app){
   };
 }
 
-cacheBoot().then(route);
+/* ================= Sync with a private GitHub repository ================= */
+// Your lists (and API keys) are saved as portfolio.json in a private repository you own, after every change,
+// and loaded on any other browser or device that has the GitHub token. The token itself is never uploaded.
+const GH_API = "https://api.github.com", GH_FILE = "portfolio.json";
+const ghOn = () => !!(state.gh && state.gh.repo && state.gh.token);
+const SYNCED = ["holdings", "buys", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey"];
+const syncData = () => { const d = {}; SYNCED.forEach(k => d[k] = state[k]); return d; };
+const b64enc = str => btoa(unescape(encodeURIComponent(str)));
+const b64dec = b64 => decodeURIComponent(escape(atob(String(b64).replace(/\s/g, ""))));
+async function gh(method, path, body){
+  let r;
+  try{ r = await fetch(GH_API + path, { method, cache: "no-store", headers: { Authorization: "Bearer " + state.gh.token, Accept: "application/vnd.github+json", ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }); }
+  catch(e){ throw new ApiError("Couldn't reach GitHub. Check your internet connection.", "network"); }
+  let j = null; try{ j = await r.json(); }catch(e){}
+  if(r.ok) return j;
+  if(r.status === 401) throw new ApiError("GitHub rejected the token (wrong, expired or deleted). Make a new one in GitHub and paste it in Settings.", "auth");
+  if(r.status === 404) throw new ApiError("not found", "404");
+  if(r.status === 409 || (r.status === 422 && /sha/i.test(j && j.message || ""))) throw new ApiError("changed elsewhere", "conflict");
+  if(r.status === 403) throw new ApiError("The token isn't allowed to do this. Check it has Contents: Read and write for this repository.", "perm");
+  throw new ApiError(`GitHub error ${r.status}: ${String(j && j.message || "").slice(0, 120)}`, "http");
+}
+const ghPath = () => `/repos/${state.gh.repo.split("/").map(encodeURIComponent).join("/")}`;
+async function ghRead(){ // -> { sha, file } or null when the file doesn't exist yet
+  try{ const j = await gh("GET", ghPath() + "/contents/" + GH_FILE); return { sha: j.sha, file: JSON.parse(b64dec(j.content)) }; }
+  catch(e){ if(e.code === "404") return null; throw e; }
+}
+function setSync(text, err){ state.gh && (state.gh.status = text); const el = $("#syncstat"); if(el){ el.textContent = text; el.className = err ? "err" : ""; } }
+const hhmm = iso => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+let applyingRemote = false, pushTimer = null, pushing = null;
+function onSaved(){
+  if(applyingRemote || !ghOn()) return;
+  state.gh.dirty = true; try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+  clearTimeout(pushTimer); pushTimer = setTimeout(() => { if(state.gh && state.gh.dirty) ghPush(); }, 1500);
+  setSync("Saving to GitHub…");
+}
+function applyRemote(file, sha){
+  applyingRemote = true;
+  SYNCED.forEach(k => { if(file.data && k in file.data && file.data[k] !== undefined) state[k] = file.data[k]; });
+  state.gh.sha = sha; state.gh.saved = file.saved; state.gh.dirty = false; save();
+  applyingRemote = false;
+}
+async function ghPush(){
+  if(!ghOn()) return;
+  if(pushing) return pushing.then(() => state.gh.dirty && ghPush());
+  pushing = (async () => {
+    const file = { app: "stock-analysis", format: 1, saved: new Date().toISOString(), data: syncData() };
+    try{
+      const j = await gh("PUT", ghPath() + "/contents/" + GH_FILE, { message: "Portfolio update " + file.saved.slice(0, 16).replace("T", " "), content: b64enc(JSON.stringify(file, null, 1)), ...(state.gh.sha ? { sha: state.gh.sha } : {}) });
+      state.gh.sha = j.content.sha; state.gh.saved = file.saved; state.gh.dirty = false; applyingRemote = true; save(); applyingRemote = false;
+      setSync("Saved to GitHub " + hhmm(file.saved));
+    }catch(e){
+      if(e.code === "conflict") await ghConflict();
+      else setSync("Not saved to GitHub: " + e.message, true);
+    }
+  })();
+  try{ await pushing; } finally{ pushing = null; }
+}
+// The file on GitHub changed since this browser last saw it (another device), and this browser has changes too.
+async function ghConflict(){
+  const r = await ghRead().catch(e => { setSync("Not saved to GitHub: " + e.message, true); return undefined; });
+  if(r === undefined) return;
+  if(!r){ state.gh.sha = null; return ghPush(); }
+  const keepMine = confirm(`Your data on GitHub was changed from another device (${hhmm(r.file.saved)}) after this browser last loaded it.\n\nOK = keep THIS browser's version (replaces GitHub's)\nCancel = load GitHub's version (replaces this browser's changes)`);
+  if(keepMine){ state.gh.sha = r.sha; return ghPush(); }
+  applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); route();
+}
+// At start-up: load newer data saved from another device.
+async function ghPull(){
+  if(!ghOn()) return;
+  setSync("Checking GitHub…");
+  let r; try{ r = await ghRead(); }catch(e){ setSync("GitHub not reachable: " + e.message, true); return; }
+  if(!r){ state.gh.sha = null; return ghPush(); }
+  if(r.sha === state.gh.sha){ if(state.gh.dirty) return ghPush(); setSync("Saved to GitHub " + hhmm(r.file.saved)); return; }
+  if(state.gh.dirty){ state.gh.sha = state.gh.sha || null; return ghConflict(); }
+  applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); route();
+}
+// Settings: connect a repository (checks it's private), then load or create the file.
+async function ghConnect(repo, token){
+  const prev = state.gh; state.gh = { repo, token };
+  try{
+    const info = await gh("GET", ghPath()).catch(e => { throw e.code === "404" ? new ApiError("Repository not found, or the token isn't allowed to see it. Check the name (owner/name) and that the token includes this repository.", "404") : e; });
+    if(!info.private) throw new ApiError("This repository is public. Your portfolio must only go to a private repository: make it private in GitHub (Settings → General → Danger zone → Change visibility) and try again.", "public");
+    const r = await ghRead();
+    const hasLocal = state.holdings.length || (state.buys || []).length || state.watchlist.length;
+    if(r){
+      const load = !hasLocal || confirm(`Found your data on GitHub (saved ${hhmm(r.file.saved)}, ${((r.file.data || {}).holdings || []).length} holdings).\n\nOK = load it into this browser (replaces what's here)\nCancel = keep this browser's data and save it to GitHub instead`);
+      if(load){ applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); return "loaded"; }
+      state.gh.sha = r.sha;
+    }
+    save(); await ghPush(); return "saved";
+  }catch(e){ state.gh = prev; save(); throw e; }
+}
+cacheBoot().then(() => { route(); ghPull(); });
 </script>
 </body>
 </html>
