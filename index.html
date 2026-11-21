@@ -184,7 +184,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.14</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.15</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -193,6 +193,10 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
+// A stock you own isn't kept on the watchlist as well (owner's choice, 5.15).
+function dedupeWatch(){ try{ if(!Array.isArray(state.watchlist)) return;
+  const own = new Set(myHoldings().map(h => h.symbol)); // fully sold stocks aren't in this list, so they can go back on the watchlist
+  if(state.watchlist.some(s => own.has(s))) state.watchlist = state.watchlist.filter(s => !own.has(s)); }catch(e){} }
 const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
@@ -200,7 +204,7 @@ function load(){
        if(s) return { ...DEFAULTS, ...s, settings: { ...DEFAULTS.settings, ...(s.settings||{}) } }; }catch(e){}
   return JSON.parse(JSON.stringify(DEFAULTS));
 }
-function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){ if(!save.warned){ save.warned = true; alert("Your browser's storage for this app is full, so this change wasn't saved. Copy the Backup text in Settings to keep it safe."); } } if(typeof onSaved === "function") onSaved(); }
+function save(){ dedupeWatch(); try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){ if(!save.warned){ save.warned = true; alert("Your browser's storage for this app is full, so this change wasn't saved. Copy the Backup text in Settings to keep it safe."); } } if(typeof onSaved === "function") onSaved(); }
 
 /* ================= Helpers ================= */
 const $ = (sel, el=document) => el.querySelector(sel);
@@ -698,7 +702,7 @@ function viewHome(app, tok){
       </table></div>
       <div class="row" style="margin-top:12px">
         <button id="fullcheck" title="Fetches what's missing: company reports (Finnhub) and daily prices (Twelve Data, 1 request per stock, kept 12 hours)">Run full check</button>
-        <span id="checknote" class="small muted">Health and flags use data already saved. "Run full check" fetches what's missing for every stock.</span>
+        <span id="checknote" class="small muted">Prices and reports are refreshed in the background when this page opens. "Run full check" fetches everything missing now.</span>
       </div>
       <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
@@ -725,6 +729,7 @@ function viewHome(app, tok){
       state.holdings.push({ symbol: sym, shares: isNum(shares)?shares:null, type: $("#addtype", app).value });
     } else {
       if(state.watchlist.includes(sym)){ alertInline(app, `${sym} is already on your watchlist.`); return; }
+      if(myHoldings().some(h => h.symbol === sym)){ alertInline(app, `You own ${sym}, so it's in My Stocks; no need to watch it too.`); return; }
       state.watchlist.push(sym);
     }
     save(); viewHome(app, ++renderToken);
@@ -744,6 +749,7 @@ function viewHome(app, tok){
   if(state.apiKey && (state.holdings.length || state.watchlist.length)) renderEarnings(app, tok);
   if(hasMine){ renderTotal(app, tok); renderRisk(app, tok); renderPerf(app, tok); }
   if(hasAny){ drawAlertBadges(app); if(homeSec === "alerts") renderAlerts(app); checkAlerts(app, tok); }
+  if(state.apiKey) bgRefresh();
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
 }
 function buyBox(){
@@ -938,7 +944,39 @@ function drawRowFlags(app, h){
   if(hEl) hEl.innerHTML = !c.isStock ? '<span class="small muted">—</span>' : isNum(c.health) ? `<span class="badge ${scoreClass(c.health)}" title="Financial health score">${c.health}</span>` : '<span class="small muted" title="Run the full check, or open the stock">?</span>';
   if(fEl) fEl.innerHTML = !f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(f, checked);
 }
+// Background refresh: whenever My Stocks opens, fetch what's missing or out of date for holdings and watchlist
+// (daily prices from Twelve Data, kept 12 hours, so about 2 requests per stock per day; company reports from Finnhub, kept a week).
+let bgRun = null;
+function bgRefresh(){
+  if(bgRun || !state.apiKey) return bgRun;
+  bgRun = (async () => {
+    const items = [...myHoldings(), ...state.watchlist.map(s => ({ symbol: s, type: "stock" }))];
+    const todo = items.filter(h => { const stock = !h.type || h.type === "stock";
+      return (state.tdKey && !peek.td(h.symbol) && !cacheGet("td:err:" + h.symbol)) || (stock && (!peek.fin(h.symbol) || !peek.finQ(h.symbol))); });
+    const note = t => { const n = $("#checknote"); if(n && !runningFull) n.textContent = t; };
+    let stopTd = false;
+    for(let i = 0; i < todo.length; i++){
+      const h = todo[i], stock = !h.type || h.type === "stock";
+      note(`Updating saved prices and reports in the background (${i + 1} of ${todo.length})…`);
+      const needTd = state.tdKey && !stopTd && !peek.td(h.symbol) && !cacheGet("td:err:" + h.symbol);
+      const [td, fin, finQ] = await Promise.all([ needTd ? safe(tdDaily(h.symbol)) : Promise.resolve(null),
+        stock && !peek.fin(h.symbol) ? safe(fh.fin(h.symbol)) : Promise.resolve(null), stock && !peek.finQ(h.symbol) ? safe(fh.finQ(h.symbol)) : Promise.resolve(null) ]);
+      if(td && !td.ok){ if(["nosym", "premium"].includes(td.e.code)) cacheSet("td:err:" + h.symbol, td.e.message, 24*3600e3); if(["auth", "rate"].includes(td.e.code)) stopTd = true; }
+      const c = rowCtx.get(h.symbol), app = $("#app");
+      if(c && app){ if(td && td.ok) c.td = td.v; if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
+    }
+    const app = $("#app"), tok = renderToken;
+    if(todo.length){ note(`Saved prices and reports are up to date (refreshed ${todo.length} stock${todo.length === 1 ? "" : "s"} in the background).`);
+      if($("#alerts-b", app)) checkAlerts(app, tok); if($("#risk-b", app)) renderRisk(app, tok); if($("#perf-b", app)) renderPerf(app, tok); }
+  })();
+  bgRun.finally(() => { bgRun = null; });
+  return bgRun;
+}
+let runningFull = false;
 async function runFullCheck(app, list, tok){
+  runningFull = true; try{ await runFullCheckInner(app, list, tok); } finally{ runningFull = false; }
+}
+async function runFullCheckInner(app, list, tok){
   const btn = $("#fullcheck", app), note = $("#checknote", app);
   btn.disabled = true;
   for(let i = 0; i < list.length; i++){
@@ -998,7 +1036,7 @@ async function viewStock(app, sym, tok){
           <div style="margin-top:6px"><span id="s-price" style="font-size:24px;font-weight:700"></span> <span id="s-chg"></span></div>
         </div>
         <div class="row">
-          <button id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>
+          ${inMine ? "" : `<button id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
           ${inMine ? `<span class="badge b-inline">In My Stocks</span>` : `<button id="b-mine">+ My Stocks</button>`}
         </div>
       </div>
@@ -1021,13 +1059,13 @@ async function viewStock(app, sym, tok){
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
     <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>`}
     <div class="card" id="c-news"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
-  $("#b-watch", app).onclick = () => {
+  if($("#b-watch", app)) $("#b-watch", app).onclick = () => {
     if(state.watchlist.includes(sym)) state.watchlist = state.watchlist.filter(x=>x!==sym); else state.watchlist.push(sym);
     save(); $("#b-watch", app).textContent = state.watchlist.includes(sym) ? "★ On watchlist" : "☆ Add to watchlist";
   };
   const bm = $("#b-mine", app); if(bm) bm.onclick = () => {
     state.holdings.push({symbol:sym, shares:null, type:"stock"}); save();
-    bm.outerHTML = `<span class="badge b-inline">In My Stocks</span>`;
+    bm.outerHTML = `<span class="badge b-inline">In My Stocks</span>`; const bw = $("#b-watch", app); if(bw) bw.remove();
   };
   app.querySelectorAll("[data-go]").forEach(a => a.onclick = () => { const t = document.getElementById(a.dataset.go); if(t) t.scrollIntoView({behavior:"smooth", block:"start"}); });
   const jb = $("#jump", app); if(jb) jb.style.top = ($("header").offsetHeight) + "px";
@@ -2873,6 +2911,7 @@ async function checkAlerts(app, tok){
     // flags that were already true would look new: note them quietly instead of alerting.
     const keys = x.flags.map(f => flagKey(f.text)), before = A.seen[s];
     A.data = A.data || {}; const mask = (x.c.td ? 1 : 0) + (x.c.fin ? 2 : 0) + (x.c.earn ? 4 : 0), had = A.data[s];
+    if(had !== undefined && (had & ~mask) !== 0) continue; // saved data expired and is being refreshed: compare next time
     const moreData = had === undefined || (mask & ~had) !== 0;
     if(had !== mask){ A.data[s] = mask; changed = true; }
     if(before && !moreData){ x.flags.filter(f => !before.includes(flagKey(f.text))).forEach(f => fresh.push({ id: now + s + flagKey(f.text), type: "flag", sym: s, sev: f.sev, text: `${s}: ${f.text}`, why: f.why, at: now })); }
@@ -2920,7 +2959,7 @@ function renderAlerts(app){
           <td><button class="link" data-delrule="${esc(r.id)}" title="Delete">×</button></td></tr>`; }).join("")}
     </tbody></table></div>` : `<p class="small muted">No price alerts yet. Example: NVDA falls to or below 120 (note: "buy more").</p>`}
     <details class="more"><summary>How alerts work</summary>
-      <p class="small muted">Alerts show in the app only (no emails or phone notifications yet). They're checked every time My Stocks opens, using the latest price from Finnhub and the same flag rules as the overview's Flags column: red = concern, amber = worth watching. A flag alert fires when a flag <b>appears</b> that the stock didn't have at the last check (e.g. "Below 200-day avg", "RSI 28: oversold", "Earnings in 5 days"); a flag that goes away and comes back alerts again. Technical flags (RSI, 200-day average, volume) use the price history saved by "Run full check" (kept 12 hours), so run it now and then to keep them fresh. Price alerts fire once when the price reaches your level; use "Switch on again" to reuse one. Alerts are saved to GitHub with your lists.</p>
+      <p class="small muted">Alerts show in the app only (no emails or phone notifications yet). They're checked every time My Stocks opens, using the latest price from Finnhub and the same flag rules as the overview's Flags column: red = concern, amber = worth watching. A flag alert fires when a flag <b>appears</b> that the stock didn't have at the last check (e.g. "Below 200-day avg", "RSI 28: oversold", "Earnings in 5 days"); a flag that goes away and comes back alerts again. Technical flags (RSI, 200-day average, volume) use daily price history, refreshed in the background when My Stocks opens (kept 12 hours, so about 2 Twelve Data requests per stock per day out of 800). Price alerts fire once when the price reaches your level; use "Switch on again" to reuse one. Alerts are saved to GitHub with your lists.</p>
     </details>`;
   const save2 = () => { save(); renderAlerts(app); drawAlertBadges(app); };
   const clr = $("#al-clear", el); if(clr) clr.onclick = () => { if(confirm("Clear the list of past alerts? (Your price alerts stay.)")){ A.events = []; save2(); } };
@@ -3261,7 +3300,7 @@ async function ghConnect(repo, token){
     save(); await ghPush(); return "saved";
   }catch(e){ state.gh = prev; save(); throw e; }
 }
-cacheBoot().then(() => { route(); ghPull(); });
+cacheBoot().then(() => { dedupeWatch(); route(); ghPull(); }); // the tidied watchlist is stored with the next change, so start-up never races GitHub
 </script>
 </body>
 </html>
