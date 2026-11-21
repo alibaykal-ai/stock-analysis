@@ -108,7 +108,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", holdings: [], watchlist: [], settings: { band: 10, years: 5 } };
+const DEFAULTS = { apiKey: "", holdings: [], watchlist: [], nameMap: {}, settings: { band: 10, years: 5 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -346,7 +346,7 @@ function rowSkeleton(h){
   const mine = homeTab==="mine";
   const typeTag = h.type && h.type!=="stock" ? ` <span class="badge b-inline">${h.type.toUpperCase()}</span>` : "";
   return `<tr class="click" data-sym="${esc(h.symbol)}">
-    <td class="sym"><b>${esc(h.symbol)}</b>${typeTag} <small class="muted" data-f="name"></small></td>
+    <td class="sym"><b>${esc(h.symbol)}</b>${typeTag} <small class="muted" data-f="name">${esc(h.name||"")}</small></td>
     <td class="num" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
     <td class="num" data-f="chg"></td>
     <td class="hide-sm" data-f="range"></td>
@@ -458,7 +458,7 @@ async function viewStock(app, sym, tok){
   const prof = p.ok ? p.v : {};
   const met = m.ok ? m.v : null;
   const mm = met && met.metric || {};
-  if(prof.name){ $("#s-name",app).textContent = prof.name; document.title = `${sym} · Stock Analysis`; }
+  const nm = prof.name || (holding && holding.name); if(nm){ $("#s-name",app).textContent = nm; document.title = `${sym} · Stock Analysis`; }
   $("#s-ex",app).textContent = [prof.exchange, prof.finnhubIndustry, prof.country].filter(Boolean).join(" · ");
   let price = q.ok && isNum(q.v.c) && q.v.c>0 ? q.v.c : (holding && isNum(holding.manualPrice) ? holding.manualPrice : undefined);
   $("#s-price",app).textContent = isNum(price) ? `${fmt(price)} ${prof.currency||""}` : "No price data";
@@ -603,6 +603,145 @@ function renderNews(app, n){
   el.innerHTML = items.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.headline)}<small>${esc(x.source)} · ${new Date(x.datetime*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</small></a>`).join("");
 }
 
+/* ================= Bank order-history import ================= */
+let xlsxPromise = null;
+function loadXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  if(!xlsxPromise) xlsxPromise = new Promise((res, rej) => {
+    const sc = document.createElement("script");
+    sc.src = "vendor/xlsx.full.min.js";
+    sc.onload = () => window.XLSX ? res(window.XLSX) : rej(new Error("Spreadsheet reader failed to load."));
+    sc.onerror = () => { xlsxPromise = null; rej(new Error("Couldn't load the spreadsheet reader. Check your connection and try again.")); };
+    document.head.appendChild(sc);
+  });
+  return xlsxPromise;
+}
+const cleanName = n => String(n||"").replace(/\s+/g," ").trim().replace(/\s+(common shares|common stock|ordinary shares|class [a-c] shares)$/i,"").trim();
+const nameKey = n => cleanName(n).toLowerCase();
+function searchQuery(n){
+  return cleanName(n).replace(/\bvanguard funds plc\b/i,"").replace(/-?\bcl(ass)?\s*[a-c]\b/ig,"").replace(/\b(inc|corp|corporation|plc|co|ltd|limited|holdings)\b\.?/ig,"").replace(/\s+/g," ").trim();
+}
+function guessType(name, country){
+  if(/\b(etf|ucits)\b/i.test(name)) return "etf";
+  if(/^(usa?|united states)$/i.test(String(country||"").trim())) return "stock";
+  if(/\b(acc|fund|oeic|unit trust)\b/i.test(name) || /notspecified/i.test(country||"")) return "fund";
+  return "stock";
+}
+function fallbackSymbol(name){
+  const w = cleanName(name).replace(/[^A-Za-z0-9 ]/g," ").split(/\s+/).filter(Boolean);
+  return (w.map(x=>x[0]).join("").toUpperCase() || "FUND").slice(0,8);
+}
+function excelDate(v){
+  if(typeof v === "number" && v > 20000) return new Date(Math.round((v - 25569) * 864e5));
+  const d = new Date(v); return isNaN(d) ? null : d;
+}
+function parseBankRows(rows){
+  const findCol = (hdr, re) => hdr.findIndex(c => re.test(String(c||"").trim()));
+  let hi = -1, cols = null;
+  for(let i=0; i<Math.min(rows.length, 30); i++){
+    const h = rows[i] || [];
+    const c = {
+      name: findCol(h, /^(investment|security|stock|instrument|name|description|holding)/i),
+      qty: findCol(h, /quantity|units|shares|qty/i),
+      side: findCol(h, /buy\s*\/\s*sell|^side$|transaction type|^type$|^action$|direction/i),
+      status: findCol(h, /status/i),
+      amount: findCol(h, /cost|proceeds|amount|consideration|total/i),
+      country: findCol(h, /country/i),
+      date: findCol(h, /date/i),
+    };
+    if(c.name>=0 && c.qty>=0 && c.side>=0){ hi = i; cols = c; break; }
+  }
+  if(hi < 0) throw new Error("Couldn't find the columns for investment name, buy/sell and quantity in this file.");
+  const groups = new Map(); let skipped = 0, used = 0; let first = null, last = null;
+  const data = rows.slice(hi+1).filter(r => r && r[cols.name] && String(r[cols.name]).trim());
+  // oldest first so partial sells reduce cost correctly
+  const withDates = data.map((r, i) => ({ r, d: cols.date>=0 ? excelDate(r[cols.date]) : null, i }));
+  withDates.sort((a,b) => (a.d && b.d) ? a.d - b.d : b.i - a.i);
+  for(const {r, d} of withDates){
+    if(cols.status>=0 && !/complete|filled|executed|settled|done/i.test(String(r[cols.status]||""))){ skipped++; continue; }
+    const side = String(r[cols.side]||"").trim();
+    const q = parseFloat(String(r[cols.qty]).replace(/,/g,""));
+    if(!isNum(q) || !/^(b|s)/i.test(side)){ skipped++; continue; }
+    const amt = cols.amount>=0 ? parseFloat(String(r[cols.amount]).replace(/[,£$€]/g,"")) : NaN;
+    const raw = String(r[cols.name]); const k = nameKey(raw);
+    if(!groups.has(k)) groups.set(k, { name: cleanName(raw), country: cols.country>=0 ? String(r[cols.country]||"") : "", shares: 0, cost: 0, buys: 0, sells: 0 });
+    const g = groups.get(k);
+    if(/^b/i.test(side)){ g.shares += q; if(isNum(amt)) g.cost += amt; g.buys++; }
+    else { const avg = g.shares > 0 ? g.cost / g.shares : 0; g.cost -= avg * Math.min(q, g.shares); g.shares -= q; g.sells++; }
+    used++;
+    if(d){ if(!first || d < first) first = d; if(!last || d > last) last = d; }
+  }
+  const all = [...groups.values()].map(g => ({ ...g, shares: Math.round(g.shares*1e6)/1e6 }));
+  return { held: all.filter(g => g.shares > 1e-6), closed: all.filter(g => g.shares <= 1e-6), skipped, used, first, last };
+}
+async function suggestTicker(g){
+  const remembered = state.nameMap[nameKey(g.name)];
+  if(remembered) return remembered.symbol;
+  if(g.type === "fund" || !state.apiKey) return g.type === "fund" ? fallbackSymbol(g.name) : "";
+  try{
+    const r = await fh.search(searchQuery(g.name));
+    const res = (r.result || []);
+    if(g.type === "stock"){
+      const hit = res.find(x => x.symbol && !x.symbol.includes(".") && /common stock/i.test(x.type||"")) || res.find(x => x.symbol && !x.symbol.includes("."));
+      return hit ? hit.symbol : "";
+    }
+    const hit = res.find(x => /\.L$/.test(x.symbol||"")) || res[0];
+    return hit ? hit.symbol : "";
+  }catch(e){ return ""; }
+}
+async function importBankFile(app, file){
+  const out = $("#bankout", app);
+  out.innerHTML = `<span class="spin"></span> Reading ${esc(file.name)}…`;
+  let parsed;
+  try{
+    const X = await loadXLSX();
+    const buf = await file.arrayBuffer();
+    const wb = X.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    parsed = parseBankRows(X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }));
+  }catch(e){ out.innerHTML = `<p class="err">${esc(e.message || "Couldn't read this file.")}</p>`; return; }
+  const items = parsed.held.map(g => ({ ...g, type: (state.nameMap[nameKey(g.name)]||{}).type || guessType(g.name, g.country), symbol: "" }));
+  out.innerHTML = `<span class="spin"></span> Found ${items.length} holdings. Looking up tickers…`;
+  for(const it of items) it.symbol = await suggestTicker(it);
+  const dfmt = d => d ? d.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"}) : "?";
+  out.innerHTML = `
+    <p style="margin-top:0">Read <b>${parsed.used}</b> completed orders (${dfmt(parsed.first)} – ${dfmt(parsed.last)}); skipped ${parsed.skipped} cancelled, expired or rejected.
+      <b>${items.length}</b> holdings still open${parsed.closed.length ? `; fully sold: ${parsed.closed.map(c=>esc(c.name)).join(", ")}` : ""}.</p>
+    <p class="small muted">Check each ticker. Fix or fill in any that are blank or wrong (use <a href="#search" target="_blank">Search</a> in another tab if needed). Funds without a ticker get a short code, and you can type their price in "Fund prices".</p>
+    <div style="overflow-x:auto"><table id="banktbl"><thead><tr><th>Investment (from your bank)</th><th class="num">Shares</th><th>Type</th><th>Ticker</th></tr></thead><tbody>
+      ${items.map((it,i)=>`<tr>
+        <td>${esc(it.name)}<div class="small muted">${it.buys} buy${it.buys===1?"":"s"}${it.sells?`, ${it.sells} sell${it.sells===1?"":"s"}`:""}</div></td>
+        <td class="num">${fmt(it.shares, it.shares%1?4:0)}</td>
+        <td><select data-bt="${i}">${["stock","etf","fund"].map(t=>`<option value="${t}" ${t===it.type?"selected":""}>${t==="etf"?"ETF":t[0].toUpperCase()+t.slice(1)}</option>`).join("")}</select></td>
+        <td><input data-bs="${i}" value="${esc(it.symbol)}" placeholder="e.g. NVDA" autocapitalize="characters" style="width:110px"></td>
+      </tr>`).join("")}
+    </tbody></table></div>
+    <p class="small muted">Shares come from your order history only. If dividends are reinvested and don't appear as orders, compare the share counts with your bank's holdings page and adjust in "Import a list" below.</p>
+    <label class="small"><input type="checkbox" id="bankreplace" checked> Replace My Stocks with this list (untick to add/update only)</label>
+    <div class="row" style="margin-top:8px"><button class="primary" id="bankapply">Save to My Stocks</button><span id="bankmsg" class="small"></span></div>`;
+  $("#bankapply", app).onclick = () => {
+    const missing = [];
+    items.forEach((it,i) => {
+      it.type = $(`[data-bt="${i}"]`, out).value;
+      let sym = normSym($(`[data-bs="${i}"]`, out).value);
+      if(!sym && it.type !== "stock") sym = fallbackSymbol(it.name);
+      it.symbol = sym; if(!sym) missing.push(it.name);
+    });
+    if(missing.length){ const m=$("#bankmsg",app); m.className="small err"; m.textContent = `Add a ticker for: ${missing.join(", ")}`; return; }
+    const dup = items.map(x=>x.symbol).filter((s,i,a)=>a.indexOf(s)!==i);
+    if(dup.length){ const m=$("#bankmsg",app); m.className="small err"; m.textContent = `Same ticker used twice: ${[...new Set(dup)].join(", ")}`; return; }
+    const old = new Map(state.holdings.map(h=>[h.symbol,h]));
+    const fresh = items.map(it => ({ symbol: it.symbol, shares: it.shares, type: it.type, name: it.name,
+      manualPrice: old.get(it.symbol) && old.get(it.symbol).manualPrice }));
+    items.forEach(it => { state.nameMap[nameKey(it.name)] = { symbol: it.symbol, type: it.type }; });
+    if($("#bankreplace", app).checked) state.holdings = fresh;
+    else fresh.forEach(f => { const ex = state.holdings.find(h=>h.symbol===f.symbol); if(ex){ ex.shares=f.shares; ex.type=f.type; ex.name=f.name; } else state.holdings.push(f); });
+    save();
+    viewSettings(app);
+    const m = $("#bankout", app); m.innerHTML = `<p class="small">✓ Saved ${fresh.length} holdings. <a href="#home">See My Stocks</a></p>`;
+  };
+}
+
 /* ================= Settings ================= */
 function viewSettings(app){
   const funds = state.holdings.filter(h => h.type && h.type !== "stock");
@@ -631,6 +770,13 @@ function viewSettings(app){
       ${funds.map(f=>`<div class="row" style="margin-bottom:6px"><b style="width:120px">${esc(f.symbol)}</b><input data-mp="${esc(f.symbol)}" type="number" step="any" placeholder="Price" value="${isNum(f.manualPrice)?f.manualPrice:""}" style="width:120px"></div>`).join("")}
       <button id="mpsave">Save prices</button> <span id="mpmsg" class="small muted"></span></div>` : ""}
     <div class="card">
+      <h2>Import from your bank's order history</h2>
+      <p class="small muted" style="margin-top:0">Choose the order-history file you downloaded from your bank (Excel .xls / .xlsx, or .csv).
+        It is read <b>on this device only</b> and never uploaded. The app adds up completed buys and sells to get your current shares, then asks you to confirm the ticker for each holding.</p>
+      <input type="file" id="bankfile" accept=".xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+      <div id="bankout" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
       <h2>Import a list</h2>
       <p class="small muted" style="margin-top:0">Paste one stock per line: <code>TICKER, SHARES, TYPE</code> (type is optional: stock, etf or fund). Existing tickers get their shares updated.</p>
       <textarea id="imp" rows="5" style="width:100%" placeholder="AAPL, 12&#10;MSFT, 8.5&#10;VOO, 20, etf"></textarea>
@@ -646,6 +792,7 @@ function viewSettings(app){
       <div class="row" style="margin-top:8px"><button id="restbtn">Restore (replaces current lists)</button><span id="rmsg" class="small"></span></div>
     </div>`;
   const msg = (id, t, err) => { const e=$(id,app); e.textContent=t; e.className="small "+(err?"err":"muted"); };
+  $("#bankfile",app).onchange = e => { const f = e.target.files && e.target.files[0]; if(f) importBankFile(app, f); };
   $("#kform",app).onsubmit = e => { e.preventDefault(); state.apiKey = $("#key",app).value.trim(); save(); pruneCache(); memCache.clear(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
   $("#ktest",app).onclick = async () => {
     state.apiKey = $("#key",app).value.trim(); save();
@@ -687,7 +834,7 @@ function viewSettings(app){
     try{
       const d = JSON.parse($("#rest",app).value);
       if(!Array.isArray(d.holdings) || !Array.isArray(d.watchlist)) throw new Error();
-      state.holdings = d.holdings.filter(h=>h && h.symbol).map(h=>({symbol:normSym(h.symbol), shares:isNum(h.shares)?h.shares:null, type:h.type||"stock", manualPrice:isNum(h.manualPrice)?h.manualPrice:undefined}));
+      state.holdings = d.holdings.filter(h=>h && h.symbol).map(h=>({symbol:normSym(h.symbol), shares:isNum(h.shares)?h.shares:null, type:h.type||"stock", name:h.name||undefined, manualPrice:isNum(h.manualPrice)?h.manualPrice:undefined}));
       state.watchlist = d.watchlist.map(normSym).filter(Boolean);
       if(d.settings) state.settings = { ...state.settings, ...d.settings };
       save(); msg("#rmsg", `Restored ${state.holdings.length} stocks and ${state.watchlist.length} watchlist items.`);
