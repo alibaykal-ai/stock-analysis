@@ -126,7 +126,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.0</b> · 21 Nov 2026 ·
+  <b>Version 3.1</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -239,10 +239,12 @@ const FIN_CONCEPTS = {
   equity:   ["StockholdersEquity","StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest","Equity","EquityAttributableToOwnersOfParent"],
   retained: ["RetainedEarningsAccumulatedDeficit","RetainedEarnings"],
   ltDebt:   ["LongTermDebtNoncurrent","LongTermDebtAndCapitalLeaseObligations","LongTermDebt","NoncurrentPortionOfNoncurrentBorrowings","LongtermBorrowings"],
-  revenue:  ["Revenues","RevenueFromContractWithCustomerExcludingAssessedTax","SalesRevenueNet","RevenueFromContractWithCustomerIncludingAssessedTax","Revenue"],
+  revenue:  ["Revenues","RevenuesNetOfInterestExpense","RevenueFromContractWithCustomerExcludingAssessedTax","SalesRevenueNet","RevenueFromContractWithCustomerIncludingAssessedTax","Revenue"],
   cogs:     ["CostOfRevenue","CostOfGoodsAndServicesSold","CostOfGoodsSold","CostOfSales"],
   gross:    ["GrossProfit"],
   ebit:     ["OperatingIncomeLoss","ProfitLossFromOperatingActivities"],
+  pretax:   ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest","IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments","IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic","ProfitLossBeforeTax"],
+  deposits: ["Deposits","InterestBearingDepositLiabilities"],
   net:      ["NetIncomeLoss","ProfitLoss","NetIncomeLossAvailableToCommonStockholdersBasic","ProfitLossAttributableToOwnersOfParent"],
   shares:   ["WeightedAverageNumberOfDilutedSharesOutstanding","WeightedAverageNumberOfShareOutstandingBasicAndDiluted","WeightedAverageNumberOfSharesOutstandingBasic","AdjustedWeightedAverageShares","WeightedAverageShares"],
   cfo:      ["NetCashProvidedByUsedInOperatingActivities","NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","CashFlowsFromUsedInOperatingActivities"],
@@ -916,7 +918,11 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
 /* ================= Financial health score ================= */
 // 0 at the "weak" level, 1 at the "strong" level, straight line in between.
 const scale = (v, weak, strong) => isNum(v) ? Math.max(0, Math.min(1, (v - weak) / (strong - weak))) : NaN;
-const isFinancialCo = prof => /bank|insurance|financial|capital markets|thrift/i.test((prof && prof.finnhubIndustry) || "");
+function isFinancialCo(prof, fin){
+  if(/bank|insurance|financ|capital markets|thrift|credit|lending|mortgage/i.test((prof && prof.finnhubIndustry) || "")) return true;
+  const y0 = fin && fin.years && fin.years[0];
+  return !!(y0 && isNum(y0.deposits) && y0.deposits > 0 && !isNum(y0.curA)); // takes deposits, no current assets: a bank
+}
 function cagr(now, then, yrs){ return isNum(now) && isNum(then) && now > 0 && then > 0 && yrs > 0 ? (Math.pow(now/then, 1/yrs) - 1) * 100 : NaN; }
 
 // Piotroski F-Score: 9 yes/no tests comparing the latest year with the one before.
@@ -946,7 +952,7 @@ function piotroski(y0, y1){
 }
 // Altman Z-Score (original version): bankruptcy-risk score. Not meant for banks and insurers.
 function altman(y0, mcapM, prof){
-  if(!y0 || isFinancialCo(prof)) return null;
+  if(!y0 || isFinancialCo(prof, {years:[y0]})) return null;
   const ta = y0.assets, tl = y0.liab;
   if(![ta, tl, y0.curA, y0.curL, y0.retained, y0.ebit, y0.revenue].every(isNum) || ta <= 0 || tl <= 0 || !isNum(mcapM)) return null;
   if(y0.unit && prof && prof.currency && y0.unit !== prof.currency) return null; // reports and share price in different currencies
@@ -964,20 +970,33 @@ function healthScore(mm, prof, fin){
     pillars.push({ id, name, what, items: got, s: got.length ? got.reduce((a, x) => a + x.s, 0) / got.length : NaN });
   };
   const item = (name, v, show, weak, strong, rule, s) => ({ name, v, show: isNum(v) ? show(v) : "—", s: s !== undefined ? s : scale(v, weak, strong), rule });
+  // Finnhub's ready-made ratio (last 12 months) first; if missing, work it out from the latest annual report.
+  const yrNote = y0 ? ` · from the annual report (year to ${y0.end})` : "";
+  const ratio = (keys, num, den) => {
+    const v = pick(mm, keys); if(isNum(v)) return { v, note: "" };
+    const n = y0 && y0[num], d = y0 && y0[den];
+    return isNum(n) && isNum(d) && d > 0 ? { v: n / d * 100, note: yrNote } : { v: NaN, note: "" };
+  };
+  const fc = isFinancialCo(prof, fin);
 
   // 1. Profitability
+  const nm = ratio(["netProfitMarginTTM","netProfitMarginAnnual"], "net", "revenue");
+  const om = fc ? ratio(["pretaxMarginTTM","pretaxMarginAnnual"], "pretax", "revenue") : ratio(["operatingMarginTTM","operatingMarginAnnual"], "ebit", "revenue");
+  const roe = ratio(["roeTTM","roeRfy"], "net", "equity");
   pillar("profit", "Profitability", "How much profit it makes from sales and from shareholders' money", [
-    item("Net profit margin", mm.netProfitMarginTTM, pct, 0, 15, "Full marks ≥ 15% · zero at 0% or below"),
-    item("Operating margin", mm.operatingMarginTTM, pct, 0, 20, "Full marks ≥ 20% · zero at 0% or below"),
-    item("Return on equity", mm.roeTTM, pct, 5, 20, "Full marks ≥ 20% · zero below 5%"),
+    item("Net profit margin", nm.v, pct, 0, 15, "Full marks ≥ 15% · zero at 0% or below" + nm.note),
+    fc ? item("Pre-tax margin", om.v, pct, 0, 20, "Profit before tax ÷ revenue (used instead of operating margin for financial companies). Full marks ≥ 20% · zero at 0% or below" + om.note)
+       : item("Operating margin", om.v, pct, 0, 20, "Full marks ≥ 20% · zero at 0% or below" + om.note),
+    item("Return on equity", roe.v, pct, 5, 20, fc ? "Full marks ≥ 20% · zero below 5% (banks: 10–15% is typical)" + roe.note : "Full marks ≥ 20% · zero below 5%" + roe.note),
   ]);
   // 2. Balance sheet
-  const fc = isFinancialCo(prof);
   const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
   const cr = pick(mm, ["currentRatioQuarterly","currentRatioAnnual"]);
   const az = altman(y0, prof && prof.marketCapitalization || mm.marketCapitalization, prof);
   const negEq = y0 && isNum(y0.equity) && y0.equity < 0;
-  pillar("balance", "Balance sheet", "Debt and the ability to pay the bills", [
+  const capRatio = y0 && isNum(y0.equity) && isNum(y0.assets) && y0.assets > 0 ? y0.equity / y0.assets * 100 : NaN;
+  pillar("balance", "Balance sheet", fc ? "How much of its own capital cushions its loans and investments" : "Debt and the ability to pay the bills", [
+    fc ? item("Equity ÷ total assets", capRatio, pct, 5, 12, `Capital cushion against losses. Full marks ≥ 12% · zero at 5% or below (banks typically 8–12%)${yrNote}`) : null,
     fc ? null : item("Debt / equity", de, v=>v.toFixed(2), 2, 0.5, "Full marks ≤ 0.5 · zero at 2 or more (or if equity is negative)", negEq || (isNum(de) && de < 0) ? 0 : undefined),
     fc ? null : item("Current ratio", cr, v=>v.toFixed(2), 1, 2, "Full marks ≥ 2 · zero at 1 or below (can it pay short-term bills?)"),
     az ? item("Altman Z-Score", az.z, v=>v.toFixed(1), 1.81, 2.99, "Above 3 = safe zone · 1.8–3 grey zone · below 1.8 = distress zone") : null,
@@ -987,7 +1006,7 @@ function healthScore(mm, prof, fin){
   const fcfMargin = y0 && isNum(y0.fcf) && isNum(y0.revenue) && y0.revenue > 0 ? y0.fcf / y0.revenue * 100 : NaN;
   const conv = y0 && isNum(y0.fcf) && isNum(y0.net) && y0.net > 0 ? y0.fcf / y0.net : NaN;
   const posYears = fcfYears.length >= 2 ? fcfYears.filter(y => y.fcf > 0).length : NaN;
-  pillar("cash", "Free cash flow", "Cash left after running and investing in the business", [
+  pillar("cash", "Free cash flow", "Cash left after running and investing in the business", fc ? [] : [
     item("Free cash flow margin", fcfMargin, pct, 0, 15, "Free cash flow ÷ sales, last year. Full marks ≥ 15% · zero at 0% or below"),
     item("Cash vs reported profit", conv, v=>Math.round(v*100)+"%", 0.5, 1, "Free cash flow ÷ net income. Full marks ≥ 100% · zero at 50% or below"),
     item("Years with positive free cash flow", posYears, v=>`${v} of ${fcfYears.length}`, 0, fcfYears.length, "Last 3 years", isNum(posYears) ? posYears / fcfYears.length : undefined),
@@ -1009,7 +1028,7 @@ function healthScore(mm, prof, fin){
 
   const have = pillars.filter(p => isNum(p.s));
   const total = have.length >= 3 ? Math.round(have.reduce((a, p) => a + p.s, 0) / have.length * 100) : NaN;
-  return { total, pillars, f: piotroski(y0, y1), az, fc, year: y0 && y0.end };
+  return { total, pillars, f: fc ? null : piotroski(y0, y1), az, fc, year: y0 && y0.end };
 }
 
 const scoreClass = v => !isNum(v) ? "b-inline" : v >= 70 ? "b-cheap" : v >= 40 ? "b-warn" : "b-rich";
@@ -1026,7 +1045,8 @@ function renderHealth(app, mm, price, prof, fin){
   const cr = pick(mm, ["currentRatioQuarterly","currentRatioAnnual"]);
   if(isNum(price)&&isNum(hi)&&price >= hi*0.95) flags.push(["b-warn","Near 52-week high", `Within 5% of its 1-year high (${fmt(hi)}). Good momentum, but less room for error if you're buying now.`]);
   if(isNum(price)&&isNum(lo)&&price <= lo*1.05) flags.push(["b-warn","Near 52-week low", `Within 5% of its 1-year low (${fmt(lo)}). Check whether something has changed in the business.`]);
-  if(isNum(mm.netProfitMarginTTM)&&mm.netProfitMarginTTM<0) flags.push(["b-rich","Losing money","Net profit margin is negative over the last 12 months."]);
+  const nmItem = H.pillars.find(p => p.id === "profit").items.find(i => i.name === "Net profit margin");
+  if(nmItem && nmItem.v < 0) flags.push(["b-rich","Losing money", nmItem.rule.includes("annual report") ? "Net profit margin was negative in the last annual report." : "Net profit margin is negative over the last 12 months."]);
   if(isNum(mm.revenueGrowthTTMYoy)&&mm.revenueGrowthTTMYoy<0) flags.push(["b-rich","Revenue shrinking",`Sales are down ${Math.abs(mm.revenueGrowthTTMYoy).toFixed(1)}% vs a year ago.`]);
   if(!H.fc && isNum(de)&&de>2) flags.push(["b-rich","High debt",`Debt is ${de.toFixed(1)}× shareholders' equity.`]);
   if(!H.fc && isNum(cr)&&cr<1) flags.push(["b-warn","Tight short-term finances","Short-term debts exceed short-term assets (current ratio below 1)."]);
@@ -1035,7 +1055,7 @@ function renderHealth(app, mm, price, prof, fin){
   const dp = H.pillars.find(p => p.id === "dilution").items[0];
   if(dp && dp.v >= 4) flags.push(["b-warn","Shares being diluted",`Share count growing ${dp.v.toFixed(1)}% a year, so each share owns a smaller slice.`]);
   const cp = H.pillars.find(p => p.id === "cash").items.find(i => i.name.startsWith("Years"));
-  if(cp && cp.v === 0) flags.push(["b-rich","Negative free cash flow","Free cash flow below zero in each of the last years shown."]);
+  if(!H.fc && cp && cp.v === 0) flags.push(["b-rich","Negative free cash flow","Free cash flow below zero in each of the last years shown."]);
 
   const anyData = H.pillars.some(p => isNum(p.s));
   if(!anyData && finState !== "loading"){ el.innerHTML = `<p class="muted">No financial data available for this symbol.</p>`; return; }
@@ -1057,20 +1077,21 @@ function renderHealth(app, mm, price, prof, fin){
         ${H.pillars.map(pBar).join("")}
       </div>
     </div>
+    ${H.fc ? `<p class="small muted" style="margin:10px 0 0">Scored as a <b>financial company</b> (bank, lender or insurer): debt and cash-flow rules for ordinary companies don't apply, so a capital-cushion check is used instead and free cash flow is left out.</p>` : ""}
     ${finState === "loading" ? `<p class="small muted"><span class="spin"></span> Loading annual reports for the full score…</p>` : ""}
     ${flags.length ? `<div style="margin-top:12px">${flags.map(([c,t,d])=>`<div class="flag"><span class="badge ${c}">⚑ ${t}</span><span class="small">${d}</span></div>`).join("")}</div>` : `<p class="small" style="margin:12px 0 0"><span class="badge b-cheap">No red flags</span></p>`}
     <details class="more">
       <summary>Show the breakdown</summary>
       ${H.pillars.map(p => `<h3>${p.name} <span class="small muted" style="font-weight:400">· ${p.what}</span></h3>
         ${p.items.length ? `<table><tbody>${p.items.map(i=>`<tr><td>${i.name}<div class="small muted">${i.rule}</div></td><td class="num"><b>${i.show}</b></td><td class="num"><span class="badge ${lvl(i.s)[0]}">${lvl(i.s)[1]}</span></td></tr>`).join("")}</tbody></table>`
-          : `<p class="small muted">${p.id==="balance" && H.fc ? "Debt ratios work differently for banks and insurers, so they're left out." : "Not enough data."}</p>`}`).join("")}
+          : `<p class="small muted">${p.id==="cash" && H.fc ? "Left out for banks, lenders and insurers: making loans or buying investments counts as cash going out, so free cash flow doesn't show their health." : finState==="loading" ? "Loading…" : "Not provided by the data source for this stock."}</p>`}`).join("")}
       <h3>Piotroski F-Score <span class="small muted" style="font-weight:400">· 9 tests, latest year vs the one before</span></h3>
       ${H.f ? `<table><tbody>${H.f.tests.map(t=>`<tr><td>${t.name}<div class="small muted">${t.why}</div></td><td class="num">${t.ok===null?'<span class="muted small">n/a</span>':t.ok?'<span class="badge b-cheap">✓ Pass</span>':'<span class="badge b-rich">✗ Fail</span>'}</td></tr>`).join("")}</tbody></table>
         <p class="small muted">${H.f.score} of ${H.f.of} passed. 7–9 is strong, 4–6 average, 0–3 weak.</p>`
-        : `<p class="small muted">${finState==="loading"?"Loading…":"Needs two years of annual reports, which aren't available for this stock."}</p>`}
+        : `<p class="small muted">${H.fc ? "Designed for ordinary companies, not banks, lenders or insurers, so it's left out." : finState==="loading"?"Loading…":"Needs two years of annual reports, which aren't available for this stock."}</p>`}
       <h3>Altman Z-Score <span class="small muted" style="font-weight:400">· bankruptcy-risk check</span></h3>
       <p class="small muted">${H.az ? `Z = <b>${H.az.z.toFixed(2)}</b>: ${H.az.zone==="safe"?"safe zone (above 3)":H.az.zone==="grey"?"grey zone (1.8–3)":"distress zone (below 1.8)"}. Combines working capital, retained earnings, operating profit, market value vs debts, and sales, each compared with total assets.`
-        : H.fc ? "Not used for banks, insurers and other financial companies." : finState==="loading" ? "Loading…" : "Not enough data in the annual reports."}</p>
+        : H.fc ? "Not used for banks, lenders, insurers and other financial companies." : finState==="loading" ? "Loading…" : "Not enough data in the annual reports."}</p>
       <p class="small muted" style="margin-bottom:0"><b>How the score works:</b> each measure gets 0 to full marks between a weak and a strong level (shown under its name).
         Each of the 5 areas is worth 20 points; areas without data are left out and the rest scaled up to 100.
         70+ is strong, 40–69 average, below 40 weak. These are general rules of thumb; what's normal differs by industry.
