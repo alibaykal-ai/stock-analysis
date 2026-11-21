@@ -131,6 +131,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .gl:last-child{border-right:none} .gl:hover{background:var(--neutralbg)}
 .gl>span{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:600;margin-bottom:4px}
 .gl>div{font-size:13px;line-height:1.6}
+.callout{background:var(--neutralbg);border-left:3px solid var(--mid);border-radius:8px;padding:10px 12px;margin:8px 0}
 details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:6px 0}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
@@ -159,7 +160,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.11</b> · 21 Nov 2026 ·
+  <b>Version 3.12</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1179,7 +1180,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     const vals = methods.filter(m => m.counted && isNum(m.v) && m.v > 0).map(m => m.v);
     const ig = impliedGrowth(price, inp.fcf, a.r/100, a.gt/100);
     // Reverse DCF block: compare the growth priced in with the data-based expectation
-    let rev;
+    let rev, revHead = "", revPast = "";
     if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
     else {
       const igp = ig * 100, ref = inp.startG;
@@ -1194,6 +1195,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       const head = igp === -Infinity ? `Today's price would be justified even if free cash flow <b>shrank 50% a year</b>.`
         : igp === Infinity ? `Today's price needs free cash flow to <b>grow more than 150% a year</b> for 5 years.`
         : `Today's price assumes free cash flow grows <b>${igp.toFixed(1)}% a year</b> for the next 5 years, then slows to ${a.gt}%.`;
+      revHead = head; revPast = expTxt + pastTxt;
       rev = `<p style="margin:0 0 6px">${vb}</p><p style="margin:0">${head} ${expTxt}${pastTxt}</p>
         <p class="small muted" style="margin-bottom:0">The badge compares the growth priced in with the app's starting growth of ${ref}% a year. ${inp.startHow ? "That is based on: " + inp.startHow + "." : "There's no growth data, so that is a cautious 5%."}</p>`;
     }
@@ -1207,12 +1209,21 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       const buyAt = mid * (1 - state.settings.fvBuy/100), richAt = mid * (1 + state.settings.fvRich/100);
       const diff = price / mid - 1, pct = Math.abs(diff*100).toFixed(0);
       const vb = price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
-      glance("g-fv", `${vb} ${pct}% ${diff < 0 ? "below" : "above"} middle (${fmt(mid)})`);
+      // Price far above every method: the stock is priced on growth or new businesses that today's
+      // numbers don't show. "Expensive, 1234% above" isn't useful; lead with what the price assumes.
+      const future = price > 3 * hi;
+      if(future) glance("g-fv", `<span class="badge b-warn">Priced for future growth</span> ${(price/hi).toFixed(0)}× the top of the range`);
+      else glance("g-fv", `${vb} ${pct}% ${diff < 0 ? "below" : "above"} middle (${fmt(mid)})`);
       const notes = [];
       if(vals.length === 1) notes.push("Only one method fits this company, so treat the range with extra caution.");
       if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
       if(loadingAny) notes.push("Still loading some data; this may change.");
-      top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
+      if(future) top = `<p style="margin-top:0"><span class="badge b-warn">Priced for future growth</span>
+          Price ${fmt(price)} is <b>${(price/hi).toFixed(1)}×</b> the highest value today's earnings and cash flow support (${lo === hi ? "only one method fits: " + fmt(hi) : "methods range " + fmt(lo) + "–" + fmt(hi)}).</p>
+        <div class="callout"><b>What the price assumes:</b> ${revHead ? revHead + " " + revPast : "can't be worked out: the reverse DCF needs positive free cash flow."}</div>
+        <p class="small muted">Today's numbers can't value this stock: its price rests on growth or new businesses that don't show up in them yet, so the methods below will all look far too low.
+          The useful question is whether the growth above is believable. To test your own view, open <b>Adjust the assumptions</b> and raise the growth.</p>`;
+      else top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
           ${price > buyAt ? `With your ${state.settings.fvBuy}% safety margin, it would be attractive below <b>${fmt(buyAt)}</b>.` : `That's beyond your ${state.settings.fvBuy}% safety margin.`}</p>
         ${fvBar(lo, mid, hi, price, buyAt, richAt, inp.av && inp.av.target > 0 ? inp.av.target : NaN)}
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
