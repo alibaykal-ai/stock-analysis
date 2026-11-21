@@ -183,7 +183,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.10</b> · 21 Nov 2026 ·
+  <b>Version 5.11</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -199,7 +199,7 @@ function load(){
        if(s) return { ...DEFAULTS, ...s, settings: { ...DEFAULTS.settings, ...(s.settings||{}) } }; }catch(e){}
   return JSON.parse(JSON.stringify(DEFAULTS));
 }
-function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){} }
+function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){ if(!save.warned){ save.warned = true; alert("Your browser's storage for this app is full, so this change wasn't saved. Copy the Backup text in Settings to keep it safe."); } } if(typeof onSaved === "function") onSaved(); }
 
 /* ================= Helpers ================= */
 const $ = (sel, el=document) => el.querySelector(sel);
@@ -235,17 +235,45 @@ async function throttle(){
 }
 const TTL = { quote: 60e3, metric: 12*3600e3, profile: 7*24*3600e3, peers: 7*24*3600e3, rec: 12*3600e3, news: 30*60e3, earn: 12*3600e3, search: 24*3600e3, fin: 7*24*3600e3 };
 const memCache = new Map();
+// Saved market data lives in IndexedDB (hundreds of MB), loaded into memory at start-up.
+// localStorage (about 5 MB) is kept for your own lists. Before 5.11 the data shared localStorage and,
+// when it filled up, everything saved was wiped; now nothing is wiped to make room.
+let idb = null;
+function idbOpen(){ return new Promise(res => { try{ const r = indexedDB.open("stockAnalysis", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("c"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null); }catch(e){ res(null); } }); }
+const idbTx = (mode, fn) => { if(!idb) return; try{ const tx = idb.transaction("c", mode); fn(tx.objectStore("c")); return tx; }catch(e){} };
+async function cacheBoot(){
+  idb = await idbOpen(); if(!idb) return; // very old browser or private mode: fall back to localStorage
+  const now = Date.now(), dead = [];
+  await new Promise(res => { const tx = idbTx("readonly", st => { const rq = st.openCursor();
+    rq.onsuccess = () => { const c = rq.result; if(!c) return; if(c.value && c.value.exp > now) memCache.set(c.key, c.value); else dead.push(c.key); c.continue(); }; });
+    if(!tx) return res(); tx.oncomplete = res; tx.onerror = res; tx.onabort = res; });
+  if(dead.length) idbTx("readwrite", st => dead.forEach(k => st.delete(k)));
+  // Move data saved by older versions out of localStorage (removed only once safely written)
+  const old = Object.keys(localStorage).filter(k => k.startsWith("sa.c."));
+  if(old.length) await new Promise(res => { const moved = [];
+    const tx = idbTx("readwrite", st => old.forEach(k => { try{ const e = JSON.parse(localStorage.getItem(k)); const kk = k.slice(5);
+      if(e && e.exp > now){ if(!memCache.has(kk)) memCache.set(kk, e); st.put(e, kk); } moved.push(k); }catch(err){} }));
+    if(!tx) return res(); tx.oncomplete = () => { moved.forEach(k => localStorage.removeItem(k)); res(); }; tx.onerror = res; tx.onabort = res; });
+}
 function cacheGet(k){
   const m = memCache.get(k); if(m && m.exp > Date.now()) return m.v;
-  try{ const s = JSON.parse(localStorage.getItem("sa.c."+k)||"null"); if(s && s.exp > Date.now()){ memCache.set(k,s); return s.v; } }catch(e){}
+  if(!idb) try{ const s = JSON.parse(localStorage.getItem("sa.c."+k)||"null"); if(s && s.exp > Date.now()){ memCache.set(k,s); return s.v; } }catch(e){}
   return undefined;
 }
 function cacheSet(k, v, ttl){
   const e = { v, exp: Date.now()+ttl }; memCache.set(k, e);
-  try{ localStorage.setItem("sa.c."+k, JSON.stringify(e)); }catch(err){ pruneCache(); }
+  if(idb){ idbTx("readwrite", st => st.put(e, k)); return; }
+  try{ localStorage.setItem("sa.c."+k, JSON.stringify(e)); }
+  catch(err){ // full: drop expired entries, then the soonest-expiring ones, never everything
+    const ks = Object.keys(localStorage).filter(x => x.startsWith("sa.c.")).map(x => { let exp = 0; try{ exp = JSON.parse(localStorage.getItem(x)).exp; }catch(e2){} return [x, exp]; }).sort((a, b) => a[1] - b[1]);
+    for(const [x] of ks){ localStorage.removeItem(x); try{ localStorage.setItem("sa.c."+k, JSON.stringify(e)); return; }catch(e3){} }
+  }
 }
-function pruneCache(){
-  try{ Object.keys(localStorage).filter(k=>k.startsWith("sa.c.")).forEach(k=>localStorage.removeItem(k)); }catch(e){}
+function cacheDel(pred){
+  [...memCache.keys()].filter(pred).forEach(k => memCache.delete(k));
+  idbTx("readwrite", st => { const rq = st.openCursor(); rq.onsuccess = () => { const c = rq.result; if(!c) return; if(pred(c.key)) c.delete(); c.continue(); }; });
+  try{ Object.keys(localStorage).filter(x => x.startsWith("sa.c.") && pred(x.slice(5))).forEach(x => localStorage.removeItem(x)); }catch(e){}
 }
 const inflight = new Map();
 async function api(path, params, ttlKind, shape){
@@ -610,11 +638,16 @@ function keyNotice(){
 // A holding's shares = its own count (bank import or typed) + the net of its typed purchases.
 const buysFor = sym => (state.buys || []).filter(b => b.sym === sym);
 const netOf = bs => bs.reduce((a, b) => a + (b.s === "B" ? b.q : -b.q), 0);
+const BANK = "Barclays"; // shares imported from the bank file belong to this account; typed Barclays orders adjust them
+const isBank = a => String(a || "").trim().toLowerCase() === BANK.toLowerCase();
 function myHoldings(){
   return state.holdings.map(h => { const bs = buysFor(h.symbol); if(!bs.length) return h;
     const base = isNum(h.shares) ? h.shares : 0, m = netOf(bs);
-    const accts = {}; bs.forEach(b => { const a = b.acct || "Other"; accts[a] = (accts[a] || 0) + (b.s === "B" ? b.q : -b.q); });
-    return { ...h, shares: Math.round((base + m) * 1e6) / 1e6, baseShares: base, manualShares: m, accts }; });
+    const accts = {}; if(base > 0) accts[h.name ? BANK : "Added"] = base;
+    bs.forEach(b => { const a = isBank(b.acct) ? BANK : (b.acct || "Other"); accts[a] = (accts[a] || 0) + (b.s === "B" ? b.q : -b.q); });
+    const bankShares = base + netOf(bs.filter(b => isBank(b.acct)));
+    return { ...h, shares: Math.round((base + m) * 1e6) / 1e6, baseShares: base, bankShares, manualShares: m, accts }; })
+    .filter(h => !(h.accts && h.shares <= 1e-9)); // fully sold with typed sales: row hidden (still counted in your results)
 }
 let buyOpen = false;
 let homeTab = "mine", homeSec = "list"; // left menu: list (My Stocks / Watchlist), earn, risk, perf
@@ -627,7 +660,7 @@ function viewHome(app, tok){
     ${keyNotice()}
     <div class="homegrid">
     <nav class="side" aria-label="My Stocks sections">
-      <button data-tab="mine" class="${homeSec==="list"&&homeTab==="mine"?"on":""}">My Stocks (${state.holdings.length})<small id="side-total">${state.holdings.length && state.apiKey ? "…" : ""}</small></button>
+      <button data-tab="mine" class="${homeSec==="list"&&homeTab==="mine"?"on":""}">My Stocks (${myHoldings().length})<small id="side-total">${state.holdings.length && state.apiKey ? "…" : ""}</small></button>
       <button data-tab="watch" class="${homeSec==="list"&&homeTab==="watch"?"on":""}">Watchlist (${state.watchlist.length})</button>
       ${hasMine ? `<button data-sec="risk" class="${homeSec==="risk"?"on":""}">Portfolio risk</button>
       <button data-sec="perf" class="${homeSec==="perf"?"on":""}">Performance</button>` : ""}
@@ -676,8 +709,7 @@ function viewHome(app, tok){
   app.querySelectorAll(".side [data-sec]").forEach(b => b.onclick = () => { homeSec = b.dataset.sec; showSec(); window.scrollTo(0, 0); });
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { const same = homeTab === b.dataset.tab; homeTab = b.dataset.tab;
     if(same && homeSec !== "list"){ homeSec = "list"; showSec(); window.scrollTo(0, 0); } else { homeSec = "list"; viewHome(app, ++renderToken); } });
-  $("#refresh", app).onclick = () => { memCache.forEach((v,k)=>{ if(k.startsWith("/quote")) memCache.delete(k); });
-    try{ Object.keys(localStorage).filter(k=>k.startsWith("sa.c./quote")).forEach(k=>localStorage.removeItem(k)); }catch(e){}
+  $("#refresh", app).onclick = () => { cacheDel(k => k.startsWith("/quote"));
     viewHome(app, ++renderToken); };
   $("#addform", app).onsubmit = e => {
     e.preventDefault();
@@ -710,7 +742,7 @@ function viewHome(app, tok){
 }
 function buyBox(){
   const today = ymd(new Date()), bs = (state.buys || []).slice().sort((a, b) => a.d < b.d ? 1 : a.d > b.d ? -1 : 0);
-  const accts = [...new Set(["Robinhood", ...(state.buys || []).map(b => b.acct).filter(Boolean)])];
+  const accts = [...new Set(["Robinhood", BANK, ...(state.buys || []).map(b => b.acct).filter(Boolean)])];
   const cur = c => c === "GBP" ? "£" : "$";
   return `<details class="more" id="buybox" ${buyOpen ? "open" : ""} style="margin:0 0 12px;border-top:none;padding-top:0">
     <summary>Record a purchase or sale${bs.length ? ` (${bs.length} typed so far)` : ""}</summary>
@@ -729,7 +761,7 @@ function buyBox(){
       <select id="b-type" aria-label="Type" title="Only used if the ticker isn't in My Stocks yet"><option value="stock">Stock</option><option value="etf">ETF</option></select>
       <button class="primary">Save</button><span id="b-msg" class="small"></span>
     </form>
-    <p class="small muted" style="margin:6px 0 0">Example: Bought 5 NVDA at $168.50 on 19 Nov in Robinhood. Shares add to the stock's row (a new ticker gets its own row) and count in the total, risk and performance. Kept in this browser; re-importing your bank file never removes them.</p>
+    <p class="small muted" style="margin:6px 0 0">Examples: Bought 5 NVDA at $168.50 on 19 Nov in Robinhood · Sold 10 AMD at $605 on 2 Dec in Barclays (sales and new buys in Barclays adjust the shares from your bank file, so you don't need to import it again). Shares add to the stock's row (a new ticker gets its own row) and count in the total, risk and performance. Kept in this browser; re-importing your bank file never removes them.</p>
     ${bs.length ? `<div style="overflow-x:auto;margin-top:8px"><table style="max-width:820px"><thead><tr><th>Date</th><th>Account</th><th></th><th>Stock</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead><tbody>
       ${bs.map(b => `<tr><td>${fmtDay(b.d)}</td><td>${esc(b.acct || "")}</td><td>${b.s === "B" ? "Bought" : "Sold"}</td><td><b>${esc(b.sym)}</b></td><td class="num">${fmt(b.q, b.q % 1 ? 4 : 0)}</td><td class="num">${cur(b.cur)}${fmt(b.px)}</td><td class="num">${cur(b.cur)}${fmt(b.q * b.px)}</td><td><button class="link" data-delbuy="${esc(b.id)}" title="Delete this entry">×</button></td></tr>`).join("")}
     </tbody></table></div>` : ""}
@@ -747,8 +779,10 @@ function wireBuyBox(app){
     if(!(q > 0)) return bad("Shares must be more than 0.");
     if(!(px > 0)) return bad("Price must be more than 0.");
     if(!/^\d{4}-\d{2}-\d{2}$/.test(d) || d > ymd(new Date())) return bad("Pick a date up to today.");
-    const acct = $("#b-acct", app).value.trim() || "Other";
-    if(side === "S"){ const have = netOf(buysFor(sym).filter(b => (b.acct || "Other") === acct)); if(q > have + 1e-9) return bad(`You've recorded only ${fmt(have, have % 1 ? 4 : 0)} ${sym} shares in ${acct}.`); }
+    let acct = $("#b-acct", app).value.trim() || "Other"; if(isBank(acct)) acct = BANK;
+    if(side === "S"){ const h = state.holdings.find(x => x.symbol === sym), base = isBank(acct) && h && h.name && isNum(h.shares) ? h.shares : 0;
+      const have = base + netOf(buysFor(sym).filter(b => isBank(acct) ? isBank(b.acct) : (b.acct || "Other") === acct));
+      if(q > have + 1e-9) return bad(`You have only ${fmt(have, have % 1 ? 4 : 0)} ${sym} shares in ${acct}.`); }
     if(!state.holdings.some(h => h.symbol === sym)) state.holdings.push({ symbol: sym, shares: 0, type: $("#b-type", app).value });
     state.buys = state.buys || [];
     state.buys.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), sym, s: side, q, px, cur: $("#b-cur", app).value, d, acct });
@@ -776,7 +810,7 @@ function rowSkeleton(h){
     <td class="num" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
     <td class="num" data-f="chg"></td>
     <td class="hide-sm" data-f="range"></td>
-    ${mine ? `<td class="num hide-sm">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}${h.accts ? `<div class="small muted" style="white-space:nowrap">${[h.baseShares > 0 ? `${h.name ? "Barclays" : "Added"} ${fmt(h.baseShares, h.baseShares%1?4:0)}` : "", ...Object.entries(h.accts).filter(([, v]) => Math.abs(v) > 1e-9).map(([a, v]) => `${esc(a)} ${fmt(v, v%1?4:0)}`)].filter(Boolean).join(" · ")}</div>` : ""}</td><td class="num hide-sm" data-f="value"></td>` : ""}
+    ${mine ? `<td class="num hide-sm">${isNum(h.shares)?fmt(h.shares, h.shares%1?4:0):"—"}${h.accts && Object.values(h.accts).filter(v => Math.abs(v) > 1e-9).length > 1 ? `<div class="small muted" style="white-space:nowrap">${Object.entries(h.accts).filter(([, v]) => Math.abs(v) > 1e-9).map(([a, v]) => `${esc(a)} ${fmt(v, v%1?4:0)}`).join(" · ")}</div>` : h.accts ? `<div class="small muted">${esc(Object.keys(h.accts).find(a => Math.abs(h.accts[a]) > 1e-9) || "")}</div>` : ""}</td><td class="num hide-sm" data-f="value"></td>` : ""}
     <td data-f="val">${h.type && h.type!=="stock" ? '<span class="small muted">Fund: no valuation</span>' : ""}</td>
     <td class="num" data-f="health"></td>
     <td data-f="flags"></td>
@@ -1909,13 +1943,16 @@ async function importBankFile(app, file){
     const fresh = items.map(it => ({ symbol: it.symbol, shares: it.shares, type: it.type, name: it.name,
       manualPrice: old.get(it.symbol) && old.get(it.symbol).manualPrice }));
     items.forEach(it => { state.nameMap[nameKey(it.name)] = { symbol: it.symbol, type: it.type }; });
-    state.trades = { saved: ymd(new Date()), rows: parsed.trades }; // dated buys and sells, for "your results vs the index" (this browser only)
+    state.trades = { saved: ymd(new Date()), rows: parsed.trades };
+    const upTo = parsed.last ? ymd(parsed.last) : null, before = (state.buys || []).length; // Barclays orders typed by hand that the file now contains
+    if(upTo) state.buys = (state.buys || []).filter(b => !(isBank(b.acct) && b.d <= upTo));
+    const droppedTyped = before - (state.buys || []).length; // dated buys and sells, for "your results vs the index" (this browser only)
     if($("#bankreplace", app).checked){ state.holdings = fresh; // keep tickers that only exist because of typed purchases (e.g. Robinhood)
       (state.buys || []).forEach(b => { if(!state.holdings.some(h => h.symbol === b.sym)) state.holdings.push({ symbol: b.sym, shares: 0, type: "stock" }); }); }
     else fresh.forEach(f => { const ex = state.holdings.find(h=>h.symbol===f.symbol); if(ex){ ex.shares=f.shares; ex.type=f.type; ex.name=f.name; } else state.holdings.push(f); });
     save();
     viewSettings(app);
-    const m = $("#bankout", app); m.innerHTML = `<p class="small">✓ Saved ${fresh.length} holdings and ${parsed.trades.length} dated orders (used for "Your results vs the index" on My Stocks). <a href="#home">See My Stocks</a></p>`;
+    const m = $("#bankout", app); m.innerHTML = `<p class="small">✓ Saved ${fresh.length} holdings and ${parsed.trades.length} dated orders${droppedTyped ? ` (${droppedTyped} Barclays order${droppedTyped === 1 ? "" : "s"} you had typed in are now in the file, so the typed copies were removed)` : ""} (used for "Your results vs the index" on My Stocks). <a href="#home">See My Stocks</a></p>`;
   };
 }
 
@@ -2645,8 +2682,10 @@ async function tradeResults(hv, spy, qqq, tok){
   const fxShort = fxs.d[0] > first, fxNow = isNum(hv.usdPerGbp) ? hv.usdPerGbp : rateOn(fxs, today); // same rate as "worth now"
   const fxLast = lastObs(fxs), rateFor = d => fxLast && d > fxLast.d && isNum(hv.usdPerGbp) ? hv.usdPerGbp : rateOn(fxs, d) || fxs.v.find(isNum);
   // Typed purchases become trades in pounds (dollar prices converted at that day's rate), one group per ticker and account
-  const rows = [...bank, ...typed.map(b => ({ k: "typed:" + b.sym + ":" + (b.acct || ""), n: b.sym, sym: b.sym, acct: b.acct || "Other", d: b.d, s: b.s, q: b.q,
-    a: b.q * b.px * (b.cur === "GBP" ? 1 : 1 / rateFor(b.d)) }))].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+  const bankKey = sym => { const k = Object.keys(state.nameMap).find(k => state.nameMap[k].symbol === sym && bank.some(t => t.k === k)); return k && { k, n: bank.find(t => t.k === k).n }; };
+  const rows = [...bank, ...typed.map(b => { const a = b.q * b.px * (b.cur === "GBP" ? 1 : 1 / rateFor(b.d)), bk = isBank(b.acct) && bankKey(b.sym);
+    return bk ? { k: bk.k, n: bk.n, d: b.d, s: b.s, q: b.q, a } // a Barclays order typed after the import: part of that stock's bank history
+      : { k: "typed:" + b.sym + ":" + (b.acct || ""), n: b.sym, sym: b.sym, acct: b.acct || "Other", d: b.d, s: b.s, q: b.q, a }; })].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
   const bySym = new Map(hv.rows.filter(r => isNum(r.gbp)).map(r => [r.h.symbol, r]));
   const groups = new Map();
   for(const t of rows){ if(!groups.has(t.k)) groups.set(t.k, { k: t.k, name: t.n, sym: t.sym, acct: t.acct, trades: [] }); groups.get(t.k).trades.push(t); }
@@ -2660,7 +2699,7 @@ async function tradeResults(hv, spy, qqq, tok){
     // A ticker held in both the bank and a typed account: split today's value by shares
     let value = 0;
     if(held){ const h = hr.h, eff = h.shares > 0 ? h.shares : 1;
-      value = !h.accts ? hr.gbp : g.sym ? hr.gbp * Math.max(0, shares) / eff : hr.gbp * h.baseShares / eff; }
+      value = !h.accts ? hr.gbp : g.sym ? hr.gbp * Math.max(0, shares) / eff : hr.gbp * Math.max(0, h.bankShares) / eff; }
     const res = { name: g.name, acct: g.acct, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })) };
     // Index instead: each buy puts the same pounds into the index fund; each sell sells the same share of that index money
     // (selling half the shares sells half the index units), so every row compares like with like.
@@ -2918,7 +2957,7 @@ function viewSettings(app){
     </div>`;
   const msg = (id, t, err) => { const e=$(id,app); e.textContent=t; e.className="small "+(err?"err":"muted"); };
   $("#bankfile",app).onchange = e => { const f = e.target.files && e.target.files[0]; if(f) importBankFile(app, f); };
-  $("#kform",app).onsubmit = e => { e.preventDefault(); state.apiKey = $("#key",app).value.trim(); save(); pruneCache(); memCache.clear(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
+  $("#kform",app).onsubmit = e => { e.preventDefault(); const nk = $("#key",app).value.trim(); if(nk !== state.apiKey) cacheDel(k => k.startsWith("/")); state.apiKey = nk; save(); msg("#kmsg", state.apiKey ? "Saved." : "Key removed."); };
   $("#avform",app).onsubmit = e => { e.preventDefault(); state.avKey = $("#avkey",app).value.trim(); save(); msg("#avmsg", state.avKey ? "Saved." : "Key removed."); };
   $("#tdform",app).onsubmit = e => { e.preventDefault(); state.tdKey = $("#tdkey",app).value.trim(); save(); msg("#tdmsg", state.tdKey ? "Saved." : "Key removed."); };
   $("#tdtest",app).onclick = async () => {
@@ -2929,7 +2968,7 @@ function viewSettings(app){
   };
   $("#avtest",app).onclick = async () => {
     state.avKey = $("#avkey",app).value.trim(); save();
-    msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); memCache.delete("av:EARNINGS_ESTIMATES:MSFT"); try{ localStorage.removeItem("sa.c.av:EARNINGS_ESTIMATES:MSFT"); }catch(err){}
+    msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); cacheDel(k => k === "av:EARNINGS_ESTIMATES:MSFT");
     try{ const e = parseAV(null, {ok:true, v: await avq.estimates("MSFT")});
       msg("#avmsg", e.fy2 && isNum(e.fy2.eps) ? `✓ Works. Analysts expect Microsoft to earn ${fmt(e.fy2.eps)} per share next fiscal year.` : "Key accepted, but no estimates came back.", !(e.fy2 && isNum(e.fy2.eps))); }
     catch(e){ msg("#avmsg", e.message, true); }
@@ -2991,7 +3030,7 @@ function viewSettings(app){
   };
 }
 
-route();
+cacheBoot().then(route);
 </script>
 </body>
 </html>
