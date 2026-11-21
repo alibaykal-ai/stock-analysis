@@ -99,8 +99,8 @@ h3{font-size:14px;margin:18px 0 8px}
 .hp-bar{height:8px;background:var(--neutralbg);border-radius:4px;overflow:hidden}
 .hp-bar i{display:block;height:100%;border-radius:4px}
 .hp-v{text-align:right;font-variant-numeric:tabular-nums}
-#c-chart{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
-@media (prefers-color-scheme:dark){ #c-chart{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
+#c-chart,#perf{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
+@media (prefers-color-scheme:dark){ #c-chart,#perf{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
 .chartwrap{position:relative;padding-right:0;touch-action:pan-y}
 .chartwrap svg{display:block;width:100%;height:420px}
 .chartwrap .rsiband{fill:var(--neutralbg)}
@@ -140,6 +140,9 @@ details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:
 .spark{display:block}
 .spark .s-ln{fill:none;stroke:var(--accent);stroke-width:1.6;vector-effect:non-scaling-stroke}
 .spark .s-ma{fill:none;stroke:#1baf7a;stroke-width:1.4;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.spark .s-pf{fill:none;stroke:var(--s1);stroke-width:2.2;vector-effect:non-scaling-stroke}
+.spark .s-sp{fill:none;stroke:var(--muted);stroke-width:1.4;vector-effect:non-scaling-stroke}
+.spark .s-nq{fill:none;stroke:var(--s2);stroke-width:1.4;vector-effect:non-scaling-stroke}
 .spark .s-base{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke;opacity:.7}
 .sect td{vertical-align:middle}
 .mine-tags b{font-weight:600} .mine-tags span{color:var(--muted)}
@@ -170,7 +173,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.4</b> · 21 Nov 2026 ·
+  <b>Version 5.5</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -632,7 +635,8 @@ function viewHome(app, tok){
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>
     ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<div class="card" id="earn"><h2>Earnings calendar</h2><div id="earn-b" class="muted small"><span class="spin"></span> Loading earnings dates…</div></div>` : ""}
-    ${homeTab==="mine" && state.holdings.length && state.apiKey ? `<div class="card" id="risk"><h2>Portfolio risk: where your money is</h2><div id="risk-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>` : ""}`;
+    ${homeTab==="mine" && state.holdings.length && state.apiKey ? `<div class="card" id="risk"><h2>Portfolio risk: where your money is</h2><div id="risk-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>
+    <div class="card" id="perf"><h2>Performance vs the market</h2><div id="perf-b" class="muted small"><span class="spin"></span> Comparing your holdings with the S&amp;P 500…</div></div>` : ""}`;
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { homeTab = b.dataset.tab; viewHome(app, tok); });
   $("#refresh", app).onclick = () => { memCache.forEach((v,k)=>{ if(k.startsWith("/quote")) memCache.delete(k); });
     try{ Object.keys(localStorage).filter(k=>k.startsWith("sa.c./quote")).forEach(k=>localStorage.removeItem(k)); }catch(e){}
@@ -660,7 +664,7 @@ function viewHome(app, tok){
   app.querySelectorAll("tr[data-sym]").forEach(tr => tr.onclick = () => go(stockHref(tr.dataset.sym)));
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
   if(state.apiKey && (state.holdings.length || state.watchlist.length)) renderEarnings(app, tok);
-  if(homeTab==="mine" && state.holdings.length && state.apiKey) renderRisk(app, tok);
+  if(homeTab==="mine" && state.holdings.length && state.apiKey){ renderRisk(app, tok); renderPerf(app, tok); }
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
 }
 function alertInline(app, msg){
@@ -813,6 +817,7 @@ async function runFullCheck(app, list, tok){
     if(c){ if(td.ok) c.td = td.v; else if(td.e){ c.tdErr = td.e.message; if(["nosym","premium"].includes(td.e.code)) cacheSet("td:err:" + h.symbol, td.e.message, 24*3600e3); } if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
   }
   if($("#risk-b", app) && live(tok)) renderRisk(app, tok);
+  if($("#perf-b", app) && live(tok)) renderPerf(app, tok);
   note.textContent = `Full check done${state.tdKey ? "" : " (no Twelve Data key, so technical flags are missing)"}. Results are kept: prices for 12 hours, company reports for a week.`;
   btn.disabled = false;
 }
@@ -2435,6 +2440,114 @@ async function renderRisk(app, tok){
       <p class="small muted">Values are price × shares, in pounds; US stocks converted at FRED's daily exchange rate; fund prices typed in Settings are taken as pounds. <b>Concentration</b> (suggested limits): one stock above ${RISK.stockAmber}% = amber, above ${RISK.stockRed}% = red; one sector above ${RISK.sectorAmber}% = amber, above ${RISK.sectorRed}% = red. Funds and ETFs are already spread over many companies, so they don't count as a single-stock or sector risk. Sector badges (Leading/Lagging vs the S&amp;P 500 over 3 months) come from the Macro tab when it has been opened in the last 12 hours.
       <b>Volatility</b> = how much the daily value of your stocks swings, scaled to a year. <b>Beta</b> = how much your stocks have moved for each 1% move in the S&amp;P 500. <b>Correlation</b> = average across every pair of your stocks. These describe the past year, not a forecast, and they are not reasons to buy or sell.</p>
     </details>`;
+}
+/* ================= Performance vs the market (My Stocks) ================= */
+// Today's holdings (today's share counts) held over each period, vs the S&P 500 (SPY) and Nasdaq-100 (QQQ).
+// Uses saved Twelve Data closes (price only, split-adjusted; dividends not included, for the stocks or the funds).
+const PERF_GAP = 2; // points either side of the S&P 500 that count as "in line"
+let perfPeriod = "1Y";
+function perfPeriods(spy){
+  const d = spy.d, n = d.length, last = d[n-1];
+  const back = k => n > k ? d[n-1-k] : null;
+  const ytd = d.filter(x => x < last.slice(0,4) + "-01-01").pop() || null; // last close of last year
+  return [["1M", "1 month", back(21)], ["3M", "3 months", back(63)], ["6M", "6 months", back(126)], ["YTD", "This year", ytd], ["1Y", "1 year", back(252)]]
+    .filter(p => p[2]).map(([k, label, start]) => ({ k, label, start, end: last }));
+}
+// Close on a date, or the last close before it (null if the history doesn't reach back that far).
+function closeOn(td, date){
+  if(!td || !td.d.length || td.d[0] > date) return null;
+  let lo = 0, hi = td.d.length - 1;
+  while(lo < hi){ const m = (lo + hi + 1) >> 1; if(td.d[m] <= date) lo = m; else hi = m - 1; }
+  return td.c[lo];
+}
+function perfFor(rows, spy, qqq, p){
+  const r = x => { const a = closeOn(x, p.start), b = closeOn(x, p.end); return a && b ? (b / a - 1) * 100 : NaN; };
+  const used = [], missing = [];
+  for(const x of rows){
+    const a = closeOn(x.td, p.start), b = x.td && lastOf(x.td.c);
+    if(!a || !b) { missing.push(x); continue; }
+    const ret = (b / a - 1) * 100, start = x.gbp / (b / a); // value at the start, in today's pounds
+    used.push({ ...x, ret, start });
+  }
+  const W = used.reduce((s, x) => s + x.start, 0), V = used.reduce((s, x) => s + x.gbp, 0);
+  const port = W > 0 ? (V / W - 1) * 100 : NaN;
+  used.forEach(x => x.contrib = W > 0 ? (x.gbp - x.start) / W * 100 : NaN);
+  return { ...p, port, spy: r(spy), qqq: qqq ? r(qqq) : NaN, used, missing, cover: V };
+}
+// Growth of 100 over the period: your holdings (fixed share counts), S&P 500, Nasdaq-100, on S&P 500 trading days.
+function perfLines(res, spy, qqq){
+  const days = spy.d.filter(d => d >= res.start);
+  const units = res.used.map(x => ({ td: x.td, u: x.gbp / lastOf(x.td.c) })); // "shares" in pounds at a fixed exchange rate
+  const W = units.reduce((s, x) => s + x.u * closeOn(x.td, res.start), 0);
+  const line = h => { const b = closeOn(h, res.start); return days.map(d => { const c = closeOn(h, d); return c && b ? c / b * 100 : NaN; }); };
+  return { days, port: days.map(d => units.reduce((s, x) => s + x.u * (closeOn(x.td, d) || 0), 0) / W * 100), spy: line(spy), qqq: qqq ? line(qqq) : null };
+}
+function perfBadge(gap){
+  if(!isNum(gap)) return ["b-inline", "n/a"];
+  return gap >= PERF_GAP ? ["b-cheap", "Ahead of the market"] : gap > -PERF_GAP ? ["b-inline", "In line with the market"] : gap > -10 ? ["b-warn", "Behind the market"] : ["b-rich", "Well behind the market"];
+}
+async function renderPerf(app, tok){
+  const el = $("#perf-b", app); if(!el) return;
+  let spy = cacheGet("td:daily:SPY:1600"), qqq = cacheGet("td:daily:QQQ:1600");
+  if((!spy || !qqq) && state.tdKey){ // 2 requests at most, shared with the Macro tab and kept 12 hours
+    el.innerHTML = `<span class="spin"></span> Loading the S&amp;P 500 and Nasdaq-100 price history…`;
+    const [a, b] = await Promise.all([spy ? Promise.resolve({ ok: true, v: spy }) : safe(tdDaily("SPY", 1600)), qqq ? Promise.resolve({ ok: true, v: qqq }) : safe(tdDaily("QQQ", 1600))]);
+    if(!live(tok)) return;
+    if(a.ok) spy = a.v; else { el.innerHTML = `<span class="err">Couldn't load the S&amp;P 500: ${esc(a.e.message)}</span>`; return; }
+    if(b.ok) qqq = b.v;
+  }
+  if(!spy){ el.innerHTML = `<span class="muted">Add a Twelve Data key in <a href="#settings">Settings</a> to compare your stocks with the S&amp;P 500.</span>`; return; }
+  const hv = await holdingValues(); if(!live(tok)) return;
+  const valued = hv.rows.filter(r => isNum(r.gbp));
+  const rows = valued.map(r => ({ ...r, td: peek.td(r.h.symbol) }));
+  const total = valued.reduce((s, r) => s + r.gbp, 0);
+  const all = perfPeriods(spy).map(p => perfFor(rows, spy, qqq, p));
+  const withData = rows.filter(r => r.td);
+  if(!all.length || !withData.length || withData.reduce((s, r) => s + r.gbp, 0) < total * 0.5){
+    el.innerHTML = `<span class="muted">Price history saved for ${withData.length} of ${rows.length} holdings. Press <b>Run full check</b> above to fetch the rest (Twelve Data, kept 12 hours), then this card fills in.</span>`; return; }
+  if(!all.some(p => p.k === perfPeriod)) perfPeriod = all[all.length-1].k;
+  const head = all.slice().reverse().find(p => p.used.length && p.cover >= total * 0.5) || all[all.length-1]; // longest period with good coverage
+  const gap = head.port - head.spy, gapQ = head.port - head.qqq, bd = perfBadge(gap);
+  const vsTxt = (g, nm) => !isNum(g) ? "" : Math.abs(g) < 0.5 ? `about level with the ${nm}` : `${Math.abs(g).toFixed(1)} points ${g > 0 ? "ahead of" : "behind"} the ${nm}`;
+  const pp = v => isNum(v) ? `<span class="${cls(v)}">${fmtPct(v, 1).replace("%", "")} pts</span>` : "—";
+  const pc = v => `<span class="${cls(v)}">${fmtPct(v, 1)}</span>`;
+  const draw = () => {
+    const p = all.find(x => x.k === perfPeriod), L = perfLines(p, spy, qqq);
+    const helped = p.used.filter(x => x.contrib > 0).sort((a, b) => b.contrib - a.contrib).slice(0, 3);
+    const hurt = p.used.filter(x => x.contrib < 0).sort((a, b) => a.contrib - b.contrib).slice(0, 3);
+    const item = x => `<li><b>${esc(x.h.symbol)}</b> ${pc(x.ret)} <span class="small muted">(${fmtPct(x.contrib, 1).replace("%", "")} pts of your result)</span></li>`;
+    $("#perf-detail", el).innerHTML = `
+      <p class="small muted" style="margin:14px 0 4px">Chart and biggest movers for:</p><div class="tabs" style="margin:0 0 8px">${all.map(x => `<button data-pp="${x.k}" class="${x.k === perfPeriod ? "on" : ""}">${x.label}</button>`).join("")}</div>
+      <div class="mood">
+        <div>${sparkSvg([{ v: L.spy, cls: "s-sp" }, ...(L.qqq ? [{ v: L.qqq, cls: "s-nq" }] : []), { v: L.port, cls: "s-pf" }], 420, 120, 100)}
+          <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--s1)"></i>Your holdings ${pc(p.port)}</span><span><i class="lk" style="background:var(--muted)"></i>S&amp;P 500 ${pc(p.spy)}</span>${L.qqq ? `<span><i class="lk" style="background:var(--s2)"></i>Nasdaq-100 ${pc(p.qqq)}</span>` : ""}</div>
+          <p class="small muted" style="margin:2px 0 0">${fmtDay(p.start)} – ${fmtDay(p.end)}; dotted line = where everything started.</p></div>
+        <div style="flex:1;min-width:240px">
+          <p style="margin:0 0 4px"><b>Helped most</b></p>${helped.length ? `<ul style="margin:0 0 10px;padding-left:18px">${helped.map(item).join("")}</ul>` : `<p class="small muted" style="margin:0 0 10px">None of your holdings rose.</p>`}
+          <p style="margin:0 0 4px"><b>Hurt most</b></p>${hurt.length ? `<ul style="margin:0;padding-left:18px">${hurt.map(item).join("")}</ul>` : `<p class="small muted" style="margin:0">None of your holdings fell.</p>`}
+          ${p.missing.length ? `<p class="small muted" style="margin:10px 0 0">Not included for this period: ${p.missing.map(x => `${esc(x.h.symbol)} (${x.td ? "price history starts " + fmtDay(x.td.d[0]) : /\.L$/i.test(x.h.symbol) || x.fund ? "no price history on the free plan" : "no saved prices yet"})`).join(", ")}.</p>` : ""}
+        </div>
+      </div>`;
+    el.querySelectorAll("[data-pp]").forEach(b => b.onclick = () => { perfPeriod = b.dataset.pp; draw(); });
+  };
+  el.classList.remove("muted", "small");
+  el.innerHTML = `
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
+      <p style="margin:0;flex:1;min-width:260px;max-width:760px">Over <b>${head.label.toLowerCase()}</b>, the stocks you own today ${head.port >= 0 ? "rose" : "fell"} <b>${Math.abs(head.port).toFixed(1)}%</b>: ${vsTxt(gap, "S&amp;P 500")} (${fmtPct(head.spy, 1)})${isNum(gapQ) ? ` and ${vsTxt(gapQ, "Nasdaq-100")} (${fmtPct(head.qqq, 1)})` : ""}.
+      <span class="small muted">This shows how what you hold now has done, not your own buying and selling.</span></p></div>
+    <div style="overflow-x:auto"><table style="max-width:760px"><thead><tr><th></th>${all.map(p => `<th class="num">${p.label}</th>`).join("")}</tr></thead><tbody>
+      <tr><td><b>Your holdings</b></td>${all.map(p => `<td class="num"><b>${pc(p.port)}</b></td>`).join("")}</tr>
+      <tr><td>S&amp;P 500 <small class="muted">SPY</small></td>${all.map(p => `<td class="num">${pc(p.spy)}</td>`).join("")}</tr>
+      ${qqq ? `<tr><td>Nasdaq-100 <small class="muted">QQQ</small></td>${all.map(p => `<td class="num">${pc(p.qqq)}</td>`).join("")}</tr>` : ""}
+      <tr><td class="muted">vs S&amp;P 500</td>${all.map(p => `<td class="num">${pp(p.port - p.spy)}</td>`).join("")}</tr>
+      ${qqq ? `<tr><td class="muted">vs Nasdaq-100</td>${all.map(p => `<td class="num">${pp(p.port - p.qqq)}</td>`).join("")}</tr>` : ""}
+    </tbody></table></div>
+    <div id="perf-detail"></div>
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted">Imagine you had held exactly today's share counts for the whole period: this is how that would have done, compared with putting the same money in the S&amp;P 500 (SPY fund) or the Nasdaq-100 (QQQ fund). Each holding counts in proportion to its value, as in the risk card. Price changes only: dividends are left out for your stocks and the indexes alike (they would add roughly 1% a year to the S&amp;P 500). Measured in each stock's own currency, so moves in the pound vs the dollar aren't counted (they affect your US stocks and the US indexes the same way).
+      <b>Badge</b> (suggested, over the longest period shown): ${PERF_GAP}+ points ahead of the S&amp;P 500 = Ahead (green); within ${PERF_GAP} points = In line (grey); 2–10 points behind = Behind (amber); more than 10 behind = Well behind (red). <b>Helped / hurt most</b> = how many percentage points each holding added to or took from your result. Holdings without saved price history for the whole period are left out (London-listed funds have none on the free plan). Uses prices saved by "Run full check" (kept 12 hours); no extra requests except the S&amp;P 500 and Nasdaq-100 if the Macro tab hasn't loaded them. Past results, not a forecast.</p>
+    </details>`;
+  draw();
 }
 /* ================= Earnings calendar (My Stocks) ================= */
 const fmtBig = v => !isNum(v) ? "—" : Math.abs(v) >= 1e9 ? "$" + (v/1e9).toFixed(1) + "B" : Math.abs(v) >= 1e6 ? "$" + (v/1e6).toFixed(0) + "M" : "$" + Math.round(v).toLocaleString();
