@@ -233,8 +233,8 @@ async function avApi(fn, sym){
     const info = j && (j.Information || j.Note || j["Error Message"]);
     if(info){
       if(/limit|per day|frequency/i.test(info)) throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit");
-      if(/premium/i.test(info)) throw new ApiError("Not included in the free Alpha Vantage plan.", "premium");
-      if(/apikey|api key/i.test(info)) throw new ApiError("Alpha Vantage rejected the key. Check it in Settings.", "auth");
+      if(/premium/i.test(info)) throw new ApiError("Not included in the free Alpha Vantage plan. Alpha Vantage says: " + String(info).slice(0, 140), "premium");
+      if(/apikey|api key/i.test(info)) throw new ApiError("Alpha Vantage rejected the key. Check it in Settings. Alpha Vantage says: " + String(info).replace(/key as \S+/i, "key as …").slice(0, 140), "auth");
       throw new ApiError(String(info).slice(0, 160), "api");
     }
     cacheSet(ck, j, 24*3600e3);
@@ -525,7 +525,7 @@ async function viewStock(app, sym, tok){
 
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
-    else { renderHealth(app, mm, price); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([safe(avq.overview(sym)), safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
+    else { renderHealth(app, mm, price); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
   }
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
@@ -658,10 +658,12 @@ function fvInputs(met, prof, price, av){
     how: `analysts' average earnings estimate goes from ${fmt(f1.eps)} per share this fiscal year to ${fmt(f2.eps)} next fiscal year` };
   else if(av.fwdPE > 0 && eps > 0 && isNum(price)){ const fe = price / av.fwdPE; exp = { g: (fe/eps - 1) * 100,
     how: `analysts expect about ${fmt(fe)} per share of earnings over the next year, vs ${fmt(eps)} over the last 12 months` }; }
-  const base = exp ? exp.g : pastMid;
-  const startG = isNum(base) ? Math.round(fadeAvg5(base, 2.5) * 2) / 2 : 5;
+  // With analyst forecasts: start from their expected growth and let it fade.
+  // Without them: past growth rarely repeats at high rates, so stay cautious (0–15%).
+  const startG = exp ? Math.round(fadeAvg5(exp.g, 2.5) * 2) / 2
+    : isNum(pastMid) ? Math.round(Math.min(15, Math.max(0, pastMid)) * 2) / 2 : 5;
   const startHow = exp ? `analysts expect earnings to grow ${fmtPct(exp.g,1)} next year`
-    : isNum(pastMid) ? `the middle of its past 5-year growth (${fmtPct(pastMid,1)}), as there are no analyst estimates` : null;
+    : isNum(pastMid) ? `no analyst forecasts, so the middle of its past 5-year growth (${fmtPct(pastMid,1)}), kept between 0% and 15% because fast growth rarely lasts` : null;
   return { eps, bvps, fcf, past, pastMid, exp, startG, startHow, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av };
 }
 function fvAssump(sym, inp){
@@ -678,7 +680,7 @@ function adjPE(pe, gNow, gThen, r){
   return { pe: basePE + (pe - basePE) * f, adj:true, basePE };
 }
 function fvMethods(inp, a, met, fx){
-  const out = [], peerInfo = fx.peerInfo, gNow = inp.exp && inp.exp.g;
+  const out = [], peerInfo = fx.peerInfo, gNow = inp.exp ? inp.exp.g : inp.startG, gWho = inp.exp ? "analysts now expect" : "the app now assumes (no forecasts)";
   if(isNum(inp.fcf) && inp.fcf > 0){
     out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
       note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.` });
@@ -686,8 +688,8 @@ function fvMethods(inp, a, met, fx){
   const epsOk = isNum(inp.eps) && inp.eps > 0;
   const peNote = (label, raw, ad, gThen, who) => {
     let t = `Earnings of ${fmt(inp.eps)} per share × ${label} of ${fmtX(raw)}`;
-    if(ad.adj) t += `, growth-adjusted to ${fmtX(ad.pe)}: that P/E went with ${fmtPct(gThen,0)} yearly earnings growth (${who}), but analysts now expect ${fmtPct(gNow,0)}, so the growth part of the P/E is scaled down to match.`;
-    else if(isNum(gNow) && isNum(gThen) && gNow >= gThen) t += `. Analysts expect growth (${fmtPct(gNow,0)}) at least as fast as when that P/E applied (${fmtPct(gThen,0)}), so no adjustment.`;
+    if(ad.adj) t += `, growth-adjusted to ${fmtX(ad.pe)}: that P/E went with ${fmtPct(gThen,0)} yearly earnings growth (${who}), but ${gWho} ${fmtPct(gNow,0)}, so the growth part of the P/E is scaled down to match.`;
+    else if(isNum(gNow) && isNum(gThen) && gNow >= gThen) t += `. Expected growth (${fmtPct(gNow,0)}) at least as fast as when that P/E applied (${fmtPct(gThen,0)}), so no adjustment.`;
     else if(!isNum(gNow)) t += `. Not growth-checked: no analyst estimates available.`;
     else t += ".";
     return t;
@@ -737,7 +739,7 @@ function fvBar(lo, mid, hi, price, buyAt, richAt, target){
     ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analyst price target ${fmt(target)} (reference)</div>` : ""}`;
 }
 function fvAnalysts(inp, price, fx){
-  if(!state.avKey) return `<p class="small muted" style="margin:0">Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' earnings forecasts, forward P/E and price targets. They make the fair value more accurate.</p>`;
+  if(!state.avKey) return `<p class="small muted" style="margin:0">Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' earnings forecasts. They make the fair value more accurate.</p>`;
   if(fx.avState === "loading") return `<p class="small muted" style="margin:0"><span class="spin"></span> Loading analysts' forecasts…</p>`;
   const av = inp.av || {};
   const rows = [];
@@ -800,7 +802,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
         : igp === Infinity ? `Today's price needs free cash flow to <b>grow more than 150% a year</b> for 5 years.`
         : `Today's price assumes free cash flow grows <b>${igp.toFixed(1)}% a year</b> for the next 5 years, then slows to ${a.gt}%.`;
       rev = `<p style="margin:0 0 6px">${vb}</p><p style="margin:0">${head} ${expTxt}${pastTxt}</p>
-        <p class="small muted" style="margin-bottom:0">The badge compares the growth priced in with the app's starting growth of ${ref}% a year. ${inp.startHow ? "That is based on: " + inp.startHow + ", slowing steadily after that." : "There's no growth data, so that is a cautious 5%."}</p>`;
+        <p class="small muted" style="margin-bottom:0">The badge compares the growth priced in with the app's starting growth of ${ref}% a year. ${inp.startHow ? "That is based on: " + inp.startHow + "." : "There's no growth data, so that is a cautious 5%."}</p>`;
     }
     let top;
     const loadingAny = methods.some(m => m.loading);
@@ -832,7 +834,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
         The range runs from the lowest to the highest estimate that fits this company, and the middle is the median.
         "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it (change in <a href="#settings">Settings</a>).
         These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p>`;
-    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.startHow ? inp.startHow + ", slowing steadily to 2.5% by year 10 (5-year average)" : "no growth data, so a cautious 5%"}.`;
+    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.startHow || "no growth data, so a cautious 5%"}.`;
   };
   sliders.forEach(([k]) => { $("#fv-"+k, el).oninput = e => {
     const cur = fvAssump(sym, inp);
@@ -898,7 +900,7 @@ function renderRec(app, r){
     <div class="recbar">${parts.map(([k,,c])=>cur[k]?`<div style="width:${cur[k]/tot*100}%;background:${c}" title="${k}: ${cur[k]}"></div>`:"").join("")}</div>
     <div class="legend">${parts.map(([k,l,c])=>`<span><i style="background:${c}"></i>${l} ${cur[k]||0}</span>`).join("")}</div>
     <p class="small">${trend}</p>
-    <p class="small muted" style="margin-bottom:0">Full analyst reports aren't in the free data plan. Analysts' forecasts and price target are under Fair value (needs a free Alpha Vantage key).</p>`;
+    <p class="small muted" style="margin-bottom:0">Full analyst reports aren't in the free data plan. Analysts' earnings forecasts are under Fair value (needs a free Alpha Vantage key).</p>`;
 }
 
 function renderNews(app, n){
@@ -1063,7 +1065,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
-      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts, forward P/E and price targets to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day, and each stock uses 2 (saved for a day). Saved only in this browser.</p>
+      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day, and each stock uses 1 (saved for a day). Saved only in this browser.</p>
       <form id="avform" class="row">
         <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -1122,8 +1124,9 @@ function viewSettings(app){
   $("#avform",app).onsubmit = e => { e.preventDefault(); state.avKey = $("#avkey",app).value.trim(); save(); msg("#avmsg", state.avKey ? "Saved." : "Key removed."); };
   $("#avtest",app).onclick = async () => {
     state.avKey = $("#avkey",app).value.trim(); save();
-    msg("#avmsg","Testing… (uses 1 of today's 25 requests)");
-    try{ const o = await avq.overview("MSFT"); msg("#avmsg", o && o.Symbol ? `✓ Works. Microsoft forward P/E: ${isNum(avNum(o.ForwardPE)) ? avNum(o.ForwardPE).toFixed(1) + "×" : "n/a"}, analyst target: ${isNum(avNum(o.AnalystTargetPrice)) ? fmt(avNum(o.AnalystTargetPrice)) : "n/a"}.` : "Key accepted, but no data came back.", !(o && o.Symbol)); }
+    msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); memCache.delete("av:EARNINGS_ESTIMATES:MSFT"); try{ localStorage.removeItem("sa.c.av:EARNINGS_ESTIMATES:MSFT"); }catch(err){}
+    try{ const e = parseAV(null, {ok:true, v: await avq.estimates("MSFT")});
+      msg("#avmsg", e.fy2 && isNum(e.fy2.eps) ? `✓ Works. Analysts expect Microsoft to earn ${fmt(e.fy2.eps)} per share next fiscal year.` : "Key accepted, but no estimates came back.", !(e.fy2 && isNum(e.fy2.eps))); }
     catch(e){ msg("#avmsg", e.message, true); }
   };
   $("#ktest",app).onclick = async () => {
