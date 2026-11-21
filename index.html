@@ -126,7 +126,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.3</b> · 21 Nov 2026 ·
+  <b>Version 3.4</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub and Alpha Vantage (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -278,17 +278,24 @@ function shapeQuarters(j){
     const end = String(d.endDate||"").slice(0,10), start = String(d.startDate||"").slice(0,10);
     if(!end || seen.has(end)) continue; seen.add(end);
     const y = readReport(d.report);
-    out.push({ end, start, months: start ? monthsBetween(start, end) : 3, revenue: y.revenue, net: y.net, pretax: y.pretax, ebit: y.ebit, equity: y.equity });
+    out.push({ end, start, months: start ? monthsBetween(start, end) : 3, revenue: y.revenue, net: y.net, pretax: y.pretax, ebit: y.ebit, equity: y.equity, shares: y.shares });
   }
-  return { q: out.sort((a,b) => b.end.localeCompare(a.end)).slice(0, 10) };
+  return { q: out.sort((a,b) => b.end.localeCompare(a.end)).slice(0, 20) };
 }
 // Last 12 months = last annual report + this year so far − same part of last year.
 function ttmFrom(fin, finQ){
   const A = fin && fin.years && fin.years[0], qs = finQ && finQ.q;
   if(!A || !qs || !qs.length) return null;
+  const latest = qs.find(q => q.end > A.end);
+  return latest ? ttmAt(fin, finQ, latest.end) : null;
+}
+// 12 months to the quarter ending `qEnd`.
+function ttmAt(fin, finQ, qEnd){
+  const qs = finQ && finQ.q, A = fin && fin.years && fin.years.find(y => y.end < qEnd);
+  if(!A || !qs || !qs.length) return null;
   const near = (a, b) => Math.abs(new Date(a) - new Date(b)) < 20 * 864e5;
   const yearBefore = d => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return ymd(x); };
-  const latest = qs.find(q => q.end > A.end); if(!latest) return null;
+  const latest = qs.find(q => q.end === qEnd); if(!latest) return null;
   // Year-to-date value of field k for the quarter ending `end`, within the fiscal year that started after `fyEnd`.
   const ytd = (end, fyEnd, k) => {
     const sinceFY = monthsBetween(fyEnd, end);
@@ -299,7 +306,7 @@ function ttmFrom(fin, finQ){
     return Math.abs(got - sinceFY) <= 1 ? sum : NaN;
   };
   const prevFYEnd = yearBefore(A.end), prevEnd = yearBefore(latest.end);
-  const t = { end: latest.end, equity: latest.equity };
+  const t = { end: latest.end, equity: latest.equity, shares: latest.shares };
   for(const k of ["revenue","net","pretax","ebit"]){
     const cur = ytd(latest.end, A.end, k), prev = ytd(prevEnd, prevFYEnd, k);
     t[k] = isNum(A[k]) && isNum(cur) && isNum(prev) ? A[k] + cur - prev : NaN;
@@ -325,7 +332,7 @@ function shapeFinancials(j){
 // Free key: 25 requests/day. Results are cached for a day so each stock costs at most 2 a day.
 const AV = "https://www.alphavantage.co/query";
 let avLast = 0;
-async function avApi(fn, sym){
+async function avApi(fn, sym, ttl, shape){
   if(!state.avKey) throw new ApiError("No Alpha Vantage key yet.", "nokey");
   const ck = "av:" + fn + ":" + sym;
   const hit = cacheGet(ck); if(hit !== undefined) return hit;
@@ -345,8 +352,9 @@ async function avApi(fn, sym){
       if(/apikey|api key/i.test(info)) throw new ApiError("Alpha Vantage rejected the key. Check it in Settings. Alpha Vantage says: " + String(info).replace(/key as \S+/i, "key as …").slice(0, 140), "auth");
       throw new ApiError(String(info).slice(0, 160), "api");
     }
-    cacheSet(ck, j, 24*3600e3);
-    return j;
+    const v = shape ? shape(j) : j;
+    cacheSet(ck, v, ttl || 24*3600e3);
+    return v;
   })();
   inflight.set(ck, p);
   try{ return await p; } finally{ inflight.delete(ck); }
@@ -354,21 +362,48 @@ async function avApi(fn, sym){
 const avq = {
   overview:  s => avApi("OVERVIEW", s),
   estimates: s => avApi("EARNINGS_ESTIMATES", s),
+  // Month-end closing prices (free). Kept for a week; only the last 7 years are saved.
+  monthly:   s => avApi("TIME_SERIES_MONTHLY", s, 7*24*3600e3, j => {
+    const ts = j && j["Monthly Time Series"] || {}, out = {}, from = String(new Date().getFullYear() - 7);
+    for(const [d, row] of Object.entries(ts)) if(d >= from && row && isFinite(+row["4. close"])) out[d.slice(0,7)] = +row["4. close"];
+    return { m: out };
+  }),
 };
+/* ---- Valuation history worked out from company reports + month-end prices ---- */
+function calcHistory(fin, finQ, monthly, prof){
+  const ys = fin && fin.years || [], qs = finQ && finQ.q || [], px = monthly && monthly.m || {};
+  if(!ys.length || !Object.keys(px).length) return null;
+  if(ys[0].unit && prof && prof.currency && ys[0].unit !== prof.currency) return null; // reports in another currency
+  const sharesAt = end => { const q = qs.find(x => x.end === end && isNum(x.shares)); if(q) return q.shares;
+    const y = ys.find(x => x.end <= end && isNum(x.shares)) || ys.find(x => isNum(x.shares)); return y && y.shares; };
+  const out = { pe: [], ps: [], pb: [], pfcf: [] };
+  const add = (k, end, cap, den) => { if(isNum(cap) && isNum(den) && den > 0) out[k].push({ period: end, v: cap / den }); };
+  const points = [...ys.map(y => ({ end: y.end, t: y, annual: y })), ...qs.filter(q => !ys.some(y => y.end === q.end)).map(q => ({ end: q.end, t: ttmAt(fin, finQ, q.end), eq: q.equity }))];
+  for(const p of points){
+    const price = px[p.end.slice(0,7)], sh = sharesAt(p.end);
+    if(!isNum(price) || !isNum(sh) || !p.t) continue;
+    const cap = price * sh;
+    add("pe", p.end, cap, p.t.net);
+    add("ps", p.end, cap, p.t.revenue);
+    add("pb", p.end, cap, p.annual ? p.annual.equity : p.eq);
+    if(p.annual) add("pfcf", p.end, cap, p.annual.fcf);
+  }
+  return out;
+}
 const safe = p => p.then(v=>({ok:true,v}), e=>({ok:false,e}));
 
 /* ================= Valuation logic ================= */
 // Each ratio: where to find "now" in metric{}, and which history series to use.
 const RATIOS = [
-  { id:"pe", label:"P/E", long:"Price / Earnings", now:["peTTM","peBasicExclExtraTTM","peExclExtraTTM","peNormalizedAnnual"], series:["pe"], positiveOnly:true,
+  { id:"pe", label:"P/E", long:"Price / Earnings", now:["peTTM","peBasicExclExtraTTM","peExclExtraTTM","peNormalizedAnnual"], series:["peTTM","pe"], positiveOnly:true,
     help:"How many dollars you pay for $1 of yearly profit." },
-  { id:"ps", label:"P/S", long:"Price / Sales", now:["psTTM","psAnnual"], series:["ps"], positiveOnly:true,
+  { id:"ps", label:"P/S", long:"Price / Sales", now:["psTTM","psAnnual"], series:["psTTM","ps"], positiveOnly:true,
     help:"How many dollars you pay for $1 of yearly revenue. Useful when profits are small or negative." },
   { id:"pb", label:"P/B", long:"Price / Book", now:["pbQuarterly","pbAnnual","pb"], series:["pb"], positiveOnly:true,
     help:"Price compared with the company's net assets (what it owns minus what it owes)." },
-  { id:"evebitda", label:"EV/EBITDA", long:"Enterprise value / EBITDA", now:["evEbitdaTTM","enterpriseValueEbitdaTTM","currentEv/ebitdaTTM","evToEbitdaTTM"], series:["evEbitda","ev/ebitda"], positiveOnly:true,
+  { id:"evebitda", label:"EV/EBITDA", long:"Enterprise value / EBITDA", now:["evEbitdaTTM","enterpriseValueEbitdaTTM","currentEv/ebitdaTTM","evToEbitdaTTM"], series:["evEbitdaTTM","evEbitda","ev/ebitda"], positiveOnly:true,
     help:"Like P/E but includes debt. Good for comparing companies with different amounts of borrowing." },
-  { id:"pfcf", label:"P/FCF", long:"Price / Free cash flow", now:["pfcfShareTTM","pfcfShareAnnual"], series:["pfcf"], positiveOnly:true,
+  { id:"pfcf", label:"P/FCF", long:"Price / Free cash flow", now:["pfcfShareTTM","pfcfShareAnnual"], series:["pfcfTTM","pfcf"], positiveOnly:true,
     help:"Price compared with the cash the business actually generates after investment." },
 ];
 function pick(obj, keys){ if(!obj) return undefined; for(const k of keys){ if(isNum(obj[k])) return obj[k]; } return undefined; }
@@ -383,6 +418,12 @@ function history(metricJson, r){
       const vals = arr.filter(p => p && isNum(p.v) && new Date(p.period) >= cutoff && (!r.positiveOnly || p.v > 0)).map(p=>p.v);
       if(vals.length >= (freq==="quarterly"?6:3)) return { vals, freq, median: median(vals), lo: quantile(vals,.25), hi: quantile(vals,.75) };
     }
+  }
+  // Worked out by the app from company reports + month-end prices (see calcHistory)
+  const c = metricJson && metricJson.calcHist && metricJson.calcHist[r.id];
+  if(c){
+    const vals = c.filter(p => isNum(p.v) && p.v > 0 && new Date(p.period) >= cutoff).map(p => p.v);
+    if(vals.length >= (r.id === "pfcf" ? 3 : 5)) return { vals, freq: "calc", median: median(vals), lo: quantile(vals,.25), hi: quantile(vals,.75) };
   }
   return null;
 }
@@ -641,8 +682,8 @@ async function viewStock(app, sym, tok){
 
 async function renderValuation(app, sym, met, prof, tok){
   const el = $("#val", app);
-  const rows = RATIOS.map(r => ({ r, now: nowValue(met, r), hist: history(met, r) }));
   const draw = (peerInfo) => {
+    const rows = RATIOS.map(r => ({ r, now: nowValue(met, r), hist: history(met, r) }));
     const anyRow = rows.some(x => isNum(x.now));
     if(!anyRow){ el.innerHTML = `<p class="muted">No valuation ratios available for this symbol.</p>`; return; }
     let rich=0, cheap=0, counted=0;
@@ -655,7 +696,7 @@ async function renderValuation(app, sym, met, prof, tok){
       return `<tr>
         <td><b title="${esc(r.help)}">${r.label}</b><div class="small muted">${r.long}</div></td>
         <td class="num"><b>${loss ? "neg." : fmtX(now)}</b></td>
-        <td class="num small">${hist ? `${fmtX(hist.lo)}–${fmtX(hist.hi)}<div class="muted">mid ${fmtX(hist.median)}</div>` : '<span class="muted">no history</span>'}</td>
+        <td class="num small">${hist ? `${fmtX(hist.lo)}–${fmtX(hist.hi)}<div class="muted">mid ${fmtX(hist.median)}${hist.freq==="calc"?" *":""}</div>` : histState==="loading" ? '<span class="spin"></span>' : '<span class="muted">no history</span>'}</td>
         <td>${loss ? '<span class="small muted">Negative: not meaningful</span>' : badge(vPast, "its usual level")}</td>
         <td class="num small">${peerInfo ? (isNum(pm) ? fmtX(pm) : '<span class="muted">—</span>') : '<span class="spin"></span>'}</td>
         <td>${loss ? "" : peerInfo ? badge(vPeer, "the peer median") : ""}</td>
@@ -678,8 +719,23 @@ async function renderValuation(app, sym, met, prof, tok){
         "In line" means within ±${state.settings.band}% (change in <a href="#settings">Settings</a>).
         A stock can deserve a higher ratio if it is growing faster, so treat this as a starting point, not an answer.
       </p>
+      ${rows.some(x => x.hist && x.hist.freq === "calc") ? `<p class="small muted">* Worked out by the app from the company's reports and month-end prices (Alpha Vantage), because the main data source has too little history for this stock.</p>` : ""}
+      ${histNote ? `<p class="small muted">${histNote}</p>` : ""}
       ${peerInfo ? `<p class="small muted">Peers (${peerInfo.used.length}): ${peerInfo.used.map(s=>`<a href="${stockHref(s)}">${esc(s)}</a>`).join(", ") || "none found"}${peerInfo.note?` · ${esc(peerInfo.note)}`:""}</p>` : `<p class="small muted"><span class="spin"></span> Loading similar companies…</p>`}`;
   };
+  // Missing history: work it out from reports + month-end prices (1 Alpha Vantage request, kept a week)
+  let histState = "", histNote = "";
+  const needHist = RATIOS.some(r => isNum(nowValue(met, r)) && nowValue(met, r) > 0 && !history(met, r));
+  let histP = Promise.resolve();
+  if(needHist && !state.avKey) histNote = `Some ratios have no history in the main data source. Add a free Alpha Vantage key in <a href="#settings">Settings</a> and the app will work it out from the company's reports.`;
+  else if(needHist){
+    histState = "loading";
+    histP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym)), safe(avq.monthly(sym))]).then(([f, fq, mo]) => {
+      histState = "done";
+      if(!mo.ok){ histNote = `Couldn't fetch past prices to work out the missing history: ${esc(mo.e.message)}`; return; }
+      try{ met.calcHist = calcHistory(f.ok ? f.v : null, fq.ok ? fq.v : null, mo.v, prof); }catch(e){ histNote = "Couldn't work out the missing history from the reports."; }
+    });
+  }
   draw(null);
   // Peers
   const pr = await safe(fh.peers(sym));
@@ -696,6 +752,8 @@ async function renderValuation(app, sym, met, prof, tok){
   }
   const pg = results.filter(x => x.ok && x.v && x.v.metric).map(x => x.v.metric.epsGrowth5Y).filter(isNum);
   const info = { medians, used, g5: pg.length >= 2 ? median(pg) : NaN, note: pr.ok ? "same industry, chosen by Finnhub" : "peer list unavailable" };
+  await histP; // so fair value's "its usual P/E" can use the worked-out history too
+  if(!live(tok)) return;
   draw(info);
   return info;
 }
