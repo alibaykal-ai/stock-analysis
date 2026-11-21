@@ -55,6 +55,19 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .range{position:relative;height:6px;background:var(--neutralbg);border-radius:3px;min-width:80px}
 .range i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
 .rangecap{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px}
+h3{font-size:14px;margin:18px 0 8px}
+.fvbar{position:relative;height:14px;margin:34px 0 6px}
+.fvz{position:absolute;top:0;bottom:0}
+.fvz:first-child{border-radius:7px 0 0 7px} .fvz:nth-child(3){border-radius:0 7px 7px 0}
+.fvrange{position:absolute;top:-4px;height:22px;border:2px solid var(--ink);border-radius:6px;opacity:.55}
+.fvmid{position:absolute;top:-4px;height:22px;width:2px;background:var(--ink);transform:translateX(-50%);opacity:.55}
+.fvpline{position:absolute;top:-8px;height:30px;width:3px;border-radius:2px;background:var(--accent);transform:translateX(-50%)}
+.fvplab{position:absolute;top:-30px;font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap}
+.fvm td{vertical-align:top}
+.fvctl{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.fvctl summary{cursor:pointer;padding:4px 0}
+.sl{display:block;margin:12px 0}
+.sl input{display:block;width:100%;max-width:420px;padding:0;margin:4px 0}
 .tabs{display:flex;gap:6px;margin-bottom:12px}
 .tabs button.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -101,14 +114,14 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 <main id="app"></main>
 <footer>
   For information only, not financial advice. Market data from Finnhub (free plan), usually delayed.
-  Verdicts compare numbers with the stock's own past and with similar companies; they are not buy or sell signals.
+  Verdicts compare numbers with the stock's own past and with similar companies, and fair values are estimates built on assumptions; they are not buy or sell signals.
 </footer>
 
 <script>
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", holdings: [], watchlist: [], nameMap: {}, settings: { band: 10, years: 5 } };
+const DEFAULTS = { apiKey: "", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -440,6 +453,7 @@ async function viewStock(app, sym, tok){
     </div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
+    <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
     <div class="card" id="c-health"><h2>Quick health check</h2><div id="health"><span class="spin"></span></div></div>
     <div class="card"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>`}
     <div class="card"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
@@ -475,8 +489,8 @@ async function viewStock(app, sym, tok){
     (prof.weburl ? `<div class="stat"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "");
 
   if(!isFund){
-    if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; }
-    else { renderHealth(app, mm, price); renderValuation(app, sym, met, prof, tok); }
+    if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
+    else { renderHealth(app, mm, price); const peerP = renderValuation(app, sym, met, prof, tok); renderFairValue(app, sym, met, prof, price, peerP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
   }
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
@@ -537,7 +551,173 @@ async function renderValuation(app, sym, met, prof, tok){
     const vals = results.filter(x=>x.ok).map(x => nowValue(x.v, r)).filter(v => isNum(v) && v > 0);
     medians[r.id] = vals.length >= 2 ? median(vals) : NaN;
   }
-  draw({ medians, used, note: pr.ok ? "same industry, chosen by Finnhub" : "peer list unavailable" });
+  const info = { medians, used, note: pr.ok ? "same industry, chosen by Finnhub" : "peer list unavailable" };
+  draw(info);
+  return info;
+}
+
+/* ================= Fair value ================= */
+// Two-stage DCF on free cash flow per share: growth g for years 1-5, fading to
+// long-term growth gt by year 10, then a terminal value. Rates are decimals.
+function dcfPerShare(fcf, g, r, gt){
+  let v = 0, cf = fcf;
+  for(let t=1; t<=10; t++){
+    const gr = t <= 5 ? g : g + (gt - g) * (t - 5) / 5;
+    cf *= 1 + gr; v += cf / Math.pow(1 + r, t);
+  }
+  return v + cf * (1 + gt) / (r - gt) / Math.pow(1 + r, 10);
+}
+// Reverse DCF: the year 1-5 growth rate at which the DCF value equals the price.
+function impliedGrowth(price, fcf, r, gt){
+  if(!(fcf > 0) || !(price > 0)) return NaN;
+  let lo = -0.5, hi = 1.0;
+  if(dcfPerShare(fcf, lo, r, gt) > price) return -Infinity;
+  if(dcfPerShare(fcf, hi, r, gt) < price) return Infinity;
+  for(let i=0; i<80; i++){ const m = (lo+hi)/2; if(dcfPerShare(fcf, m, r, gt) < price) lo = m; else hi = m; }
+  return (lo+hi)/2;
+}
+function fvInputs(met, prof, price){
+  const mm = met && met.metric || {};
+  const eps = pick(mm, ["epsTTM","epsExclExtraItemsTTM","epsBasicExclExtraItemsTTM","epsInclExtraItemsTTM","epsAnnual"]);
+  const bvps = pick(mm, ["bookValuePerShareQuarterly","bookValuePerShareAnnual"]);
+  let fcf = pick(mm, ["freeCashFlowPerShareTTM","fcfPerShareTTM"]);
+  if(!isNum(fcf)){
+    const pf = pick(mm, ["pfcfShareTTM","pfcfShareAnnual"]);
+    const cap = isNum(prof.marketCapitalization) ? prof.marketCapitalization : mm.marketCapitalization;
+    const sh = prof.shareOutstanding;
+    if(isNum(pf) && pf !== 0){
+      if(isNum(cap) && isNum(sh) && sh > 0) fcf = cap / pf / sh;   // both in millions
+      else if(isNum(price)) fcf = price / pf;
+    }
+  }
+  const past = [["free cash flow", mm.focfCagr5Y], ["sales", mm.revenueGrowth5Y], ["earnings", mm.epsGrowth5Y]].filter(([,v]) => isNum(v));
+  const pastMid = past.length ? median(past.map(([,v]) => v)) : NaN;
+  const startG = isNum(pastMid) ? Math.round(Math.min(15, Math.max(0, pastMid)) * 2) / 2 : 5;
+  return { eps, bvps, fcf, past, pastMid, startG, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]) };
+}
+function fvAssump(sym, inp){
+  const s = state.fv[sym] || {};
+  return { g: isNum(s.g) ? s.g : inp.startG, r: isNum(s.r) ? s.r : state.settings.fvR, gt: isNum(s.gt) ? s.gt : 2.5, custom: !!state.fv[sym] };
+}
+function fvMethods(inp, a, met, peerInfo){
+  const out = [];
+  if(isNum(inp.fcf) && inp.fcf > 0){
+    out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
+      note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}%, valued at a ${a.r}% required return.` });
+  } else out.push({ name:"Discounted cash flow", v:NaN, note: isNum(inp.fcf) ? "Skipped: free cash flow is negative, so there is nothing to discount yet." : "Skipped: no free cash flow data." });
+  const peHist = history(met, RATIOS[0]);
+  const epsOk = isNum(inp.eps) && inp.eps > 0;
+  if(epsOk && peHist) out.push({ name:"Its usual P/E", v: peHist.median * inp.eps, counted:true,
+      note:`Earnings of ${fmt(inp.eps)} per share × its usual P/E of ${fmtX(peHist.median)} (middle of the last ${state.settings.years} years).` });
+  else out.push({ name:"Its usual P/E", v:NaN, note: epsOk ? "Skipped: not enough P/E history." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
+  const pm = peerInfo && peerInfo.medians.pe;
+  if(!peerInfo) out.push({ name:"Peer P/E", v:NaN, loading:true, note:"Loading similar companies…" });
+  else if(epsOk && isNum(pm)) out.push({ name:"Peer P/E", v: pm * inp.eps, counted:true,
+      note:`Earnings of ${fmt(inp.eps)} per share × the peer median P/E of ${fmtX(pm)}.` });
+  else out.push({ name:"Peer P/E", v:NaN, note: epsOk ? "Skipped: not enough peer data." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
+  if(epsOk && isNum(inp.bvps) && inp.bvps > 0){
+    const fast = isNum(inp.epsG5) && inp.epsG5 > 15;
+    const light = isNum(inp.roe) && inp.roe > 20;
+    const why = fast ? ` Shown but not counted: earnings grew ${inp.epsG5.toFixed(0)}% a year, too fast for this formula.`
+      : light ? ` Shown but not counted: return on equity is ${inp.roe.toFixed(0)}%, so the business earns far more than its assets suggest and this formula undervalues it.` : "";
+    out.push({ name:"Graham Number", v: Math.sqrt(22.5 * inp.eps * inp.bvps), counted: !fast && !light,
+      note: `√(22.5 × earnings per share × book value per share). Built for steady, profitable companies.` + why });
+  } else out.push({ name:"Graham Number", v:NaN, note:"Skipped: needs positive earnings and positive book value." });
+  return out;
+}
+function fvBar(lo, mid, hi, price, buyAt, richAt){
+  const pts = [lo, hi, price, buyAt, richAt].filter(isNum);
+  const a = Math.max(0, Math.min(...pts) * 0.9), b = Math.max(...pts) * 1.06;
+  const x = v => Math.max(0, Math.min(100, (v - a) / (b - a) * 100));
+  const px = x(price);
+  const lab = px < 12 ? "translateX(0)" : px > 88 ? "translateX(-100%)" : "translateX(-50%)";
+  return `<div class="fvbar">
+      <div class="fvz" style="left:0;width:${x(buyAt)}%;background:var(--goodbg)"></div>
+      <div class="fvz" style="left:${x(buyAt)}%;width:${x(richAt)-x(buyAt)}%;background:var(--neutralbg)"></div>
+      <div class="fvz" style="left:${x(richAt)}%;right:0;background:var(--badbg)"></div>
+      <div class="fvrange" style="left:${x(lo)}%;width:${Math.max(0.8, x(hi)-x(lo))}%" title="Fair value range ${fmt(lo)}–${fmt(hi)}"></div>
+      <div class="fvmid" style="left:${x(mid)}%" title="Middle ${fmt(mid)}"></div>
+      <div class="fvpline" style="left:${px}%"></div>
+      <div class="fvplab" style="left:${px}%;transform:${lab}">Price ${fmt(price)}</div>
+    </div>
+    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${fmt(lo)}–${fmt(hi)}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>`;
+}
+function renderFairValue(app, sym, met, prof, price, peerP, tok){
+  const el = $("#fv", app);
+  if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so fair value can't be compared.</p>`; return; }
+  const inp = fvInputs(met, prof, price);
+  let peerInfo = null;
+  const sliders = [
+    ["g", "Growth, years 1–5", -10, 30, 0.5, "How fast free cash flow grows each year for the next 5 years."],
+    ["r", "Required return", 6, 15, 0.5, "The yearly return you want. Higher = stricter, lower fair value."],
+    ["gt", "Long-term growth", 0, 4, 0.5, "Growth after year 10, forever. Keep this near inflation (2–3%)."],
+  ];
+  el.innerHTML = `<div id="fv-out"></div>
+    <details class="fvctl" ${state.fv[sym] ? "open" : ""}><summary><b>Adjust the assumptions</b> <span class="small muted">(changes the cash flow method and the reverse DCF)</span></summary>
+      ${sliders.map(([k,l,mn,mx,st,h]) => `<label class="sl"><span>${l} <b id="fv-v-${k}"></b></span>
+        <input type="range" id="fv-${k}" min="${mn}" max="${mx}" step="${st}"><small class="muted">${h}</small></label>`).join("")}
+      <div class="row"><button id="fv-reset" type="button">Reset to defaults</button><span class="small muted" id="fv-def"></span></div>
+    </details>`;
+  const setSliders = () => { const a = fvAssump(sym, inp); sliders.forEach(([k]) => { $("#fv-"+k, el).value = a[k]; $("#fv-v-"+k, el).textContent = a[k] + "%"; }); };
+  const draw = () => {
+    const a = fvAssump(sym, inp);
+    const methods = fvMethods(inp, a, met, peerInfo);
+    const vals = methods.filter(m => m.counted && isNum(m.v) && m.v > 0).map(m => m.v);
+    const ig = impliedGrowth(price, inp.fcf, a.r/100, a.gt/100);
+    // Reverse DCF block
+    let rev;
+    if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
+    else {
+      const igp = ig * 100;
+      const pastTxt = inp.past.length ? `Over the last 5 years it grew ${inp.past.map(([n,v]) => `${n} <b>${fmtPct(v,1)}</b>`).join(", ")} a year.` : "Past growth figures aren't available.";
+      let vb;
+      if(igp === -Infinity) vb = `<span class="badge b-cheap">Very low expectations</span>`;
+      else if(igp === Infinity || igp > 20 || (isNum(inp.pastMid) && igp > inp.pastMid + 5)) vb = `<span class="badge b-rich">Very demanding</span>`;
+      else if(isNum(inp.pastMid) && igp <= inp.pastMid) vb = `<span class="badge b-cheap">Modest expectations</span>`;
+      else vb = `<span class="badge b-inline">Needs it to keep up the pace</span>`;
+      const head = igp === -Infinity ? `Today's price would be justified even if free cash flow <b>shrank 50% a year</b>.`
+        : igp === Infinity ? `Today's price needs free cash flow to <b>more than double every year</b> for 5 years.`
+        : `Today's price assumes free cash flow grows <b>${igp.toFixed(1)}% a year</b> for the next 5 years, then slows to ${a.gt}%.`;
+      rev = `<p style="margin:0 0 6px">${vb}</p><p style="margin:0">${head} ${pastTxt}</p>
+        <p class="small muted" style="margin-bottom:0">Ask yourself: is that growth realistic? If the price assumes more than the company has ever done, there is little room for disappointment.</p>`;
+    }
+    let top;
+    if(!vals.length){
+      top = `<p class="muted">${methods.some(m=>m.loading) ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
+    } else {
+      const lo = Math.min(...vals), hi = Math.max(...vals), mid = median(vals);
+      const buyAt = mid * (1 - state.settings.fvBuy/100), richAt = mid * (1 + state.settings.fvRich/100);
+      const diff = price / mid - 1, pct = Math.abs(diff*100).toFixed(0);
+      const vb = price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
+      const notes = [];
+      if(vals.length === 1) notes.push("Only one method fits this company, so treat the range with extra caution.");
+      if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
+      top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
+          ${price > buyAt ? `With your ${state.settings.fvBuy}% safety margin, it would be attractive below <b>${fmt(buyAt)}</b>.` : `That's beyond your ${state.settings.fvBuy}% safety margin.`}</p>
+        ${fvBar(lo, mid, hi, price, buyAt, richAt)}
+        ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
+    }
+    $("#fv-out", el).innerHTML = `${top}
+      <h3>What growth is the price assuming? <span class="small muted">(reverse DCF)</span></h3>${rev}
+      <h3>How each method values it</h3>
+      <table class="fvm"><tbody>${methods.map(m => `<tr class="${m.counted && isNum(m.v) ? "" : "muted"}">
+        <td><b>${m.name}</b><div class="small muted">${esc(m.note)}</div></td>
+        <td class="num"><b>${isNum(m.v) ? fmt(m.v) : m.loading ? '<span class="spin"></span>' : "—"}</b>${isNum(m.v) ? `<div class="small ${cls(m.v/price-1)}">${fmtPct((m.v/price-1)*100,0)} vs price</div>` : ""}</td>
+      </tr>`).join("")}</tbody></table>
+      <p class="small muted" style="margin-bottom:0"><b>How to read this:</b> each method is a different way of estimating what one share is worth.
+        The range runs from the lowest to the highest estimate that fits this company, and the middle is the median.
+        "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it (change in <a href="#settings">Settings</a>).
+        These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p>`;
+    $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : `Starting growth ${inp.startG}%: ${inp.past.length ? "the middle of its past 5-year growth, kept between 0% and 15% to stay cautious" : "no growth history, so a cautious 5%"}.`;
+  };
+  sliders.forEach(([k]) => { $("#fv-"+k, el).oninput = e => {
+    const cur = fvAssump(sym, inp);
+    state.fv[sym] = { g: cur.g, r: cur.r, gt: cur.gt, [k]: parseFloat(e.target.value) }; save();
+    $("#fv-v-"+k, el).textContent = e.target.value + "%"; draw();
+  }; });
+  $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
+  setSliders(); draw();
+  Promise.resolve(peerP).then(pi => { if(!live(tok)) return; peerInfo = pi || { medians:{}, used:[] }; draw(); });
 }
 
 function renderHealth(app, mm, price){
@@ -572,7 +752,7 @@ function renderHealth(app, mm, price){
   $("#health", app).innerHTML = checks.length ? `
     ${flags.length ? `<div style="margin-bottom:12px">${flags.map(([c,t,d])=>`<div class="flag"><span class="badge ${c}">⚑ ${t}</span><span class="small">${d}</span></div>`).join("")}</div>` : `<p class="small" style="margin-top:0"><span class="badge b-cheap">No red flags</span> from the checks below.</p>`}
     <table><tbody>${checks.map(c=>`<tr><td>${c.name}<div class="small muted">${c.rule}</div></td><td class="num"><b>${c.show}</b></td><td><span class="badge ${label[c.k][0]}">${label[c.k][1]}</span></td></tr>`).join("")}</tbody></table>
-    <p class="small muted" style="margin-bottom:0">General rules of thumb; what's normal differs by industry. A fuller health score comes in Phase 2.</p>`
+    <p class="small muted" style="margin-bottom:0">General rules of thumb; what's normal differs by industry. A fuller health score comes in a later phase.</p>`
     : `<p class="muted">No financial data available for this symbol.</p>`;
 }
 
@@ -765,6 +945,16 @@ function viewSettings(app){
       </div>
       <p class="small muted">Example: with ±10%, a P/E of 27 vs a usual 25 counts as "in line"; 28 counts as "pricier".</p>
     </div>
+    <div class="card">
+      <h2>Fair value settings</h2>
+      <div class="row">
+        <label>Required return: <input id="fvr" type="number" min="6" max="15" step="0.5" value="${state.settings.fvR}" style="width:70px"> % a year</label>
+        <label>"Attractive" when at least <input id="fvbuy" type="number" min="0" max="60" value="${state.settings.fvBuy}" style="width:64px"> % below fair value</label>
+        <label>"Expensive" when at least <input id="fvrich" type="number" min="0" max="100" value="${state.settings.fvRich}" style="width:64px"> % above</label>
+        <button id="fvsave">Save</button><span id="fvmsg" class="small muted"></span>
+      </div>
+      <p class="small muted">The required return is the starting point for every stock; you can still move the slider on each stock's page. Stocks where you've moved a slider keep their own settings.</p>
+    </div>
     ${funds.length ? `<div class="card"><h2>Fund prices (manual)</h2>
       <p class="small muted" style="margin-top:0">If the data service has no price for a fund (common for UK funds), type it here. It's used only when no live price is found.</p>
       ${funds.map(f=>`<div class="row" style="margin-bottom:6px"><b style="width:120px">${esc(f.symbol)}</b><input data-mp="${esc(f.symbol)}" type="number" step="any" placeholder="Price" value="${isNum(f.manualPrice)?f.manualPrice:""}" style="width:120px"></div>`).join("")}
@@ -785,7 +975,7 @@ function viewSettings(app){
     <div class="card">
       <h2>Backup &amp; move to another device</h2>
       <p class="small muted" style="margin-top:0">Your lists are stored only in this browser. To use them on your iPhone or keep a backup, copy this text and paste it into "Restore" on the other device. (Your API key is not included.)</p>
-      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, watchlist:state.watchlist, settings:state.settings}))}</textarea>
+      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, watchlist:state.watchlist, settings:state.settings, fv:state.fv}))}</textarea>
       <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span id="cmsg" class="small muted"></span></div>
       <h2 style="margin-top:16px">Restore</h2>
       <textarea id="rest" rows="3" style="width:100%" placeholder="Paste backup text here"></textarea>
@@ -804,6 +994,13 @@ function viewSettings(app){
   $("#vsave",app).onclick = () => {
     const b = parseFloat($("#band",app).value); if(isNum(b) && b>=1 && b<=50) state.settings.band = b;
     state.settings.years = parseInt($("#years",app).value,10); save(); msg("#vmsg","Saved.");
+  };
+  $("#fvsave",app).onclick = () => {
+    const r = parseFloat($("#fvr",app).value), b = parseFloat($("#fvbuy",app).value), x = parseFloat($("#fvrich",app).value);
+    if(isNum(r) && r>=6 && r<=15) state.settings.fvR = r;
+    if(isNum(b) && b>=0 && b<=60) state.settings.fvBuy = b;
+    if(isNum(x) && x>=0 && x<=100) state.settings.fvRich = x;
+    save(); msg("#fvmsg","Saved.");
   };
   const mp = $("#mpsave",app); if(mp) mp.onclick = () => {
     app.querySelectorAll("[data-mp]").forEach(i => { const h = state.holdings.find(x=>x.symbol===i.dataset.mp); const v = parseFloat(i.value); if(h) h.manualPrice = isNum(v)?v:undefined; });
@@ -837,6 +1034,7 @@ function viewSettings(app){
       state.holdings = d.holdings.filter(h=>h && h.symbol).map(h=>({symbol:normSym(h.symbol), shares:isNum(h.shares)?h.shares:null, type:h.type||"stock", name:h.name||undefined, manualPrice:isNum(h.manualPrice)?h.manualPrice:undefined}));
       state.watchlist = d.watchlist.map(normSym).filter(Boolean);
       if(d.settings) state.settings = { ...state.settings, ...d.settings };
+      if(d.fv && typeof d.fv === "object") state.fv = d.fv;
       save(); msg("#rmsg", `Restored ${state.holdings.length} stocks and ${state.watchlist.length} watchlist items.`);
     }catch(e){ msg("#rmsg","That doesn't look like a backup from this app.", true); }
   };
