@@ -183,7 +183,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.12</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.13</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2897,7 +2897,7 @@ function viewSettings(app){
             <li><b>Create the token.</b> Click your picture (top right) → <b>Settings</b> → <b>Developer settings</b> (bottom of the left menu) → <b>Personal access tokens</b> → <b>Fine-grained tokens</b> → <b>Generate new token</b>.</li>
             <li>Token name: <code>Stock Analysis app</code>. Expiration: <b>1 year</b> (put a reminder in your calendar to renew it).</li>
             <li>Repository access: <b>Only select repositories</b> → pick <code>stock-analysis-data</code>.</li>
-            <li>Permissions → <b>Repository permissions</b> → <b>Contents</b> → <b>Read and write</b>. Leave everything else as it is.</li>
+            <li>Permissions: click <b>+ Add permissions</b> → choose <b>Contents</b> → set Access to <b>Read and write</b>. You should see exactly two lines: <b>Contents: Read and write</b> and <b>Metadata: Read-only</b> (required). Don't add others (e.g. Actions).</li>
             <li>Click <b>Generate token</b>, copy it (it starts with <code>github_pat_</code>), paste it above and click <b>Connect</b>.</li>
           </ol>
           <p class="small muted">The token can only read and write files in that one repository. If you ever think it leaked, delete it in the same GitHub page and make a new one.</p>
@@ -2905,7 +2905,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Finnhub API key</h2>
-      <p class="small muted" style="margin-top:0">Free at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>, no card needed. Your key is saved only in this browser on this device.</p>
+      <p class="small muted" style="margin-top:0">Free at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>, no card needed. Your key is saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="kform" class="row">
         <input id="key" type="password" placeholder="Paste your API key" value="${esc(state.apiKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -2915,7 +2915,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
-      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day, and each stock uses 1 (saved for a day). Saved only in this browser.</p>
+      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day, and each stock uses 1 (saved for a day). Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="avform" class="row">
         <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -2925,7 +2925,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Twelve Data API key <span class="small muted">(optional, for the price chart)</span></h2>
-      <p class="small muted" style="margin-top:0">Daily price history for the price chart. Free at <a href="https://twelvedata.com" target="_blank" rel="noopener">twelvedata.com</a>: 800 requests a day; each stock uses 1 (saved for 12 hours). Saved only in this browser.</p>
+      <p class="small muted" style="margin-top:0">Daily price history for the price chart. Free at <a href="https://twelvedata.com" target="_blank" rel="noopener">twelvedata.com</a>: 800 requests a day; each stock uses 1 (saved for 12 hours). Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="tdform" class="row">
         <input id="tdkey" type="password" placeholder="Paste your Twelve Data key" value="${esc(state.tdKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -2971,7 +2971,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Backup &amp; move to another device</h2>
-      <p class="small muted" style="margin-top:0">Your lists are stored only in this browser. To use them on your iPhone or keep a backup, copy this text and paste it into "Restore" on the other device. (Your API key is not included.)</p>
+      <p class="small muted" style="margin-top:0">${ghOn() ? "Your lists are saved to GitHub automatically (see the top of this page), so you don't need this. It's here as an extra copy you can keep anywhere." : "Your lists are stored only in this browser. To keep a backup or move them, copy this text and paste it into \"Restore\" on the other device, or connect GitHub at the top of this page to do it automatically."} (API keys are not included in this text.)</p>
       <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, buys:state.buys||[], watchlist:state.watchlist, settings:state.settings, fv:state.fv}))}</textarea>
       <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span id="cmsg" class="small muted"></span></div>
       <h2 style="margin-top:16px">Restore</h2>
