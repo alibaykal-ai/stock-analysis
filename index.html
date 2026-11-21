@@ -37,6 +37,7 @@ body.wide main,body.wide .bar,body.wide footer{max-width:1380px}
 .side button:hover{background:var(--neutralbg)}
 .side button.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
 .side small{display:block;font-weight:400;font-size:12px;opacity:.75;margin-top:2px}
+.side small.alert-n{color:var(--bad);opacity:1;font-weight:600} .side button.on small.alert-n{color:inherit}
 .total{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:baseline;padding:10px 14px;margin:0 0 12px;background:var(--neutralbg);border-radius:10px}
 .total .big{font-size:22px;font-weight:700}
 @media (max-width:800px){ .homegrid{grid-template-columns:1fr} .side{position:static;flex-direction:row;flex-wrap:wrap} .side button{width:auto} }
@@ -183,7 +184,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.13</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.14</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -192,7 +193,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", gh: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -653,7 +654,8 @@ let buyOpen = false;
 let homeTab = "mine", homeSec = "list"; // left menu: list (My Stocks / Watchlist), earn, risk, perf
 function viewHome(app, tok){
   document.body.classList.add("wide");
-  const hasMine = state.holdings.length && state.apiKey;
+  const hasMine = state.holdings.length && state.apiKey, hasAny = state.apiKey && (state.holdings.length || state.watchlist.length);
+  if(!hasAny && homeSec === "alerts") homeSec = "list";
   if(!hasMine && (homeSec === "risk" || homeSec === "perf")) homeSec = "list";
   const list = homeTab === "mine" ? myHoldings() : state.watchlist.map(s=>({symbol:s, type:"stock"}));
   app.innerHTML = `
@@ -662,6 +664,7 @@ function viewHome(app, tok){
     <nav class="side" aria-label="My Stocks sections">
       <button data-tab="mine" class="${homeSec==="list"&&homeTab==="mine"?"on":""}">My Stocks (${myHoldings().length})<small id="side-total">${state.holdings.length && state.apiKey ? "…" : ""}</small></button>
       <button data-tab="watch" class="${homeSec==="list"&&homeTab==="watch"?"on":""}">Watchlist (${state.watchlist.length})</button>
+      ${hasAny ? `<button data-sec="alerts" class="${homeSec==="alerts"?"on":""}">Alerts<small id="side-alerts" class="alert-n"></small></button>` : ""}
       ${hasMine ? `<button data-sec="risk" class="${homeSec==="risk"?"on":""}">Portfolio risk</button>
       <button data-sec="perf" class="${homeSec==="perf"?"on":""}">Performance</button>` : ""}
       ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<button data-sec="earn" class="${homeSec==="earn"?"on":""}">Earnings calendar</button>` : ""}
@@ -672,6 +675,7 @@ function viewHome(app, tok){
         <h2 style="margin:0">${homeTab==="mine" ? "My Stocks" : "Watchlist"}</h2>
         <button id="refresh" class="link" title="Refresh prices">↻ Refresh</button>
       </div>
+      <div id="alertbanner" class="callout" hidden style="margin:0 0 12px"></div>
       ${homeTab==="mine" && hasMine ? `<div id="mytotal" class="total"><span class="spin"></span> Adding up your holdings…</div>` : ""}
       <form id="addform" class="row" style="margin-bottom:12px">
         <input id="addsym" placeholder="Ticker, e.g. AAPL" autocapitalize="characters" autocomplete="off" style="width:140px" required>
@@ -699,6 +703,7 @@ function viewHome(app, tok){
       <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>
+    ${hasAny ? `<div class="card" id="alerts" data-home="alerts"><h2>Alerts</h2><div id="alerts-b" class="muted small"><span class="spin"></span> Checking your stocks…</div></div>` : ""}
     ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<div class="card" id="earn" data-home="earn"><h2>Earnings calendar</h2><div id="earn-b" class="muted small"><span class="spin"></span> Loading earnings dates…</div></div>` : ""}
     ${hasMine ? `<div class="card" id="risk" data-home="risk"><h2>Portfolio risk: where your money is</h2><div id="risk-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>
     <div class="card" id="perf" data-home="perf"><h2>Performance vs the market</h2><div id="perf-b" class="muted small"><span class="spin"></span> Comparing your holdings with the S&amp;P 500…</div></div>` : ""}
@@ -706,7 +711,7 @@ function viewHome(app, tok){
   const showSec = () => { app.querySelectorAll("[data-home]").forEach(c => c.hidden = c.dataset.home !== homeSec);
     app.querySelectorAll(".side button").forEach(b => b.classList.toggle("on", b.dataset.sec ? b.dataset.sec === homeSec : homeSec === "list" && b.dataset.tab === homeTab)); };
   showSec();
-  app.querySelectorAll(".side [data-sec]").forEach(b => b.onclick = () => { homeSec = b.dataset.sec; showSec(); window.scrollTo(0, 0); });
+  app.querySelectorAll(".side [data-sec]").forEach(b => b.onclick = () => { homeSec = b.dataset.sec; showSec(); if(homeSec === "alerts") renderAlerts(app); window.scrollTo(0, 0); });
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { const same = homeTab === b.dataset.tab; homeTab = b.dataset.tab;
     if(same && homeSec !== "list"){ homeSec = "list"; showSec(); window.scrollTo(0, 0); } else { homeSec = "list"; viewHome(app, ++renderToken); } });
   $("#refresh", app).onclick = () => { cacheDel(k => k.startsWith("/quote"));
@@ -738,6 +743,7 @@ function viewHome(app, tok){
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
   if(state.apiKey && (state.holdings.length || state.watchlist.length)) renderEarnings(app, tok);
   if(hasMine){ renderTotal(app, tok); renderRisk(app, tok); renderPerf(app, tok); }
+  if(hasAny){ drawAlertBadges(app); if(homeSec === "alerts") renderAlerts(app); checkAlerts(app, tok); }
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
 }
 function buyBox(){
@@ -2832,6 +2838,102 @@ async function renderPerf(app, tok){
     </details>`;
   draw();
 }
+/* ================= Alerts (My Stocks) ================= */
+// 1) Price levels you set (fire once, can be switched back on). 2) Warning flags that are NEW since the last check,
+// using the same rules as the overview's Flags column (includes RSI extremes and results due within 7 days).
+// Checked whenever My Stocks opens, for holdings and the watchlist, from Finnhub prices + saved data (no extra price-history requests).
+const alertsState = () => (state.alerts = state.alerts || { rules: [], seen: {}, events: [] });
+const flagKey = t => String(t).replace(/\s*\([^)]*\)/g, "").replace(/^RSI \d+/, "RSI").replace(/^Earnings (in \d+ days|today|tomorrow)/, "Earnings soon").trim();
+async function alertCtx(sym, type){
+  const isStock = !type || type === "stock";
+  const [q, m, p] = await Promise.all([ safe(fh.quote(sym)), safe(fh.metric(sym)), safe(fh.profile(sym)) ]);
+  const r = isStock ? await safe(fh.rec(sym)) : { ok: false };
+  const c = { isStock, mm: m.ok && m.v && m.v.metric || {}, price: q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : NaN, prof: p.ok ? p.v : {}, rec: r.ok ? r.v : undefined,
+    td: peek.td(sym), fin: peek.fin(sym), finQ: peek.finQ(sym), av: peek.av(sym), earn: peek.earn(sym), cur: String((p.ok && p.v && p.v.currency) || "USD").toUpperCase() };
+  return { c, flags: riskFlags(c) };
+}
+let alertsRun = null;
+async function checkAlerts(app, tok){
+  const A = alertsState(), now = new Date().toISOString();
+  const syms = [...myHoldings().map(h => [h.symbol, h.type]), ...state.watchlist.filter(s => !state.holdings.some(h => h.symbol === s)).map(s => [s, "stock"])];
+  const res = await Promise.all(syms.map(async ([s, t]) => [s, t, await alertCtx(s, t).catch(() => null)]));
+  if(!live(tok)) return;
+  let changed = false; const fresh = [];
+  for(const [s, t, x] of res){
+    if(!x) continue;
+    // price levels
+    for(const rule of A.rules.filter(r => r.sym === s && !r.hit)){
+      if(isNum(x.c.price) && (rule.dir === "above" ? x.c.price >= rule.px : x.c.price <= rule.px)){
+        rule.hit = { at: now, price: x.c.price };
+        fresh.push({ id: now + s + rule.id, type: "price", sym: s, sev: rule.dir === "above" ? "good" : "amber", text: `${s} ${rule.dir === "above" ? "rose to" : "fell to"} ${fmt(x.c.price)}`, why: `Your alert: ${rule.dir} ${fmt(rule.px)}${rule.note ? " (" + rule.note + ")" : ""}.`, at: now });
+        changed = true;
+      }
+    }
+    // New flags. When more saved data has become available since the last check (e.g. price history after "Run full check"),
+    // flags that were already true would look new: note them quietly instead of alerting.
+    const keys = x.flags.map(f => flagKey(f.text)), before = A.seen[s];
+    A.data = A.data || {}; const mask = (x.c.td ? 1 : 0) + (x.c.fin ? 2 : 0) + (x.c.earn ? 4 : 0), had = A.data[s];
+    const moreData = had === undefined || (mask & ~had) !== 0;
+    if(had !== mask){ A.data[s] = mask; changed = true; }
+    if(before && !moreData){ x.flags.filter(f => !before.includes(flagKey(f.text))).forEach(f => fresh.push({ id: now + s + flagKey(f.text), type: "flag", sym: s, sev: f.sev, text: `${s}: ${f.text}`, why: f.why, at: now })); }
+    if(!before || keys.join("|") !== before.join("|")){ A.seen[s] = keys; changed = true; }
+  }
+  if(fresh.length){ A.events = [...fresh.map(e => ({ ...e, isNew: true })), ...A.events].slice(0, 150); }
+  if(changed || fresh.length) save();
+  drawAlertBadges(app);
+  if(homeSec === "alerts") renderAlerts(app);
+}
+function drawAlertBadges(app){
+  const A = alertsState(), n = A.events.filter(e => e.isNew).length;
+  const side = $("#side-alerts", app); if(side) side.textContent = n ? `${n} new` : "";
+  const ban = $("#alertbanner", app);
+  if(ban){ ban.hidden = !n; if(n) ban.innerHTML = `<b>🔔 ${n} new alert${n === 1 ? "" : "s"}:</b> ${A.events.filter(e => e.isNew).slice(0, 3).map(e => esc(e.text)).join(" · ")}${n > 3 ? " …" : ""} <button class="link" id="seealerts">See alerts →</button>`;
+    const b = $("#seealerts", app); if(b) b.onclick = () => { homeSec = "alerts"; app.querySelectorAll("[data-home]").forEach(c => c.hidden = c.dataset.home !== "alerts"); app.querySelectorAll(".side button").forEach(x => x.classList.toggle("on", x.dataset.sec === "alerts")); renderAlerts(app); window.scrollTo(0, 0); }; }
+}
+function renderAlerts(app){
+  const el = $("#alerts-b", app); if(!el) return;
+  const A = alertsState(), newOnes = A.events.filter(e => e.isNew);
+  const sevB = e => e.sev === "red" ? "b-rich" : e.sev === "good" ? "b-cheap" : "b-warn";
+  const ev = e => `<tr${e.isNew ? ' style="font-weight:600"' : ""}><td class="small muted" style="white-space:nowrap">${hhmm(e.at)}</td><td><span class="badge ${sevB(e)}">${e.type === "price" ? "Price" : e.sev === "red" ? "Concern" : "Watch"}</span></td>
+    <td><a href="${stockHref(e.sym)}">${esc(e.text)}</a><div class="small muted" style="font-weight:400">${esc(e.why)}</div></td></tr>`;
+  const quote = s => { const q = cacheGet("/quote?" + new URLSearchParams({ symbol: s })); return q && isNum(q.c) && q.c > 0 ? q.c : NaN; };
+  const rules = A.rules.slice().sort((a, b) => a.sym < b.sym ? -1 : 1);
+  el.classList.remove("muted", "small");
+  el.innerHTML = `
+    <p style="margin-top:0">${newOnes.length ? `<b>${newOnes.length} new</b> since you last looked.` : "Nothing new since you last looked."} <span class="small muted">Checked each time My Stocks opens, for your holdings and watchlist.</span></p>
+    ${A.events.length ? `<div style="overflow-x:auto"><table><tbody>${A.events.slice(0, 25).map(ev).join("")}</tbody></table></div>
+      ${A.events.length > 25 ? `<details class="more"><summary>Older (${A.events.length - 25})</summary><table><tbody>${A.events.slice(25).map(ev).join("")}</tbody></table></details>` : ""}
+      <div class="row" style="margin-top:8px"><button class="link" id="al-clear">Clear the list</button></div>` : `<p class="small muted">No alerts yet. The first check notes each stock's current flags; from then on, any new flag shows up here.</p>`}
+    <h3>Price alerts</h3>
+    <form id="al-form" class="row">
+      <input id="al-sym" placeholder="Ticker" autocapitalize="characters" autocomplete="off" style="width:100px" required aria-label="Ticker">
+      <select id="al-dir" aria-label="Direction"><option value="below">falls to or below</option><option value="above">rises to or above</option></select>
+      <input id="al-px" type="number" step="any" min="0" placeholder="Price" style="width:110px" required aria-label="Price">
+      <input id="al-note" placeholder="Note (optional), e.g. buy more" style="width:220px" aria-label="Note">
+      <button class="primary">Add alert</button><span id="al-msg" class="small"></span>
+    </form>
+    ${rules.length ? `<div style="overflow-x:auto;margin-top:8px"><table style="max-width:900px"><thead><tr><th>Stock</th><th>Alert when</th><th class="num">Price now</th><th class="num">Distance</th><th>Status</th><th></th></tr></thead><tbody>
+      ${rules.map(r => { const p = quote(r.sym), d = isNum(p) ? (r.px / p - 1) * 100 : NaN;
+        return `<tr><td><b>${esc(r.sym)}</b>${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ""}</td><td>${r.dir === "above" ? "rises to" : "falls to"} ${fmt(r.px)}</td><td class="num">${isNum(p) ? fmt(p) : "—"}</td>
+          <td class="num">${r.hit ? "—" : isNum(d) ? `${fmtPct(d, 1)}` : "—"}</td>
+          <td>${r.hit ? `<span class="badge b-cheap">Reached</span> <span class="small muted">${hhmm(r.hit.at)} at ${fmt(r.hit.price)}</span> <button class="link" data-rearm="${esc(r.id)}">Switch on again</button>` : `<span class="badge b-inline">Waiting</span>`}</td>
+          <td><button class="link" data-delrule="${esc(r.id)}" title="Delete">×</button></td></tr>`; }).join("")}
+    </tbody></table></div>` : `<p class="small muted">No price alerts yet. Example: NVDA falls to or below 120 (note: "buy more").</p>`}
+    <details class="more"><summary>How alerts work</summary>
+      <p class="small muted">Alerts show in the app only (no emails or phone notifications yet). They're checked every time My Stocks opens, using the latest price from Finnhub and the same flag rules as the overview's Flags column: red = concern, amber = worth watching. A flag alert fires when a flag <b>appears</b> that the stock didn't have at the last check (e.g. "Below 200-day avg", "RSI 28: oversold", "Earnings in 5 days"); a flag that goes away and comes back alerts again. Technical flags (RSI, 200-day average, volume) use the price history saved by "Run full check" (kept 12 hours), so run it now and then to keep them fresh. Price alerts fire once when the price reaches your level; use "Switch on again" to reuse one. Alerts are saved to GitHub with your lists.</p>
+    </details>`;
+  const save2 = () => { save(); renderAlerts(app); drawAlertBadges(app); };
+  const clr = $("#al-clear", el); if(clr) clr.onclick = () => { if(confirm("Clear the list of past alerts? (Your price alerts stay.)")){ A.events = []; save2(); } };
+  $("#al-form", el).onsubmit = e => { e.preventDefault(); const m = $("#al-msg", el);
+    const sym = normSym($("#al-sym", el).value), px = parseFloat($("#al-px", el).value);
+    if(!sym || !(px > 0)){ m.className = "small err"; m.textContent = "Add a ticker and a price above 0."; return; }
+    A.rules.push({ id: Date.now().toString(36), sym, dir: $("#al-dir", el).value, px, note: $("#al-note", el).value.trim() || undefined, made: new Date().toISOString() });
+    save2(); };
+  el.querySelectorAll("[data-delrule]").forEach(b => b.onclick = () => { A.rules = A.rules.filter(r => r.id !== b.dataset.delrule); save2(); });
+  el.querySelectorAll("[data-rearm]").forEach(b => b.onclick = () => { const r = A.rules.find(x => x.id === b.dataset.rearm); if(r) delete r.hit; save2(); });
+  // Opening the list counts as seeing it: the bold stays for this visit, the "new" count clears.
+  if(newOnes.length){ A.events.forEach(e => e.isNew = false); save(); drawAlertBadges(app); }
+}
 /* ================= Earnings calendar (My Stocks) ================= */
 const fmtBig = v => !isNum(v) ? "—" : Math.abs(v) >= 1e9 ? "$" + (v/1e9).toFixed(1) + "B" : Math.abs(v) >= 1e6 ? "$" + (v/1e6).toFixed(0) + "M" : "$" + Math.round(v).toLocaleString();
 const HOUR = { bmo: "before the US market opens", amc: "after the US market closes", dmh: "during the trading day" };
@@ -3072,7 +3174,7 @@ function viewSettings(app){
 // and loaded on any other browser or device that has the GitHub token. The token itself is never uploaded.
 const GH_API = "https://api.github.com", GH_FILE = "portfolio.json";
 const ghOn = () => !!(state.gh && state.gh.repo && state.gh.token);
-const SYNCED = ["holdings", "buys", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey"];
+const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey"];
 const syncData = () => { const d = {}; SYNCED.forEach(k => d[k] = state[k]); return d; };
 const b64enc = str => btoa(unescape(encodeURIComponent(str)));
 const b64dec = b64 => decodeURIComponent(escape(atob(String(b64).replace(/\s/g, ""))));
