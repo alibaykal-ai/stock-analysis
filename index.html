@@ -170,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.2</b> · 21 Nov 2026 ·
+  <b>Version 5.3</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -220,7 +220,7 @@ async function throttle(){
     await new Promise(r => setTimeout(r, 60000 - (now - callTimes[0]) + 50));
   }
 }
-const TTL = { quote: 60e3, metric: 12*3600e3, profile: 7*24*3600e3, peers: 7*24*3600e3, rec: 12*3600e3, news: 30*60e3, search: 24*3600e3, fin: 7*24*3600e3 };
+const TTL = { quote: 60e3, metric: 12*3600e3, profile: 7*24*3600e3, peers: 7*24*3600e3, rec: 12*3600e3, news: 30*60e3, earn: 12*3600e3, search: 24*3600e3, fin: 7*24*3600e3 };
 const memCache = new Map();
 function cacheGet(k){
   const m = memCache.get(k); if(m && m.exp > Date.now()) return m.v;
@@ -268,6 +268,7 @@ const fh = {
   metric:  s => api("/stock/metric", {symbol:s, metric:"all"}, "metric"),
   peers:   s => api("/stock/peers", {symbol:s}, "peers"),
   rec:     s => api("/stock/recommendation", {symbol:s}, "rec"),
+  earnings:s => api("/calendar/earnings", { symbol: s, from: ymd(new Date(Date.now() - 35*864e5)), to: ymd(new Date(Date.now() + 100*864e5)) }, "earn"),
   news:    s => { const to=new Date(), from=new Date(Date.now()-14*864e5); return api("/company-news",{symbol:s,from:ymd(from),to:ymd(to)},"news"); },
   search:  q => api("/search", {q}, "search"),
   // Annual reports as filed (10-K). Large reply, so only a small summary per year is kept.
@@ -630,6 +631,7 @@ function viewHome(app, tok){
       <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>
+    ${state.apiKey && (state.holdings.length || state.watchlist.length) ? `<div class="card" id="earn"><h2>Earnings calendar</h2><div id="earn-b" class="muted small"><span class="spin"></span> Loading earnings dates…</div></div>` : ""}
     ${homeTab==="mine" && state.holdings.length && state.apiKey ? `<div class="card" id="risk"><h2>Portfolio risk: where your money is</h2><div id="risk-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>` : ""}`;
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { homeTab = b.dataset.tab; viewHome(app, tok); });
   $("#refresh", app).onclick = () => { memCache.forEach((v,k)=>{ if(k.startsWith("/quote")) memCache.delete(k); });
@@ -657,6 +659,7 @@ function viewHome(app, tok){
   });
   app.querySelectorAll("tr[data-sym]").forEach(tr => tr.onclick = () => go(stockHref(tr.dataset.sym)));
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
+  if(state.apiKey && (state.holdings.length || state.watchlist.length)) renderEarnings(app, tok);
   if(homeTab==="mine" && state.holdings.length && state.apiKey) renderRisk(app, tok);
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
 }
@@ -731,6 +734,7 @@ const peek = {
   td:  s => cacheGet("td:daily:" + s + ":1600"),
   av:  s => cacheGet("av:EARNINGS_ESTIMATES:" + s),
   fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual"})),
+  earn:s => cacheGet("/calendar/earnings?" + new URLSearchParams({ symbol: s, from: ymd(new Date(Date.now() - 35*864e5)), to: ymd(new Date(Date.now() + 100*864e5)) })),
   finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly"})),
 };
 // Each flag: sev "red" (concern) or "amber" (watch), short text, one-line why.
@@ -745,6 +749,8 @@ function riskFlags(c){
     if(t.cross && t.cross.kind === "death" && (Date.now() - new Date(t.cross.date)) < 90*864e5) add("red", "Death cross", `50-day average fell below the 200-day on ${t.cross.date}.`);
     if(isNum(t.relVol) && t.relVol >= 2) add("amber", `Unusual volume (${t.relVol.toFixed(1)}×)`, "Latest day's trading at least twice the 30-day average: check the news.");
   }
+  if(c.earn){ const nx = nextEarnings(c.earn), n = nx && daysUntil(nx.date);
+    if(nx && n <= 7) add("amber", n === 0 ? "Earnings today" : n === 1 ? "Earnings tomorrow" : `Earnings in ${n} days`, `Results due ${fmtWkDay(nx.date)}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""}. Shares often move sharply on results day.`); }
   if(stock){
     const hi = mm["52WeekHigh"], lo = mm["52WeekLow"];
     if(isNum(px) && isNum(hi) && px >= hi*0.95) add("amber", "Near 52-week high", `Within 5% of its 1-year high (${fmt(hi)}).`);
@@ -785,7 +791,7 @@ const rowCtx = new Map(); // symbol -> data used for its flags, so a full check 
 function drawRowFlags(app, h){
   const c = rowCtx.get(h.symbol); if(!c) return;
   const tr = app.querySelector(`tr[data-sym="${CSS.escape(h.symbol)}"]`); if(!tr) return;
-  c.td = c.td || peek.td(h.symbol); c.tdErr = c.tdErr || cacheGet("td:err:" + h.symbol); c.fin = c.fin || peek.fin(h.symbol); c.finQ = c.finQ || peek.finQ(h.symbol); c.av = c.av || peek.av(h.symbol);
+  c.td = c.td || peek.td(h.symbol); c.tdErr = c.tdErr || cacheGet("td:err:" + h.symbol); c.fin = c.fin || peek.fin(h.symbol); c.finQ = c.finQ || peek.finQ(h.symbol); c.av = c.av || peek.av(h.symbol); c.earn = c.earn || peek.earn(h.symbol);
   const f = riskFlags(c);
   const checked = !!c.td && (!c.isStock || !!c.fin);
   const hEl = tr.querySelector('[data-f="health"]'), fEl = tr.querySelector('[data-f="flags"]');
@@ -2422,6 +2428,50 @@ async function renderRisk(app, tok){
       <p class="small muted">Values are price × shares, in pounds; US stocks converted at FRED's daily exchange rate; fund prices typed in Settings are taken as pounds. <b>Concentration</b> (suggested limits): one stock above ${RISK.stockAmber}% = amber, above ${RISK.stockRed}% = red; one sector above ${RISK.sectorAmber}% = amber, above ${RISK.sectorRed}% = red. Funds and ETFs are already spread over many companies, so they don't count as a single-stock or sector risk. Sector badges (Leading/Lagging vs the S&amp;P 500 over 3 months) come from the Macro tab when it has been opened in the last 12 hours.
       <b>Volatility</b> = how much the daily value of your stocks swings, scaled to a year. <b>Beta</b> = how much your stocks have moved for each 1% move in the S&amp;P 500. <b>Correlation</b> = average across every pair of your stocks. These describe the past year, not a forecast, and they are not reasons to buy or sell.</p>
     </details>`;
+}
+/* ================= Earnings calendar (My Stocks) ================= */
+const fmtBig = v => !isNum(v) ? "—" : Math.abs(v) >= 1e9 ? "$" + (v/1e9).toFixed(1) + "B" : Math.abs(v) >= 1e6 ? "$" + (v/1e6).toFixed(0) + "M" : "$" + Math.round(v).toLocaleString();
+const HOUR = { bmo: "before the US market opens", amc: "after the US market closes", dmh: "during the trading day" };
+const daysUntil = d => Math.round((new Date(d + "T12:00:00Z") - new Date(ymd(new Date()) + "T12:00:00Z")) / 864e5);
+const fmtWkDay = d => new Date(d + "T12:00:00Z").toLocaleDateString(undefined, { weekday:"short", day:"numeric", month:"short" });
+function nextEarnings(cal){ const today = ymd(new Date()); const rows = (cal && cal.earningsCalendar || []).filter(r => r.date >= today).sort((a,b) => a.date < b.date ? -1 : 1); return rows[0] || null; }
+const surprise = (a, e) => isNum(a) && isNum(e) && e !== 0 ? (a - e) / Math.abs(e) * 100 : NaN;
+const beatBadge = s => !isNum(s) ? "" : s >= 2 ? `<span class="badge b-cheap">Beat ${fmtPct(s,0)}</span>` : s <= -2 ? `<span class="badge b-rich">Missed ${fmtPct(s,0)}</span>` : `<span class="badge b-inline">In line</span>`;
+async function renderEarnings(app, tok){
+  const el = $("#earn-b", app); if(!el) return;
+  const mineSet = new Set(state.holdings.filter(h => !isFundLike(h)).map(h => h.symbol));
+  const syms = [...new Set([...mineSet, ...state.watchlist])];
+  if(!syms.length){ el.innerHTML = "No stocks yet."; return; }
+  const res = await Promise.all(syms.map(s => safe(fh.earnings(s)).then(r => ({ s, r }))));
+  if(!live(tok)) return;
+  const today = ymd(new Date()), up = [], past = [], failed = [];
+  for(const { s, r } of res){
+    if(!r.ok){ failed.push(s); continue; }
+    const rows = r.v.earningsCalendar || [];
+    const nx = nextEarnings(r.v); if(nx) up.push({ ...nx, symbol: s });
+    rows.filter(x => x.date < today && x.date >= ymd(new Date(Date.now() - 35*864e5)) && (isNum(x.epsActual) || isNum(x.revenueActual))).forEach(x => past.push({ ...x, symbol: s }));
+    const c = rowCtx.get(s); if(c){ c.earn = r.v; const h = state.holdings.find(x => x.symbol === s) || { symbol: s }; drawRowFlags(app, h); }
+  }
+  up.sort((a, b) => a.date < b.date ? -1 : 1); past.sort((a, b) => a.date > b.date ? -1 : 1);
+  const name = s => mineSet.has(s) ? `<b>${esc(s)}</b>` : `<span class="muted">${esc(s)}</span>`;
+  const soon = up.filter(x => daysUntil(x.date) <= 14);
+  const inTxt = n => n === 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`;
+  const head = up.length ? `Next: ${name(up[0].symbol)} on <b>${fmtWkDay(up[0].date)}</b>${HOUR[up[0].hour] ? " " + HOUR[up[0].hour] : ""}, ${inTxt(daysUntil(up[0].date))}. ${soon.length} of your stocks report in the next 2 weeks.` : "No earnings dates found in the next 3 months.";
+  const upRow = x => { const n = daysUntil(x.date); return `<tr><td>${fmtWkDay(x.date)}</td><td>${name(x.symbol)}</td>
+      <td>${n <= 7 ? `<span class="badge b-warn">${inTxt(n)}</span>` : `<span class="small muted">${inTxt(n)}</span>`}</td>
+      <td class="small muted">${HOUR[x.hour] || "time not set"}</td>
+      <td class="num">${isNum(x.epsEstimate) ? fmt(x.epsEstimate) : "—"}</td><td class="num hide-sm">${fmtBig(x.revenueEstimate)}</td></tr>`; };
+  const pastRow = x => `<tr><td>${fmtWkDay(x.date)}</td><td>${name(x.symbol)}</td>
+      <td class="num">${isNum(x.epsActual) ? fmt(x.epsActual) : "—"} <small class="muted">vs ${isNum(x.epsEstimate) ? fmt(x.epsEstimate) : "—"}</small></td><td>${beatBadge(surprise(x.epsActual, x.epsEstimate))}</td>
+      <td class="num hide-sm">${fmtBig(x.revenueActual)} <small class="muted">vs ${fmtBig(x.revenueEstimate)}</small></td><td class="hide-sm">${beatBadge(surprise(x.revenueActual, x.revenueEstimate))}</td></tr>`;
+  const upHead = `<thead><tr><th>Date</th><th>Stock</th><th>When</th><th>Time (New York)</th><th class="num">EPS expected</th><th class="num hide-sm">Sales expected</th></tr></thead>`;
+  el.classList.remove("muted", "small");
+  el.innerHTML = `<p style="margin:0 0 10px">${head}</p>
+    ${up.length ? `<div style="overflow-x:auto"><table>${upHead}<tbody>${up.slice(0, 7).map(upRow).join("")}</tbody></table></div>` : ""}
+    ${up.length > 7 ? `<details class="more" style="margin-top:4px"><summary>Show all ${up.length}</summary><div style="overflow-x:auto"><table>${upHead}<tbody>${up.slice(7).map(upRow).join("")}</tbody></table></div></details>` : ""}
+    ${past.length ? `<details class="more"><summary>Recent results (last 5 weeks): ${past.filter(x => surprise(x.epsActual, x.epsEstimate) >= 2).length} beat, ${past.filter(x => surprise(x.epsActual, x.epsEstimate) <= -2).length} missed</summary>
+      <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Stock</th><th class="num">EPS vs expected</th><th></th><th class="num hide-sm">Sales vs expected</th><th class="hide-sm"></th></tr></thead><tbody>${past.map(pastRow).join("")}</tbody></table></div></details>` : ""}
+    <p class="small muted" style="margin:10px 0 0">Holdings in bold, watchlist in grey; funds and ETFs left out. Dates from Finnhub, which can change until the company confirms them (usually a few weeks before). "Expected" = analysts' average forecast; EPS = earnings per share. Beat/Missed = at least 2% above/below the forecast. Shares often move sharply on results day.${failed.length ? ` Couldn't load: ${failed.map(esc).join(", ")}.` : ""}</p>`;
 }
 /* ================= Settings ================= */
 function viewSettings(app){
