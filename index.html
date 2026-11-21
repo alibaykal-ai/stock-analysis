@@ -159,7 +159,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 3.9</b> · 21 Nov 2026 ·
+  <b>Version 3.10</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1356,7 +1356,7 @@ function signalsHtml(t){
       "Momentum from 0 to 100. Above 70 = risen fast, often pauses; below 30 = fallen fast, often bounces.");
   const tr = !isNum(t.m50) || !isNum(t.m200) ? tile("Trend (50 vs 200-day)", "—", "", "", "Needs 200 days of prices.")
     : tile("Trend (50 vs 200-day)", t.m50 > t.m200 ? "Uptrend" : "Downtrend", t.m50 > t.m200 ? "b-cheap" : "b-rich",
-      t.cross ? (t.cross.kind === "golden" ? "Golden cross" : "Death cross") : "",
+      t.cross && (Date.now() - new Date(t.cross.date)) < 90*864e5 ? (t.cross.kind === "golden" ? "Golden cross" : "Death cross") : "",
       t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
                : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`);
   const rv = t.relVol;
@@ -1393,6 +1393,22 @@ function isFinancialCo(prof, fin){
 }
 function cagr(now, then, yrs){ return isNum(now) && isNum(then) && now > 0 && then > 0 && yrs > 0 ? (Math.pow(now/then, 1/yrs) - 1) * 100 : NaN; }
 
+// Stock splits: each annual report gives the share count as it was then, so a 3-for-1 split
+// looks like the count tripling. A jump of almost exactly a whole multiple between two
+// years is treated as a split, and older years are scaled to today's share basis.
+function splitAdjust(ys){
+  const out = ys.map(y => ({ ...y })), splits = []; let f = 1;
+  for(let i = 0; i < out.length; i++){
+    if(isNum(out[i].shares)) out[i].shares = ys[i].shares * f;
+    const a = ys[i] && ys[i].shares, b = ys[i+1] && ys[i+1].shares;
+    if(isNum(a) && isNum(b) && b > 0){
+      const r = a / b, k = Math.round(r), ki = Math.round(1 / r);
+      if(r >= 1.9 && Math.abs(r - k) / k < 0.06){ f *= k; splits.push({ ratio: `${k}-for-1`, year: ys[i].end.slice(0,4) }); }
+      else if(r <= 0.55 && Math.abs(1/r - ki) / ki < 0.06){ f /= ki; splits.push({ ratio: `1-for-${ki} (reverse)`, year: ys[i].end.slice(0,4) }); }
+    }
+  }
+  return { years: out, splits };
+}
 // Piotroski F-Score: 9 yes/no tests comparing the latest year with the one before.
 function piotroski(y0, y1){
   if(!y0 || !y1 || !isNum(y0.assets) || !isNum(y1.assets)) return null;
@@ -1430,7 +1446,9 @@ function altman(y0, mcapM, prof){
 }
 
 function healthScore(mm, prof, fin, finQ){
-  const ys = fin && fin.years || [], y0 = ys[0], y1 = ys[1];
+  const SA = splitAdjust(fin && fin.years || []);
+  const ysRaw = fin && fin.years || [], ys = ysRaw, y0 = ys[0], y1 = ys[1];
+  const ysS = SA.years; // same years, share counts on today's basis (after splits)
   const pct = v => v.toFixed(1) + "%";
   const pillars = [];
   const pillar = (id, name, what, items) => {
@@ -1502,14 +1520,15 @@ function healthScore(mm, prof, fin, finQ){
   ]);
   // 5. Share dilution
   const shOld = ys[3] || ys[ys.length-1];
-  const dil = y0 && shOld && shOld !== y0 ? cagr(y0.shares, shOld.shares, ys.indexOf(shOld)) : NaN;
+  const dil = y0 && shOld && shOld !== y0 ? cagr(ysS[0].shares, ysS[ys.indexOf(shOld)].shares, ys.indexOf(shOld)) : NaN;
+  const splitNote = SA.splits.length ? ` · adjusted for ${SA.splits.map(x => `a ${x.ratio} stock split (${x.year})`).join(" and ")}` : "";
   pillar("dilution", "Share dilution", "Whether your slice of the company is shrinking (new shares) or growing (buybacks)", [
-    item("Change in share count (per year)", dil, v=>fmtPct(v), 4, 0, `Over the last ${shOld && y0 ? ys.indexOf(shOld) : 3} years. Full marks if flat or falling (buybacks) · zero at +4%/yr`),
+    item("Change in share count (per year)", dil, v=>fmtPct(v), 4, 0, `Over the last ${shOld && y0 ? ys.indexOf(shOld) : 3} years. Full marks if flat or falling (buybacks) · zero at +4%/yr${splitNote}`),
   ]);
 
   const have = pillars.filter(p => isNum(p.s));
   const total = have.length >= 3 ? Math.round(have.reduce((a, p) => a + p.s, 0) / have.length * 100) : NaN;
-  return { fhStale, fhNm, total, pillars, f: fc ? null : piotroski(y0, y1), az, fc, year: y0 && y0.end };
+  return { fhStale, fhNm, total, pillars, f: fc ? null : piotroski(ysS[0], ysS[1]), az, fc, year: y0 && y0.end };
 }
 
 const scoreClass = v => !isNum(v) ? "b-inline" : v >= 70 ? "b-cheap" : v >= 40 ? "b-warn" : "b-rich";
