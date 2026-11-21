@@ -55,6 +55,9 @@ button:disabled{opacity:.5;cursor:default}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:600}
+/* My Stocks / Watchlist: column titles stay visible under the top bar while scrolling (desktop) */
+.listwrap{overflow-x:auto}
+@media (min-width:801px){ .listwrap{overflow:visible} .listtbl thead th{position:sticky;top:var(--hdr,55px);z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)} }
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .up{color:var(--good)} .down{color:var(--bad)}
@@ -184,7 +187,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.15</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
+  <b>Version 5.16</b> · 21 Nov 2026 · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -691,7 +694,7 @@ function viewHome(app, tok){
       </form>
       ${homeTab==="mine" ? buyBox() : ""}
       ${list.length ? `
-      <div style="overflow-x:auto"><table>
+      <div class="listwrap"><table class="listtbl">
         <thead><tr>
           <th>Stock</th><th class="num">Price</th><th class="num">Today</th>
           <th class="hide-sm">52-week range</th>
@@ -3300,6 +3303,8 @@ async function ghConnect(repo, token){
     save(); await ghPush(); return "saved";
   }catch(e){ state.gh = prev; save(); throw e; }
 }
+const setHdr = () => { const h = document.querySelector("header"); if(h) document.documentElement.style.setProperty("--hdr", h.offsetHeight + "px"); };
+setHdr(); window.addEventListener("resize", setHdr);
 cacheBoot().then(() => { dedupeWatch(); route(); ghPull(); }); // the tidied watchlist is stored with the next change, so start-up never races GitHub
 </script>
 </body>
