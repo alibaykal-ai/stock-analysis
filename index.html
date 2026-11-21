@@ -173,7 +173,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 5.5</b> · 21 Nov 2026 ·
+  <b>Version 5.6</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -182,7 +182,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 "use strict";
 /* ================= Storage ================= */
 const STORE_KEY = "stockAnalysis.v1";
-const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", trades: null, holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -1709,7 +1709,9 @@ function fallbackSymbol(name){
 }
 function excelDate(v){
   if(typeof v === "number" && v > 20000) return new Date(Math.round((v - 25569) * 864e5));
-  const d = new Date(v); return isNaN(d) ? null : d;
+  const m = String(v || "").trim().match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/); // UK style day/month/year
+  if(m){ const y = +m[3] < 100 ? 2000 + +m[3] : +m[3]; return new Date(Date.UTC(y, +m[2] - 1, +m[1])); }
+  const d = new Date(v); return isNaN(d) ? null : new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 function parseBankRows(rows){
   const findCol = (hdr, re) => hdr.findIndex(c => re.test(String(c||"").trim()));
@@ -1728,7 +1730,7 @@ function parseBankRows(rows){
     if(c.name>=0 && c.qty>=0 && c.side>=0){ hi = i; cols = c; break; }
   }
   if(hi < 0) throw new Error("Couldn't find the columns for investment name, buy/sell and quantity in this file.");
-  const groups = new Map(); let skipped = 0, used = 0; let first = null, last = null;
+  const groups = new Map(), trades = []; let skipped = 0, used = 0; let first = null, last = null;
   const data = rows.slice(hi+1).filter(r => r && r[cols.name] && String(r[cols.name]).trim());
   // oldest first so partial sells reduce cost correctly
   const withDates = data.map((r, i) => ({ r, d: cols.date>=0 ? excelDate(r[cols.date]) : null, i }));
@@ -1742,13 +1744,14 @@ function parseBankRows(rows){
     const raw = String(r[cols.name]); const k = nameKey(raw);
     if(!groups.has(k)) groups.set(k, { name: cleanName(raw), country: cols.country>=0 ? String(r[cols.country]||"") : "", shares: 0, cost: 0, buys: 0, sells: 0 });
     const g = groups.get(k);
+    if(d && isNum(amt)) trades.push({ k, n: cleanName(raw), d: ymd(d), s: /^b/i.test(side) ? "B" : "S", q: Math.abs(q), a: Math.abs(amt) });
     if(/^b/i.test(side)){ g.shares += q; if(isNum(amt)) g.cost += amt; g.buys++; }
     else { const avg = g.shares > 0 ? g.cost / g.shares : 0; g.cost -= avg * Math.min(q, g.shares); g.shares -= q; g.sells++; }
     used++;
     if(d){ if(!first || d < first) first = d; if(!last || d > last) last = d; }
   }
   const all = [...groups.values()].map(g => ({ ...g, shares: Math.round(g.shares*1e6)/1e6 }));
-  return { held: all.filter(g => g.shares > 1e-6), closed: all.filter(g => g.shares <= 1e-6), skipped, used, first, last };
+  return { held: all.filter(g => g.shares > 1e-6), closed: all.filter(g => g.shares <= 1e-6), skipped, used, first, last, trades };
 }
 async function suggestTicker(g){
   const remembered = state.nameMap[nameKey(g.name)];
@@ -1810,11 +1813,12 @@ async function importBankFile(app, file){
     const fresh = items.map(it => ({ symbol: it.symbol, shares: it.shares, type: it.type, name: it.name,
       manualPrice: old.get(it.symbol) && old.get(it.symbol).manualPrice }));
     items.forEach(it => { state.nameMap[nameKey(it.name)] = { symbol: it.symbol, type: it.type }; });
+    state.trades = { saved: ymd(new Date()), rows: parsed.trades }; // dated buys and sells, for "your results vs the index" (this browser only)
     if($("#bankreplace", app).checked) state.holdings = fresh;
     else fresh.forEach(f => { const ex = state.holdings.find(h=>h.symbol===f.symbol); if(ex){ ex.shares=f.shares; ex.type=f.type; ex.name=f.name; } else state.holdings.push(f); });
     save();
     viewSettings(app);
-    const m = $("#bankout", app); m.innerHTML = `<p class="small">✓ Saved ${fresh.length} holdings. <a href="#home">See My Stocks</a></p>`;
+    const m = $("#bankout", app); m.innerHTML = `<p class="small">✓ Saved ${fresh.length} holdings and ${parsed.trades.length} dated orders (used for "Your results vs the index" on My Stocks). <a href="#home">See My Stocks</a></p>`;
   };
 }
 
@@ -1940,9 +1944,9 @@ async function holdingSectors(){
 const MACRO_URL = "https://raw.githubusercontent.com/alibaykal-ai/stock-analysis/macro-data/macro.json";
 // Fed rate decisions (second day of each meeting). Source: federalreserve.gov calendar, 2027 dates tentative. Update yearly.
 const FED_DECISIONS = ["2026-12-09","2027-01-27","2027-03-17","2027-04-28","2027-06-09","2027-07-28","2027-09-15","2027-11-17","2028-01-26"];
-async function macroData(){
+async function macroData(force){
   const ck = "fred:macro";
-  const hit = cacheGet(ck); if(hit !== undefined && hit.series && hit.series.DEXUSUK) return hit; // older saved copies lack the exchange rate: fetch again
+  const hit = cacheGet(ck); if(!force && hit !== undefined && hit.series && hit.series.DEXUSUK) return hit; // older saved copies lack the exchange rate: fetch again
   if(inflight.has(ck)) return inflight.get(ck);
   const p = (async () => {
     let r;
@@ -2486,6 +2490,101 @@ function perfBadge(gap){
   if(!isNum(gap)) return ["b-inline", "n/a"];
   return gap >= PERF_GAP ? ["b-cheap", "Ahead of the market"] : gap > -PERF_GAP ? ["b-inline", "In line with the market"] : gap > -10 ? ["b-warn", "Behind the market"] : ["b-rich", "Well behind the market"];
 }
+// ---- Your actual results (dated orders from the bank file) vs the same money in the index ----
+// Each buy puts the same pounds into the index fund that day; each sell takes the same pounds out.
+// Index prices converted to pounds with FRED's USD-per-GBP rate on the trade date.
+function rateOn(series, date){
+  if(!series) return NaN; let v = NaN;
+  for(let i = 0; i < series.d.length && series.d[i] <= date; i++) if(isNum(series.v[i])) v = series.v[i];
+  return v;
+}
+function xirr(flows){ // flows: [{d, v}], v < 0 money in, > 0 money out. Yearly rate in %.
+  if(flows.length < 2 || !flows.some(f => f.v < 0) || !flows.some(f => f.v > 0)) return NaN;
+  const t0 = new Date(flows[0].d + "T12:00:00Z");
+  const yrs = flows.map(f => (new Date(f.d + "T12:00:00Z") - t0) / (365.25 * 864e5));
+  const npv = r => flows.reduce((s, f, i) => s + f.v / Math.pow(1 + r, yrs[i]), 0);
+  let lo = -0.99, hi = 10; if(npv(lo) * npv(hi) > 0) return NaN;
+  for(let k = 0; k < 200; k++){ const m = (lo + hi) / 2; if(npv(lo) * npv(m) <= 0) hi = m; else lo = m; }
+  return (lo + hi) / 2 * 100;
+}
+async function tradeResults(hv, spy, qqq, tok){
+  const rows = state.trades.rows.slice().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+  const first = rows[0].d, today = ymd(new Date());
+  // Index history must reach the first order: fetch a longer copy (1 request each, kept 12 hours) only if needed
+  const longer = async (h, sym) => h && h.d[0] <= first ? h : (state.tdKey ? (await safe(tdDaily(sym, 5000))).v || h : h);
+  spy = await longer(spy, "SPY"); qqq = qqq && await longer(qqq, "QQQ"); if(!live(tok)) return null;
+  let fx = await safe(macroData()); if(!live(tok)) return null;
+  let fxs = fx.ok && fx.v.series.DEXUSUK;
+  if(fxs && fxs.d[0] > first){ const f2 = await safe(macroData(true)); if(f2.ok && f2.v.series.DEXUSUK){ fxs = f2.v.series.DEXUSUK; } } // saved copy older than the long history
+  if(!fxs) return { err: "The exchange-rate data isn't available right now." };
+  const fxShort = fxs.d[0] > first, fxNow = rateOn(fxs, today);
+  const bySym = new Map(hv.rows.filter(r => isNum(r.gbp)).map(r => [r.h.symbol, r]));
+  const groups = new Map();
+  for(const t of rows){ if(!groups.has(t.k)) groups.set(t.k, { k: t.k, name: t.n, trades: [] }); groups.get(t.k).trades.push(t); }
+  const idx = [["spy", spy], ["qqq", qqq]].filter(x => x[1]);
+  const out = [], skipped = [];
+  for(const g of groups.values()){
+    let shares = 0, cost = 0, bought = 0, sold = 0;
+    for(const t of g.trades){ if(t.s === "B"){ shares += t.q; cost += t.a; bought += t.a; } else { const avg = shares > 0 ? cost / shares : 0; cost -= avg * Math.min(t.q, shares); shares -= t.q; sold += t.a; } }
+    const held = shares > 1e-6, map = state.nameMap[g.k], hr = map && bySym.get(map.symbol);
+    if(held && !hr){ skipped.push(`${esc(g.name)} (${map ? esc(map.symbol) + ": no value today" : "not in My Stocks"})`); continue; }
+    const value = held ? hr.gbp : 0;
+    const res = { name: g.name, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })) };
+    for(const [key, h] of idx){
+      let units = 0, ok = true;
+      for(const t of g.trades){ const px = closeOn(h, t.d), r = rateOn(fxs, t.d) || fxs.v.find(isNum); if(!px || !isNum(r)){ ok = false; break; } units += (t.s === "B" ? 1 : -1) * t.a / (px / r); }
+      res[key] = ok ? units * lastOf(h.c) / fxNow : NaN; // the index money's value today, in pounds
+    }
+    out.push(res);
+  }
+  if(!out.length) return { err: "None of the saved orders could be matched to your holdings." };
+  const sum = k => out.reduce((s, r) => s + (isNum(r[k]) ? r[k] : 0), 0);
+  const tot = { bought: sum("bought"), sold: sum("sold"), value: sum("value") };
+  tot.gain = tot.value + tot.sold - tot.bought;
+  const flows = out.flatMap(r => r.flows).sort((a, b) => a.d < b.d ? -1 : 1);
+  for(const [key] of idx){ tot[key] = out.every(r => isNum(r[key])) ? sum(key) : NaN; tot[key + "Gain"] = tot[key] + tot.sold - tot.bought; }
+  const yrs = (new Date(today) - new Date(first)) / (365.25 * 864e5);
+  tot.irr = xirr(flows.concat([{ d: today, v: tot.value }]));
+  for(const [key] of idx) tot[key + "Irr"] = isNum(tot[key]) ? xirr(flows.concat([{ d: today, v: tot[key] }])) : NaN;
+  return { out, tot, skipped, first, yrs, fxShort, fxFirst: fxs.d[0], n: rows.length, saved: state.trades.saved };
+}
+function tradesHtml(R){
+  if(!R) return "";
+  if(R.err) return `<p class="small err">${esc(R.err)}</p>`;
+  const { tot, out } = R, gbp = v => (v < 0 ? "−" : "") + fmtGBP(Math.abs(v)), sg = v => `<span class="${cls(v)}">${v >= 0 ? "+" : "−"}${fmtGBP(Math.abs(v))}</span>`;
+  const pc = v => `<span class="${cls(v)}">${fmtPct(v, 1)}</span>`;
+  const annual = R.yrs >= 1 && isNum(tot.irr) && isNum(tot.spyIrr);
+  const gap = annual ? tot.irr - tot.spyIrr : (tot.gain - tot.spyGain) / tot.bought * 100;
+  const bd = perfBadge(gap), unit = annual ? "points a year" : "points";
+  const vs = (g, nm) => !isNum(g) ? "" : Math.abs(g) < 0.5 ? `about level with the ${nm}` : `${Math.abs(g).toFixed(1)} ${unit} ${g > 0 ? "ahead of" : "behind"} the ${nm}`;
+  const gapQ = annual ? tot.irr - tot.qqqIrr : (tot.gain - tot.qqqGain) / tot.bought * 100;
+  const since = fmtDay(R.first);
+  const list = out.slice().sort((a, b) => (b.gain - b.spy) - (a.gain - a.spy));
+  const row = r => { const sGain = r.spy + r.sold - r.bought, d = r.gain - sGain;
+    return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
+      <td class="num">${fmtGBP(r.bought)}</td><td class="num">${r.sold ? fmtGBP(r.sold) : "—"}</td><td class="num">${r.held ? fmtGBP(r.value) : "—"}</td>
+      <td class="num">${sg(r.gain)}<div class="small">${pc(r.gain / r.bought * 100)}</div></td>
+      <td class="num">${r.held && r.book > 0 ? pc((r.value / r.book - 1) * 100) : "—"}</td>
+      <td class="num">${isNum(r.spy) ? sg(sGain) : "—"}</td><td class="num">${isNum(r.spy) ? sg(d) : "—"}</td></tr>`; };
+  return `
+    <h3 style="margin-top:0">Your results vs the index <small class="muted" style="font-weight:400">(from your bank orders)</small></h3>
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
+      <p style="margin:0;flex:1;min-width:260px;max-width:760px">Since your first order (${since}) you put in <b>${fmtGBP(tot.bought)}</b> and took out ${fmtGBP(tot.sold)}; your holdings are worth ${fmtGBP(tot.value)} today. Gain: <b>${sg(tot.gain)}</b>${annual ? `, <b>${fmtPct(tot.irr, 1)} a year</b>` : ""}.
+      The same money, on the same days, in the S&amp;P 500 would have gained ${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}${annual ? ` (${fmtPct(tot.spyIrr, 1)} a year)` : ""}${isNum(tot.qqqGain) ? `; in the Nasdaq-100 ${sg(tot.qqqGain)}${annual ? ` (${fmtPct(tot.qqqIrr, 1)} a year)` : ""}` : ""}.
+      You are ${vs(gap, "S&amp;P 500")}${isNum(gapQ) ? ` and ${vs(gapQ, "Nasdaq-100")}` : ""}.</p></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Investment</th><th class="num">Put in</th><th class="num">Taken out</th><th class="num">Worth now</th><th class="num">Your gain</th><th class="num">On shares still held<br><small>(as your bank shows)</small></th><th class="num">Same money in S&amp;P 500</th><th class="num">Difference</th></tr></thead><tbody>
+      ${list.slice(0, 12).map(row).join("")}
+      <tr><td><b>Total</b></td><td class="num"><b>${fmtGBP(tot.bought)}</b></td><td class="num"><b>${fmtGBP(tot.sold)}</b></td><td class="num"><b>${fmtGBP(tot.value)}</b></td><td class="num"><b>${sg(tot.gain)}</b></td><td></td><td class="num"><b>${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}</b></td><td class="num"><b>${isNum(tot.spyGain) ? sg(tot.gain - tot.spyGain) : "—"}</b></td></tr>
+    </tbody></table></div>
+    ${list.length > 12 ? `<details class="more" style="margin-top:4px"><summary>Show all ${list.length}</summary><div style="overflow-x:auto"><table><tbody>${list.slice(12).map(row).join("")}</tbody></table></div></details>` : ""}
+    ${R.skipped.length ? `<p class="small muted" style="margin:8px 0 0">Left out: ${R.skipped.join(", ")}.</p>` : ""}
+    ${R.fxShort ? `<p class="small muted" style="margin:8px 0 0">Exchange rates before ${fmtDay(R.fxFirst)} aren't downloaded yet, so the earliest rate available was used for older orders. This fixes itself after the next daily data update.</p>` : ""}
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted">Uses the ${R.n} completed orders with dates from the bank file you imported on ${fmtDay(R.saved)} (kept in this browser only). <b>Put in</b> = cost of all buys, <b>Taken out</b> = proceeds of all sells, <b>Worth now</b> = today's shares × today's price (your share counts in My Stocks, so dividends reinvested by your bank count). <b>Your gain</b> = worth now + taken out − put in; the % is of the money put in. <b>On shares still held</b> = today's value ÷ the average cost of the shares you still have, the way banking apps usually show it, so you can check it against Barclays. <b>Same money in the S&amp;P 500</b>: every buy puts the same pounds into the SPY fund that day and every sell takes the same pounds out, converted at that day's exchange rate (FRED), valued today. ${annual ? "<b>A year</b> figures are money-weighted: they allow for when the money went in and came out." : "Yearly rates are shown once your first order is more than a year old."}
+      <b>Badge</b> (suggested): ${PERF_GAP}+ ${unit} ahead of the S&amp;P 500 = Ahead; within ${PERF_GAP} = In line; up to 10 behind = Behind; more than 10 behind = Well behind. Index prices exclude dividends (about 1% a year for the S&amp;P 500), so treat a gap under 1–2 points a year as a tie. Orders your bank file doesn't include (e.g. older ones, transfers in) aren't counted; new orders after ${fmtDay(R.saved)} need a fresh import. Past results, not a forecast.</p>
+    </details>
+    <h3>How the stocks you hold now have done</h3>`;
+}
 async function renderPerf(app, tok){
   const el = $("#perf-b", app); if(!el) return;
   let spy = cacheGet("td:daily:SPY:1600"), qqq = cacheGet("td:daily:QQQ:1600");
@@ -2498,13 +2597,19 @@ async function renderPerf(app, tok){
   }
   if(!spy){ el.innerHTML = `<span class="muted">Add a Twelve Data key in <a href="#settings">Settings</a> to compare your stocks with the S&amp;P 500.</span>`; return; }
   const hv = await holdingValues(); if(!live(tok)) return;
+  let actual = "";
+  if(state.trades && state.trades.rows && state.trades.rows.length){
+    el.innerHTML = `<span class="spin"></span> Working out your results from your bank orders…`;
+    const R = await tradeResults(hv, spy, qqq, tok); if(!live(tok)) return;
+    actual = tradesHtml(R);
+  } else actual = `<div class="callout" style="margin:0 0 12px"><b>See your real results:</b> re-import your bank's order history in <a href="#settings">Settings</a> ("Import from your bank's order history"). The app then keeps each buy and sell with its date (in this browser only) and compares your actual gains with the same money put into the S&amp;P 500 and Nasdaq-100 on the same days.</div><h3>How the stocks you hold now have done</h3>`;
   const valued = hv.rows.filter(r => isNum(r.gbp));
   const rows = valued.map(r => ({ ...r, td: peek.td(r.h.symbol) }));
   const total = valued.reduce((s, r) => s + r.gbp, 0);
   const all = perfPeriods(spy).map(p => perfFor(rows, spy, qqq, p));
   const withData = rows.filter(r => r.td);
   if(!all.length || !withData.length || withData.reduce((s, r) => s + r.gbp, 0) < total * 0.5){
-    el.innerHTML = `<span class="muted">Price history saved for ${withData.length} of ${rows.length} holdings. Press <b>Run full check</b> above to fetch the rest (Twelve Data, kept 12 hours), then this card fills in.</span>`; return; }
+    el.innerHTML = actual + `<span class="muted">Price history saved for ${withData.length} of ${rows.length} holdings. Press <b>Run full check</b> above to fetch the rest (Twelve Data, kept 12 hours), then this card fills in.</span>`; return; }
   if(!all.some(p => p.k === perfPeriod)) perfPeriod = all[all.length-1].k;
   const head = all.slice().reverse().find(p => p.used.length && p.cover >= total * 0.5) || all[all.length-1]; // longest period with good coverage
   const gap = head.port - head.spy, gapQ = head.port - head.qqq, bd = perfBadge(gap);
@@ -2531,10 +2636,10 @@ async function renderPerf(app, tok){
     el.querySelectorAll("[data-pp]").forEach(b => b.onclick = () => { perfPeriod = b.dataset.pp; draw(); });
   };
   el.classList.remove("muted", "small");
-  el.innerHTML = `
-    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
+  el.innerHTML = actual + `
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big b-inline">${bd[1]}</span></div>
       <p style="margin:0;flex:1;min-width:260px;max-width:760px">Over <b>${head.label.toLowerCase()}</b>, the stocks you own today ${head.port >= 0 ? "rose" : "fell"} <b>${Math.abs(head.port).toFixed(1)}%</b>: ${vsTxt(gap, "S&amp;P 500")} (${fmtPct(head.spy, 1)})${isNum(gapQ) ? ` and ${vsTxt(gapQ, "Nasdaq-100")} (${fmtPct(head.qqq, 1)})` : ""}.
-      <span class="small muted">This shows how what you hold now has done, not your own buying and selling.</span></p></div>
+      <span class="small muted">As if you had held today's shares for the whole period: describes your current stocks, not your own buying and selling${head.cover < total * 0.995 ? `; based on ${head.used.length} holdings, ${(head.cover / total * 100).toFixed(0)}% of your money (funds without price history left out)` : ""}.</span></p></div>
     <div style="overflow-x:auto"><table style="max-width:760px"><thead><tr><th></th>${all.map(p => `<th class="num">${p.label}</th>`).join("")}</tr></thead><tbody>
       <tr><td><b>Your holdings</b></td>${all.map(p => `<td class="num"><b>${pc(p.port)}</b></td>`).join("")}</tr>
       <tr><td>S&amp;P 500 <small class="muted">SPY</small></td>${all.map(p => `<td class="num">${pc(p.spy)}</td>`).join("")}</tr>
@@ -2545,7 +2650,7 @@ async function renderPerf(app, tok){
     <div id="perf-detail"></div>
     <details class="more"><summary>How to read this</summary>
       <p class="small muted">Imagine you had held exactly today's share counts for the whole period: this is how that would have done, compared with putting the same money in the S&amp;P 500 (SPY fund) or the Nasdaq-100 (QQQ fund). Each holding counts in proportion to its value, as in the risk card. Price changes only: dividends are left out for your stocks and the indexes alike (they would add roughly 1% a year to the S&amp;P 500). Measured in each stock's own currency, so moves in the pound vs the dollar aren't counted (they affect your US stocks and the US indexes the same way).
-      <b>Badge</b> (suggested, over the longest period shown): ${PERF_GAP}+ points ahead of the S&amp;P 500 = Ahead (green); within ${PERF_GAP} points = In line (grey); 2–10 points behind = Behind (amber); more than 10 behind = Well behind (red). <b>Helped / hurt most</b> = how many percentage points each holding added to or took from your result. Holdings without saved price history for the whole period are left out (London-listed funds have none on the free plan). Uses prices saved by "Run full check" (kept 12 hours); no extra requests except the S&amp;P 500 and Nasdaq-100 if the Macro tab hasn't loaded them. Past results, not a forecast.</p>
+      <b>Label</b> (grey, because this is context rather than a verdict on your choices), over the longest period shown: ${PERF_GAP}+ points ahead of the S&amp;P 500 = Ahead; within ${PERF_GAP} points = In line; 2–10 points behind = Behind; more than 10 behind = Well behind. <b>Helped / hurt most</b> = how many percentage points each holding added to or took from your result. Holdings without saved price history for the whole period are left out (London-listed funds have none on the free plan). Uses prices saved by "Run full check" (kept 12 hours); no extra requests except the S&amp;P 500 and Nasdaq-100 if the Macro tab hasn't loaded them. Past results, not a forecast.</p>
     </details>`;
   draw();
 }

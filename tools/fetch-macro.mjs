@@ -18,7 +18,7 @@ const SERIES = {
   VIXCLS: ["VIX", yearsAgo(3)], BAMLH0A0HYM2: ["High-yield credit spread", yearsAgo(3)],
   DTWEXBGS: ["US dollar index", yearsAgo(3)], DCOILWTICO: ["Oil (WTI)", yearsAgo(3)],
   // Exchange rate for converting US holdings to pounds
-  DEXUSUK: ["US dollars per pound", yearsAgo(1)],
+  DEXUSUK: ["US dollars per pound", "2005-01-01"], // long history: converts past trades for "your results vs the index",
 };
 
 async function get(id, start){
