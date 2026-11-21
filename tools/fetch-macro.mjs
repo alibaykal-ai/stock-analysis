@@ -17,6 +17,8 @@ const SERIES = {
   UNRATE: ["Unemployment rate", yearsAgo(4)], PAYEMS: ["Payrolls", yearsAgo(4)], A191RL1Q225SBEA: ["Real GDP growth", yearsAgo(4)],
   VIXCLS: ["VIX", yearsAgo(3)], BAMLH0A0HYM2: ["High-yield credit spread", yearsAgo(3)],
   DTWEXBGS: ["US dollar index", yearsAgo(3)], DCOILWTICO: ["Oil (WTI)", yearsAgo(3)],
+  // Exchange rate for converting US holdings to pounds
+  DEXUSUK: ["US dollars per pound", yearsAgo(1)],
 };
 
 async function get(id, start){

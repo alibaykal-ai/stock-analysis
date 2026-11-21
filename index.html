@@ -170,7 +170,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <main id="app"></main>
 <footer>
-  <b>Version 4.4</b> · 21 Nov 2026 ·
+  <b>Version 5.0</b> · 21 Nov 2026 ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -629,7 +629,8 @@ function viewHome(app, tok){
       </div>
       <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years. Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
-    </div>`;
+    </div>
+    ${homeTab==="mine" && state.holdings.length && state.apiKey ? `<div class="card" id="risk"><h2>Portfolio risk: where your money is</h2><div id="risk-b" class="muted small"><span class="spin"></span> Adding up your holdings…</div></div>` : ""}`;
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { homeTab = b.dataset.tab; viewHome(app, tok); });
   $("#refresh", app).onclick = () => { memCache.forEach((v,k)=>{ if(k.startsWith("/quote")) memCache.delete(k); });
     try{ Object.keys(localStorage).filter(k=>k.startsWith("sa.c./quote")).forEach(k=>localStorage.removeItem(k)); }catch(e){}
@@ -656,6 +657,7 @@ function viewHome(app, tok){
   });
   app.querySelectorAll("tr[data-sym]").forEach(tr => tr.onclick = () => go(stockHref(tr.dataset.sym)));
   if(state.apiKey) list.forEach(h => fillRow(app, h, tok));
+  if(homeTab==="mine" && state.holdings.length && state.apiKey) renderRisk(app, tok);
   const fcb = $("#fullcheck", app); if(fcb) fcb.onclick = () => runFullCheck(app, list, tok);
 }
 function alertInline(app, msg){
@@ -799,6 +801,7 @@ async function runFullCheck(app, list, tok){
     const c = rowCtx.get(h.symbol);
     if(c){ if(td.ok) c.td = td.v; else if(td.e){ c.tdErr = td.e.message; if(["nosym","premium"].includes(td.e.code)) cacheSet("td:err:" + h.symbol, td.e.message, 24*3600e3); } if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
   }
+  if($("#risk-b", app) && live(tok)) renderRisk(app, tok);
   note.textContent = `Full check done${state.tdKey ? "" : " (no Twelve Data key, so technical flags are missing)"}. Results are kept: prices for 12 hours, company reports for a week.`;
   btn.disabled = false;
 }
@@ -2310,6 +2313,111 @@ async function viewMacro(app, tok){
   done = syms.length; draw(); top();
 }
 
+/* ================= Portfolio risk (My Stocks) ================= */
+// All in pounds: US holdings converted with FRED's daily USD-per-GBP rate. London ETFs/funds are in pounds.
+const RISK = { stockAmber: 10, stockRed: 20, sectorAmber: 30, sectorRed: 45 };
+const isFundLike = h => h.type && h.type !== "stock";
+async function holdingValues(){
+  const fx = await safe(macroData());
+  const rateObs = fx.ok ? lastObs(fx.v.series.DEXUSUK) : null;
+  const usdPerGbp = rateObs ? rateObs.v : NaN;
+  const rows = await Promise.all(state.holdings.map(async h => {
+    if(!isNum(h.shares) || h.shares <= 0) return { h, err: "no share count" };
+    const [q, p] = await Promise.all([ safe(fh.quote(h.symbol)), safe(fh.profile(h.symbol)) ]);
+    const prof = p.ok && p.v ? p.v : {};
+    let price = q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : NaN, cur = (prof.currency || "").toUpperCase();
+    if(!isNum(price) && isNum(h.manualPrice)){ price = h.manualPrice; cur = "GBP"; } // prices typed in Settings are in pounds
+    if(!isNum(price)) return { h, err: "no price" };
+    if(!cur) cur = /\.L$/i.test(h.symbol) || isFundLike(h) ? "GBP" : "USD";
+    let gbp;
+    if(cur === "GBP") gbp = price * h.shares;
+    else if(cur === "GBX" || cur === "GBP_PENCE") gbp = price / 100 * h.shares;
+    else if(cur === "USD") gbp = isNum(usdPerGbp) ? price * h.shares / usdPerGbp : NaN;
+    else return { h, err: "priced in " + cur };
+    if(!isNum(gbp)) return { h, err: "no exchange rate" };
+    const etf = isFundLike(h) ? null : sectorOf(prof.finnhubIndustry);
+    const sector = isFundLike(h) ? "Funds & ETFs (already spread out)" : etf ? SECTORS.find(s => s[0] === etf)[1] : (prof.finnhubIndustry || "Other");
+    return { h, gbp, sector, etf, fund: isFundLike(h) };
+  }));
+  return { rows, usdPerGbp, rateDate: rateObs && rateObs.d };
+}
+const fmtGBP = v => "£" + (v >= 1e4 ? Math.round(v).toLocaleString() : v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }));
+// Daily returns keyed by date, from saved Twelve Data prices (no new requests).
+function retMap(td){ const m = new Map(); if(!td) return m; for(let i = 1; i < td.c.length; i++) if(td.c[i-1] > 0) m.set(td.d[i], td.c[i] / td.c[i-1] - 1); return m; }
+const stdev = a => { const n = a.length; if(n < 2) return NaN; const m = a.reduce((x,y)=>x+y,0) / n; return Math.sqrt(a.reduce((s,x)=>s+(x-m)*(x-m),0) / (n-1)); };
+function corr(a, b){ const n = a.length; if(n < 30) return NaN; const ma = a.reduce((x,y)=>x+y,0)/n, mb = b.reduce((x,y)=>x+y,0)/n; let c = 0, va = 0, vb = 0;
+  for(let i = 0; i < n; i++){ c += (a[i]-ma)*(b[i]-mb); va += (a[i]-ma)**2; vb += (b[i]-mb)**2; } return va && vb ? c / Math.sqrt(va*vb) : NaN; }
+function movement(stockRows){
+  const spy = cacheGet("td:daily:SPY:1600") || cacheGet("td:daily:SPY:" + MKT_N);
+  if(!spy) return { need: "spy" };
+  const days = spy.d.slice(-252);
+  const spyR = retMap(spy);
+  const withData = stockRows.map(r => ({ ...r, rm: retMap(peek.td(r.h.symbol)) })).filter(r => days.filter(d => r.rm.has(d)).length >= 150);
+  const total = stockRows.reduce((a, r) => a + r.gbp, 0), cov = withData.reduce((a, r) => a + r.gbp, 0);
+  if(withData.length < 2 || cov < total * 0.5) return { need: "prices", have: withData.length, of: stockRows.length };
+  // Portfolio daily return: value-weighted average of the stocks that traded that day
+  const port = [], mkt = [];
+  for(const d of days){ let s = 0, w = 0; for(const r of withData){ const x = r.rm.get(d); if(isNum(x)){ s += x * r.gbp; w += r.gbp; } }
+    const m = spyR.get(d); if(w > 0 && isNum(m)){ port.push(s / w); mkt.push(m); } }
+  const vol = stdev(port) * Math.sqrt(252) * 100, mvol = stdev(mkt) * Math.sqrt(252) * 100;
+  const beta = corr(port, mkt) * stdev(port) / stdev(mkt);
+  // Average correlation between pairs of holdings
+  const cs = [];
+  for(let i = 0; i < withData.length; i++) for(let j = i + 1; j < withData.length; j++){
+    const a = [], b = []; for(const d of days){ const x = withData[i].rm.get(d), y = withData[j].rm.get(d); if(isNum(x) && isNum(y)){ a.push(x); b.push(y); } }
+    const c = corr(a, b); if(isNum(c)) cs.push(c); }
+  const avgCorr = cs.length ? cs.reduce((x,y)=>x+y,0) / cs.length : NaN;
+  // Worst fall from a peak over the year, portfolio vs S&P 500
+  const dd = rs => { let v = 1, pk = 1, worst = 0; for(const x of rs){ v *= 1 + x; pk = Math.max(pk, v); worst = Math.min(worst, v / pk - 1); } return { worst: worst * 100, now: (v / pk - 1) * 100, total: (v - 1) * 100 }; };
+  return { vol, mvol, beta, avgCorr, pd: dd(port), md: dd(mkt), n: withData.length, of: stockRows.length, cover: cov / total * 100, days: port.length };
+}
+function bars(items, total, warnAt, redAt){
+  return items.map(x => { const pct = x.v / total * 100, c = x.fund ? "var(--accent)" : isNum(redAt) && pct > redAt ? "var(--bad)" : isNum(warnAt) && pct > warnAt ? "var(--mid)" : "var(--accent)";
+    return `<div class="hp" style="grid-template-columns:minmax(120px,220px) 1fr 110px"><span>${x.label}</span><div class="hp-bar"><i style="width:${Math.min(100, pct).toFixed(1)}%;background:${c}"></i></div><span class="hp-v">${pct.toFixed(1)}% <small class="muted">${fmtGBP(x.v)}</small></span></div>`; }).join("");
+}
+async function renderRisk(app, tok){
+  const el = $("#risk-b", app); if(!el) return;
+  const hv = await holdingValues(); if(!live(tok)) return;
+  const ok = hv.rows.filter(r => isNum(r.gbp)), bad = hv.rows.filter(r => !isNum(r.gbp));
+  if(!ok.length){ el.innerHTML = `<span class="muted">Can't value your holdings yet${bad.length ? ": " + bad.map(r => `${esc(r.h.symbol)} (${esc(r.err)})`).join(", ") : ""}.</span>`; return; }
+  const total = ok.reduce((a, r) => a + r.gbp, 0);
+  const byStock = ok.slice().sort((a, b) => b.gbp - a.gbp);
+  const secMap = new Map(); ok.forEach(r => { const k = r.sector; const e = secMap.get(k) || { v: 0, syms: [], fund: r.fund, etf: r.etf }; e.v += r.gbp; e.syms.push(r.h.symbol); secMap.set(k, e); });
+  const bySector = [...secMap.entries()].map(([k, e]) => ({ k, ...e })).sort((a, b) => b.v - a.v);
+  const stocks = byStock.filter(r => !r.fund), topS = stocks[0], topSec = bySector.find(s => !s.fund);
+  const sPct = topS ? topS.gbp / total * 100 : 0, secPct = topSec ? topSec.v / total * 100 : 0;
+  const lvl = sPct > RISK.stockRed || secPct > RISK.sectorRed ? 2 : sPct > RISK.stockAmber || secPct > RISK.sectorAmber ? 1 : 0;
+  const badge = [["b-cheap","Well spread"],["b-warn","Fairly concentrated"],["b-rich","Concentrated"]][lvl];
+  const mv = movement(stocks);
+  // Sector status from the Macro tab's saved data (no new requests)
+  const spySaved = cacheGet("td:daily:SPY:1600");
+  const secStatus = etf => { const h = etf && cacheGet("td:daily:" + etf + ":" + MKT_N); if(!h || !spySaved) return ""; const rel = retN(h, 63) - retN(spySaved, 63); return " " + relBadge(rel); };
+  const mvLine = mv.vol ? ` Over the last year your stocks swung about <b>${(mv.vol / mv.mvol).toFixed(1)}×</b> as much as the S&amp;P 500.` : "";
+  const tag = (v, a, r, good) => isNum(v) ? (v >= r ? `<span class="badge b-rich">High</span>` : v >= a ? `<span class="badge b-warn">Above market</span>` : isNum(good) && v < good ? `<span class="badge b-cheap">Low</span>` : `<span class="badge b-inline">Normal</span>`) : "";
+  el.classList.remove("muted", "small");
+  el.innerHTML = `
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${badge[0]}">${badge[1]}</span></div>
+      <p style="margin:0;flex:1;min-width:260px;max-width:760px">${topS ? `Your biggest single stock is <b>${esc(topS.h.symbol)}</b> at <b>${sPct.toFixed(0)}%</b> of your money` : "No single stocks"}${topSec ? `, and <b>${secPct.toFixed(0)}%</b> is in <b>${esc(topSec.k.toLowerCase())}</b>${secStatus(topSec.etf)}` : ""}.${mvLine}
+      <span class="small muted">Total ${fmtGBP(total)} across ${ok.length} holdings${hv.rateDate ? `, US stocks converted at $${hv.usdPerGbp.toFixed(4)} per £ (${fmtDay(hv.rateDate)})` : ""}.</span></p></div>
+    <h3>By sector</h3>${bars(bySector.map(s => ({ label: `${esc(s.k)}${s.fund ? "" : secStatus(s.etf)}<br><small class="muted">${s.syms.map(esc).join(", ")}</small>`, v: s.v, fund: s.fund })), total, RISK.sectorAmber, RISK.sectorRed)}
+    <h3>By holding</h3>${bars(byStock.slice(0, 8).map(r => ({ label: `<b>${esc(r.h.symbol)}</b>${r.fund ? ' <small class="muted">fund</small>' : ""}`, v: r.gbp, fund: r.fund })), total, RISK.stockAmber, RISK.stockRed)}
+    ${byStock.length > 8 ? `<details class="more" style="margin-top:4px"><summary>Show all ${byStock.length}</summary>${bars(byStock.slice(8).map(r => ({ label: `<b>${esc(r.h.symbol)}</b>`, v: r.gbp })), total, RISK.stockAmber, RISK.stockRed)}</details>` : ""}
+    <h3>How your stocks move</h3>
+    ${mv.need === "spy" ? `<p class="small muted">Open the <a href="#macro">Macro tab</a> once so the app has the S&amp;P 500's price history to compare with.</p>`
+      : mv.need === "prices" ? `<p class="small muted">Price history saved for ${mv.have} of ${mv.of} stocks. Press <b>Run full check</b> above to fetch the rest (Twelve Data, kept 12 hours).</p>`
+      : `<div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+        <div class="stat"><span>Ups and downs (volatility)</span><b>${mv.vol.toFixed(0)}% a year</b>${tag(mv.vol / mv.mvol, 1.15, 1.5, 0.85)}<p>S&amp;P 500: ${mv.mvol.toFixed(0)}%. A typical year's swing either way; ${(mv.vol / mv.mvol).toFixed(1)}× the market's.</p></div>
+        <div class="stat"><span>Sensitivity to the market (beta)</span><b>${mv.beta.toFixed(2)}</b>${tag(mv.beta, 1.1, 1.3, 0.9)}<p>When the S&amp;P 500 falls 10%, your stocks have typically fallen about ${(mv.beta * 10).toFixed(0)}%.</p></div>
+        <div class="stat"><span>Move together (correlation)</span><b>${isNum(mv.avgCorr) ? mv.avgCorr.toFixed(2) : "—"}</b>${tag(mv.avgCorr, 0.4, 0.6, 0.25)}<p>0 = unrelated, 1 = move in lockstep. ${mv.avgCorr >= 0.6 ? "Your stocks tend to rise and fall together, so owning several of them spreads risk less than it seems." : mv.avgCorr >= 0.4 ? "Your stocks often move together." : "Your stocks move fairly independently: good for spreading risk."}</p></div>
+        <div class="stat"><span>Worst fall in the last year</span><b>${fmtPct(mv.pd.worst, 0)}</b>${tag(mv.pd.worst / Math.min(-0.01, mv.md.worst), 1.15, 1.5, 0.85)}<p>S&amp;P 500: ${fmtPct(mv.md.worst, 0)}. Now ${fmtPct(mv.pd.now, 0)} from the year's peak (market ${fmtPct(mv.md.now, 0)}).</p></div>
+      </div>
+      <p class="small muted" style="margin:8px 0 0">Based on ${mv.n} of ${mv.of} stocks (${mv.cover.toFixed(0)}% of the money in single stocks), daily prices over the last ${mv.days} trading days, weighted by today's values. Funds and ETFs left out.</p>`}
+    ${bad.length ? `<p class="small muted" style="margin:8px 0 0">Not included: ${bad.map(r => `${esc(r.h.symbol)} (${esc(r.err)})`).join(", ")}. Add share counts or prices in Settings.</p>` : ""}
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted">Values are price × shares, in pounds; US stocks converted at FRED's daily exchange rate; fund prices typed in Settings are taken as pounds. <b>Concentration</b> (suggested limits): one stock above ${RISK.stockAmber}% = amber, above ${RISK.stockRed}% = red; one sector above ${RISK.sectorAmber}% = amber, above ${RISK.sectorRed}% = red. Funds and ETFs are already spread over many companies, so they don't count as a single-stock or sector risk. Sector badges (Leading/Lagging vs the S&amp;P 500 over 3 months) come from the Macro tab when it has been opened in the last 12 hours.
+      <b>Volatility</b> = how much the daily value of your stocks swings, scaled to a year. <b>Beta</b> = how much your stocks have moved for each 1% move in the S&amp;P 500. <b>Correlation</b> = average across every pair of your stocks. These describe the past year, not a forecast, and they are not reasons to buy or sell.</p>
+    </details>`;
+}
 /* ================= Settings ================= */
 function viewSettings(app){
   const funds = state.holdings.filter(h => h.type && h.type !== "stock");
