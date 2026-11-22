@@ -346,7 +346,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.8</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.9</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -3509,7 +3509,7 @@ async function holdingValues(){
     if(!isNum(gbp)) return { h, err: "no exchange rate" };
     const etf = isFundLike(h) ? null : sectorOf(prof.finnhubIndustry);
     const sector = isFundLike(h) ? "Funds & ETFs (already spread out)" : etf ? SECTORS.find(s => s[0] === etf)[1] : (prof.finnhubIndustry || "Other");
-    return { h, gbp, chg, sector, etf, fund: isFundLike(h) };
+    return { h, gbp, chg, sector, etf, fund: isFundLike(h), cur, toGbp };
   }));
   return { rows, usdPerGbp, rateDate: rateObs.d, rateSrc: rateObs.src };
 }
@@ -3668,7 +3668,7 @@ function xirr(flows){ // flows: [{d, v}], v < 0 money in, > 0 money out. Yearly 
   for(let k = 0; k < 200; k++){ const m = (lo + hi) / 2; if(npv(lo) * npv(m) <= 0) hi = m; else lo = m; }
   return (lo + hi) / 2 * 100;
 }
-async function tradeResults(hv, spy, qqq, tok){
+async function tradeResults(hv, spy, qqq, tok, note){
   const bank = (state.trades && state.trades.rows) || [], typed = state.buys || [];
   const first = [...bank, ...typed].map(t => t.d).sort()[0], today = ymd(new Date());
   // Index history must reach the first order: fetch a longer copy (1 request each, kept 12 hours) only if needed
@@ -3699,7 +3699,7 @@ async function tradeResults(hv, spy, qqq, tok){
     let value = 0;
     if(held){ const h = hr.h, eff = h.shares > 0 ? h.shares : 1;
       value = !h.accts ? hr.gbp : g.sym ? hr.gbp * Math.max(0, shares) / eff : hr.gbp * Math.max(0, h.bankShares) / eff; }
-    const res = { name: g.name, acct: g.acct, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })) };
+    const res = { name: g.name, acct: g.acct, sym: held ? map.symbol : (map && map.symbol) || "", held, bought, sold, value, book: held ? cost : 0, gain: value + sold - bought, first: g.trades[0].d, flows: g.trades.map(t => ({ d: t.d, v: t.s === "B" ? -t.a : t.a })), trades: g.trades, hr };
     // Index instead: each buy puts the same pounds into the index fund; each sell sells the same share of that index money
     // (selling half the shares sells half the index units), so every row compares like with like.
     for(const [key, h] of idx){
@@ -3722,7 +3722,113 @@ async function tradeResults(hv, spy, qqq, tok){
   const yrs = (new Date(today) - new Date(first)) / (365.25 * 864e5);
   tot.irr = xirr(flows.concat([{ d: today, v: tot.value }]));
   for(const [key] of idx) tot[key + "Irr"] = isNum(tot[key]) ? xirr(out.flatMap(r => r[key + "Flows"]).sort((a, b) => a.d < b.d ? -1 : 1).concat([{ d: today, v: tot[key] }])) : NaN;
-  return { out, tot, skipped, first, yrs, fxShort, fxFirst: fxs.d[0], n: bank.length, typed: typed.length, saved: state.trades && state.trades.saved };
+  const per = await periodResults(out, hv, spy, qqq, rateFor, fxNow, tok, note); if(!live(tok)) return null;
+  return { out, tot, skipped, first, yrs, fxShort, fxFirst: fxs.d[0], n: bank.length, typed: typed.length, saved: state.trades && state.trades.saved, per, rateFor };
+}
+// ---- Your real gains by period (7.9; replaces "How the stocks you hold now have done", which pretended today's shares
+// were held all along, so a stock bought last week got credit for its whole year) ----
+// For each period: what each investment was worth at the start (shares you held then × that day's close × that day's exchange
+// rate), plus what you bought and minus what you sold during the period, against what it's worth now.
+//   gain = worth now + sold − worth at the start − bought.
+// Shares held on a date = today's shares (My Stocks) minus the shares bought since, plus the shares sold since.
+// Return % = gain ÷ (worth at the start + money put in, weighted by how long it was invested in the period: "modified Dietz").
+// The same money in the S&P 500 / Nasdaq-100: the value at the start goes into the index fund, every buy adds the same pounds,
+// every sell takes out the same share of the index money (as in the table above).
+const dDays = (a, b) => (new Date(b + "T12:00:00Z") - new Date(a + "T12:00:00Z")) / 864e5;
+async function periodResults(out, hv, spy, qqq, rateFor, fxNow, tok, note){
+  const periods = perfPeriods(spy); if(!periods.length) return null;
+  const minStart = periods.map(p => p.start).sort()[0];
+  // Price history for every stock held or traded in the last year (funds on the London exchange have none on the free plan).
+  // Missing or older than 12 hours: fetched here, 1 Twelve Data request each (the app keeps to 7 a minute), not Alpha Vantage.
+  const need = out.filter(r => r.sym && !/\.L$/i.test(r.sym) && !(r.hr && r.hr.fund) && !peek.td(r.sym) && !cacheGet("td:err:" + r.sym)
+    && ((r.trades || []).some(t => t.d > minStart) || r.held)).map(r => r.sym);
+  if(need.length && state.tdKey) for(let i = 0; i < need.length; i++){
+    if(note) note(`Loading price history for ${need[i]} (${i + 1} of ${need.length}; Twelve Data, kept 12 hours)…`);
+    await safe(tdDaily(need[i])); if(!live(tok)) return null; }
+  const G = [];
+  for(const r of out){
+    const tr = r.trades || [], hr = r.hr, sym = r.sym;
+    const perShare = r.held && hr ? hr.gbp / hr.h.shares : NaN, shNow = r.held && perShare > 0 ? r.value / perShare : 0;
+    const shAt = d => Math.max(0, shNow - tr.filter(t => t.d > d).reduce((s, t) => s + (t.s === "B" ? t.q : -t.q), 0));
+    if(shAt(minStart) < 1e-9 && !tr.some(t => t.d > minStart)) continue; // nothing held or traded in the longest period
+    const td = sym ? peek.td(sym) : null;
+    const usd = hr ? hr.cur === "USD" : !/\.L$/i.test(sym || "");
+    const conv = d => usd ? 1 / rateFor(d) : hr ? hr.toGbp : NaN;
+    G.push({ r, sym: sym || r.name, tr, td, shAt, conv, now: r.held ? r.value : 0, fund: hr && hr.fund });
+  }
+  const idx = [["spy", spy], ["qqq", qqq]].filter(x => x[1]);
+  const pg = (h, d) => { const c = closeOn(h, d), x = rateFor(d); return c && isNum(x) ? c / x : NaN; };
+  return periods.map(p => {
+    const today = ymd(new Date()), rows = [], missing = [], T = Math.max(1, dDays(p.start, today)); // money is weighted up to today ("worth now")
+    for(const g of G){
+      const sh0 = g.shAt(p.start), inP = g.tr.filter(t => t.d > p.start);
+      if(sh0 < 1e-9 && !inP.length) continue;
+      const px0 = sh0 >= 1e-9 ? (g.td ? closeOn(g.td, p.start) : null) : 0;
+      const v0 = sh0 >= 1e-9 ? (px0 ? sh0 * px0 * g.conv(p.start) : NaN) : 0;
+      if(!isNum(v0) || (inP.length && !g.td && g.now && sh0 >= 1e-9)){ missing.push(g); continue; }
+      const buys = inP.filter(t => t.s === "B").reduce((s, t) => s + t.a, 0), sells = inP.filter(t => t.s !== "B").reduce((s, t) => s + t.a, 0);
+      const base = v0 + inP.reduce((s, t) => s + (t.s === "B" ? t.a : -t.a) * Math.max(0, Math.min(1, dDays(t.d, today) / T)), 0);
+      const row = { g, v0, sh0, buys, sells, now: g.now, gain: g.now + sells - v0 - buys, base, inP };
+      row.ret = v0 + buys > 0 ? row.gain / (v0 + buys) * 100 : NaN; // one investment: % of the money in it (a stock bought 3 days ago isn't "+2,600%")
+      for(const [k, h] of idx){ // the same money in the index fund
+        let units = v0 > 0 ? v0 / pg(h, p.start) : 0, sh = sh0, got = 0;
+        for(const t of inP){ const x = pg(h, t.d); if(t.s === "B"){ units += t.a / x; sh += t.q; } else { const f = sh > 0 ? Math.min(1, t.q / sh) : 0; got += units * f * x; units -= units * f; sh = Math.max(0, sh - t.q); } }
+        row[k] = units * lastOf(h.c) / fxNow + got - v0 - buys;
+      }
+      rows.push(row);
+    }
+    const sum = k => rows.reduce((s, x) => s + x[k], 0);
+    const tot = { v0: sum("v0"), buys: sum("buys"), sells: sum("sells"), now: sum("now"), gain: sum("gain"), base: sum("base") };
+    tot.ret = tot.base > 0 ? tot.gain / tot.base * 100 : NaN;
+    for(const [k] of idx){ const ok = rows.every(x => isNum(x[k])); tot[k] = ok ? sum(k) : NaN; tot[k + "Ret"] = ok && tot.base > 0 ? tot[k] / tot.base * 100 : NaN; }
+    return { ...p, rows, missing, tot };
+  });
+}
+// Gain so far on each trading day of the period, yours and the same money in the S&P 500 (pounds).
+// Investments without price history count at cost (no gain) until today; the last point is replaced by today's figures.
+function periodLine(P, spy, rateFor){
+  const days = spy.d.filter(d => d > P.start);
+  const pg = d => { const c = closeOn(spy, d), x = rateFor(d); return c && isNum(x) ? c / x : NaN; };
+  const you = days.map(() => 0), idx = days.map(() => 0);
+  for(const r of P.rows){ const g = r.g, tr = r.inP;
+    let units = r.v0 > 0 ? r.v0 / pg(P.start) : 0, sh = r.sh0, got = 0, bought = 0, sold = 0, ti = 0;
+    days.forEach((d, i) => {
+      while(ti < tr.length && tr[ti].d <= d){ const t = tr[ti++], x = pg(t.d);
+        if(t.s === "B"){ units += t.a / x; sh += t.q; bought += t.a; }
+        else { const f = sh > 0 ? Math.min(1, t.q / sh) : 0; got += units * f * x; units -= units * f; sh = Math.max(0, sh - t.q); sold += t.a; } }
+      const n = g.shAt(d), px = n > 1e-9 && g.td ? closeOn(g.td, d) : null;
+      const v = n < 1e-9 ? 0 : px ? n * px * g.conv(d) : r.v0 + bought - sold;
+      you[i] += v + sold - r.v0 - bought;
+      idx[i] += units * pg(d) + got - r.v0 - bought;
+    });
+  }
+  if(days.length){ you[days.length - 1] = P.tot.gain; if(isNum(P.tot.spy)) idx[days.length - 1] = P.tot.spy; }
+  return { days, you, idx };
+}
+function periodsHtml(per, rateFor){
+  if(!per || !per.length) return "";
+  const sg = v => isNum(v) ? `<span class="${cls(v)}">${v >= 0 ? "+" : "−"}${fmtGBP(Math.abs(v))}</span>` : "—";
+  const pc = v => isNum(v) ? `<span class="${cls(v)}">${fmtPct(v, 1)}</span>` : "—";
+  const head = per.find(p => p.k === "YTD") || per[per.length - 1];
+  const t = head.tot, gap = t.ret - t.spyRet, bd = perfBadge(gap);
+  const miss = [...new Map(per.flatMap(p => p.missing).map(g => [g.sym, g])).values()];
+  const missVal = miss.reduce((s, g) => s + (g.now || 0), 0);
+  const why = g => g.fund || /\.L$/i.test(g.sym) ? "" : " (no price history)";
+  return `<h3>Your gains by period</h3>
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
+      <p style="margin:0;flex:1;min-width:260px;max-width:760px"><b>${head.label}</b> (since ${fmtDay(head.start)}) you ${t.gain >= 0 ? "made" : "lost"} <b>${sg(t.gain)}</b> (${pc(t.ret)}).
+      Your investments were worth ${fmtGBP(t.v0)} then; you bought ${fmtGBP(t.buys)} and sold ${fmtGBP(t.sells)} since, and they're worth ${fmtGBP(t.now)} now.
+      The same money in the S&amp;P 500 would have ${t.spy >= 0 ? "made" : "lost"} ${sg(t.spy)} (${pc(t.spyRet)})${isNum(t.qqq) ? `; in the Nasdaq-100 ${sg(t.qqq)} (${pc(t.qqqRet)})` : ""}.
+      <span class="small muted">Real money: what you actually held each day, with each purchase and sale on its date${miss.length ? `; left out, as there's no daily price history for them on the free plan: ${miss.map(g => esc(g.sym) + why(g)).join(", ")} (${fmtGBP(missVal)} today)` : ""}.</span></p></div>
+    <div style="overflow-x:auto"><table style="max-width:860px"><thead><tr><th></th>${per.map(p => `<th class="num">${p.label}</th>`).join("")}</tr></thead><tbody>
+      <tr><td><b>Your gain</b></td>${per.map(p => `<td class="num"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td>`).join("")}</tr>
+      <tr><td>Same money in the S&amp;P 500</td>${per.map(p => `<td class="num">${sg(p.tot.spy)}<div class="small">${pc(p.tot.spyRet)}</div></td>`).join("")}</tr>
+      ${per[0].tot.qqq !== undefined ? `<tr><td>In the Nasdaq-100</td>${per.map(p => `<td class="num">${sg(p.tot.qqq)}<div class="small">${pc(p.tot.qqqRet)}</div></td>`).join("")}</tr>` : ""}
+      <tr><td class="muted">You vs the S&amp;P 500</td>${per.map(p => `<td class="num">${sg(p.tot.gain - p.tot.spy)}</td>`).join("")}</tr>
+      <tr><td class="muted">Worth at the start</td>${per.map(p => `<td class="num muted">${fmtGBP(p.tot.v0)}</td>`).join("")}</tr>
+      <tr><td class="muted">Bought / sold in the period</td>${per.map(p => `<td class="num muted">${fmtGBP(p.tot.buys)} / ${fmtGBP(p.tot.sells)}</td>`).join("")}</tr>
+    </tbody></table></div>
+    <div id="perf-detail"></div>`;
 }
 function tradesHtml(R){
   if(!R) return "";
@@ -3759,8 +3865,46 @@ function tradesHtml(R){
     <details class="more"><summary>How to read this</summary>
       <p class="small muted">Uses ${R.n ? `the ${R.n} completed orders with dates from the bank file you imported on ${fmtDay(R.saved)}` : "no bank file yet"}${R.typed ? ` and the ${R.typed} purchases/sales you typed in (dollar prices converted to pounds at that day's exchange rate; rows tagged with their account)` : ""} (kept in this browser only). <b>Put in</b> = cost of all buys, <b>Taken out</b> = proceeds of all sells, <b>Worth now</b> = today's shares × today's price (your share counts in My Stocks, so dividends reinvested by your bank count). <b>Your gain</b> = worth now + taken out − put in; the % is of the money put in. <b>On shares still held</b> = today's value ÷ the average cost of the shares you still have, the way banking apps usually show it, so you can check it against Barclays. <b>Same money in the S&amp;P 500</b>: every buy puts the same pounds into the SPY fund that day; every sell sells the same share of that index money (sell half your shares and half the index money is sold), converted at that day's exchange rate (FRED). The gain = what the index money sold for + what's left today − money put in. <b>Difference</b> = your gain − the index's gain. ${annual ? "<b>A year</b> figures are money-weighted: they allow for when the money went in and came out." : "Yearly rates are shown once your first order is more than a year old."}
       <b>Badge</b> (suggested): ${PERF_GAP}+ ${unit} ahead of the S&amp;P 500 = Ahead; within ${PERF_GAP} = In line; up to 10 behind = Behind; more than 10 behind = Well behind. Index prices exclude dividends (about 1% a year for the S&amp;P 500), so treat a gap under 1–2 points a year as a tie. Orders your bank file doesn't include (e.g. older ones, transfers in) aren't counted; new bank orders after ${R.saved ? fmtDay(R.saved) : "your import"} need a fresh import (or type them in under My Stocks). Past results, not a forecast.</p>
-    </details>
-    <h3>How the stocks you hold now have done</h3>`;
+    </details>`;
+}
+let perfAllOpen = false;
+function renderPeriods(el, actual, R, spy){
+  const per = R.per; if(!per.some(p => p.k === perfPeriod)) perfPeriod = (per.find(p => p.k === "YTD") || per[per.length - 1]).k;
+  const sg = v => isNum(v) ? `<span class="${cls(v)}">${v >= 0 ? "+" : "−"}${fmtGBP(Math.abs(v))}</span>` : "—";
+  const pc = v => isNum(v) ? `<span class="${cls(v)}">${fmtPct(v, 1)}</span>` : "—";
+  el.classList.remove("muted", "small");
+  el.innerHTML = actual + periodsHtml(per) + `
+    <details class="more"><summary>How to read this</summary>
+      <p class="small muted">Your real results in each period, from your bank orders and typed purchases. <b>Worth at the start</b> = the shares you held on that day × that day's closing price × that day's exchange rate (FRED). <b>Your gain</b> = worth now + what you sold in the period − worth at the start − what you bought in the period, so a stock bought last week only counts from last week, at the price you paid. Shares held on a date = today's shares in My Stocks minus the shares bought since (plus those sold since). <b>%</b> = the gain ÷ the money at work: the value at the start plus each purchase (minus each sale) weighted by how long it was invested in the period (the "modified Dietz" method banks use). <b>Same money in the S&amp;P 500</b>: the value at the start goes into the SPY fund, every purchase adds the same pounds on the same day, every sale takes out the same share of the index money. <b>Helped / hurt most</b> = each investment's gain in pounds in the period, and as a % of the money in it (its value at the start plus what you bought). Price changes and currency moves count; dividends don't (they'd add about 1% a year to the S&amp;P 500). Funds with no price history on the free plan are left out. Periods end at the last close (${fmtDay(per[0].end)}), with today's prices for "worth now". <b>Badge</b>: this year's return vs the S&amp;P 500's, ${PERF_GAP}+ points ahead = Ahead, within ${PERF_GAP} = In line, up to 10 behind = Behind, more = Well behind. Past results, not a forecast.</p>
+    </details>`;
+  const draw = () => {
+    const p = per.find(x => x.k === perfPeriod), L = periodLine(p, spy, R.rateFor);
+    const helped = p.rows.filter(x => x.gain > 0.5).sort((a, b) => b.gain - a.gain).slice(0, 3);
+    const hurt = p.rows.filter(x => x.gain < -0.5).sort((a, b) => a.gain - b.gain).slice(0, 3);
+    const item = x => `<li><b>${esc(x.g.sym)}</b> ${sg(x.gain)} <span class="small muted">(${pc(x.ret)}${x.sh0 < 1e-9 && x.buys ? `, bought ${fmtDay(x.inP[0].d)}` : x.now < 0.5 && x.sells ? ", sold" : ""})</span></li>`;
+    $("#perf-detail", el).innerHTML = `
+      <p class="small muted" style="margin:14px 0 4px">Chart and biggest gains and losses for:</p><div class="tabs" style="margin:0 0 8px">${per.map(x => `<button data-pp="${x.k}" class="${x.k === perfPeriod ? "on" : ""}">${x.label}</button>`).join("")}</div>
+      <div class="mood">
+        <div>${sparkSvg([{ v: L.idx, cls: "s-sp" }, { v: L.you, cls: "s-pf" }], 420, 120, 0)}
+          <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--s1)"></i>Your gain ${sg(p.tot.gain)}</span><span><i class="lk" style="background:var(--muted)"></i>Same money in the S&amp;P 500 ${sg(p.tot.spy)}</span></div>
+          <p class="small muted" style="margin:2px 0 0">Gain in pounds since ${fmtDay(p.start)}; dotted line = no gain or loss.</p></div>
+        <div style="flex:1;min-width:240px">
+          <p style="margin:0 0 4px"><b>Helped most</b></p>${helped.length ? `<ul style="margin:0 0 10px;padding-left:18px">${helped.map(item).join("")}</ul>` : `<p class="small muted" style="margin:0 0 10px">Nothing made money in this period.</p>`}
+          <p style="margin:0 0 4px"><b>Hurt most</b></p>${hurt.length ? `<ul style="margin:0;padding-left:18px">${hurt.map(item).join("")}</ul>` : `<p class="small muted" style="margin:0">Nothing lost money in this period.</p>`}
+        </div>
+      </div>
+      <details class="more" id="perf-all"><summary>All ${p.rows.length} investments, ${p.label.toLowerCase()}</summary>
+        <div style="overflow-x:auto"><table class="perf-all"><thead><tr><th>Investment</th><th class="num">Worth at the start</th><th class="num">Bought</th><th class="num">Sold</th><th class="num">Worth now</th><th class="num">Gain</th></tr></thead><tbody>
+        ${p.rows.slice().sort((a, b) => a.gain - b.gain).map(x => `<tr><td><b>${esc(x.g.sym)}</b>${x.g.r.acct ? ` <small class="badge b-inline">${esc(x.g.r.acct)}</small>` : ""}${x.inP.length ? `<div class="small muted">${x.inP.map(t => `${t.s === "B" ? "bought" : "sold"} ${fmtDay(t.d)}`).slice(0, 3).join(", ")}${x.inP.length > 3 ? ` +${x.inP.length - 3} more` : ""}</div>` : ""}</td>
+          <td class="num">${x.v0 ? fmtGBP(x.v0) : "—"}</td><td class="num">${x.buys ? fmtGBP(x.buys) : "—"}</td><td class="num">${x.sells ? fmtGBP(x.sells) : "—"}</td><td class="num">${x.now ? fmtGBP(x.now) : "—"}</td>
+          <td class="num">${sg(x.gain)}<div class="small">${pc(x.ret)}</div></td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td class="num"><b>${fmtGBP(p.tot.v0)}</b></td><td class="num"><b>${fmtGBP(p.tot.buys)}</b></td><td class="num"><b>${fmtGBP(p.tot.sells)}</b></td><td class="num"><b>${fmtGBP(p.tot.now)}</b></td><td class="num"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td></tr>
+        </tbody></table></div></details>`;
+    if(perfAllOpen) $("#perf-all", el).open = true;
+    $("#perf-all", el).ontoggle = e => { perfAllOpen = e.target.open; };
+    el.querySelectorAll("[data-pp]").forEach(b => b.onclick = () => { perfPeriod = b.dataset.pp; draw(); });
+  };
+  draw();
 }
 async function renderPerf(app, tok){
   const el = $("#perf-b", app); if(!el) return;
@@ -3777,8 +3921,10 @@ async function renderPerf(app, tok){
   let actual = "";
   if((state.trades && state.trades.rows && state.trades.rows.length) || (state.buys || []).length){
     el.innerHTML = `<span class="spin"></span> Working out your results from your bank orders…`;
-    const R = await tradeResults(hv, spy, qqq, tok); if(!live(tok)) return;
+    const R = await tradeResults(hv, spy, qqq, tok, t => { el.innerHTML = `<span class="spin"></span> ${esc(t)}`; }); if(!live(tok)) return;
     actual = tradesHtml(R);
+    if(R && !R.err && R.per && R.per.length){ renderPeriods(el, actual, R, spy); return; }
+    actual += `<h3>How the stocks you hold now have done</h3>`;
   } else actual = `<div class="callout" style="margin:0 0 12px"><b>See your real results:</b> re-import your bank's order history in <a href="#settings">Settings</a> ("Import from your bank's order history"). The app then keeps each buy and sell with its date (in this browser only) and compares your actual gains with the same money put into the S&amp;P 500 and Nasdaq-100 on the same days.</div><h3>How the stocks you hold now have done</h3>`;
   const valued = hv.rows.filter(r => isNum(r.gbp));
   const rows = valued.map(r => ({ ...r, td: peek.td(r.h.symbol) }));
