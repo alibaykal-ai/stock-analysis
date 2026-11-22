@@ -388,7 +388,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.13</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.14</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1015,7 +1015,7 @@ const RATIOS = [
     help:"How many dollars you pay for $1 of yearly profit." },
   { id:"ps", label:"P/S", long:"Price / Sales", now:["psTTM","psAnnual"], series:["psTTM","ps"], positiveOnly:true,
     help:"How many dollars you pay for $1 of yearly revenue. Useful when profits are small or negative." },
-  { id:"pb", label:"P/B", long:"Price / Book", now:["pbQuarterly","pbAnnual","pb"], series:["pb"], positiveOnly:true,
+  { id:"pb", label:"P/B", long:"Price / Book", now:["pbNow","pbQuarterly","pbAnnual","pb"], series:["pb"], positiveOnly:true,
     help:"Price compared with the company's net assets (what it owns minus what it owes)." },
   { id:"evebitda", label:"EV/EBITDA", long:"Enterprise value / EBITDA", now:["evEbitdaTTM","enterpriseValueEbitdaTTM","currentEv/ebitdaTTM","evToEbitdaTTM"], series:["evEbitdaTTM","evEbitda","ev/ebitda"], positiveOnly:true,
     help:"Like P/E but includes debt. Good for comparing companies with different amounts of borrowing." },
@@ -1361,23 +1361,54 @@ function splitFactor(mm, td){
   const rev = one(cH / hi * 0.98, cL / lo * 1.02); if(rev) return 1 / rev; // reverse split
   return 1;
 }
-const splitOf = sym => { const m = cacheGet("/stock/metric?" + new URLSearchParams({ symbol: sym, metric: "all" })); return splitFactor(m && m.metric, peek.td(sym)); };
-function liveMetric(met, price, f){
+// 3) (7.14, SNDK two days after its 8-for-1 split) Finnhub updates its figures bit by bit: the 52-week range came through on
+//    the new basis while EPS, book value per share and the share count stayed old, so check 1) found nothing and fair value
+//    came out 8× too high again. So each kind of figure is checked on its own. Finnhub's quarterly series give the company's
+//    market value on the last quarter's date (P/B × book value); ÷ Twelve Data's split-adjusted close that day = the number
+//    of shares on today's basis. Against Finnhub's book value per share → the factor for per-share figures (EPS, book value,
+//    sales…); against the profile's share count → the factor for the share count. Checked 22 Nov on the owner's 17 stocks
+//    with reports: 0.88–1.03 for all but SNDK (8.07 and 8.17). The 52-week range keeps check 1). No extra requests.
+const slWhole = r => { if(!isNum(r) || r <= 0) return NaN;
+  if(r >= 1.8){ const k = Math.round(r); return k <= 100 && Math.abs(r / k - 1) <= 0.1 ? k : NaN; }
+  if(r <= 0.55){ const k = Math.round(1 / r); return k <= 100 && Math.abs(1 / r / k - 1) <= 0.1 ? 1 / k : NaN; }
+  return Math.abs(r - 1) <= 0.25 ? 1 : NaN; };
+function splitInfo(met, prof, td){
+  const mm = met && met.metric, f52 = splitFactor(mm, td), o = { f52, ps: f52, sh: f52 };
+  const q = met && met.series && met.series.quarterly, pb = q && q.pb, bv = q && q.bookValue;
+  if(!Array.isArray(pb) || !Array.isArray(bv) || !td || !Array.isArray(td.d) || td.d.length < 30) return o;
+  const closeOn = d => { if(!d) return NaN; let i = td.d.length - 1; while(i >= 0 && td.d[i] > d) i--; return i >= 0 && td.d[0] <= d ? td.c[i] : NaN; };
+  const real = i => { const x = pb[i], b = x && bv.find(y => y.period === x.period), c = x && closeOn(x.period);
+    return x && b && isNum(x.v) && x.v > 0 && isNum(b.v) && b.v > 0 && c > 0 ? { n: x.v * b.v / c, bv: b.v } : null; };
+  const a = real(0), b2 = real(1); if(!a) return o;
+  const bvps = mm && pick(mm, ["bookValuePerShareQuarterly", "bookValuePerShareAnnual"]);
+  if(isNum(bvps) && bvps > 0){ const f = slWhole(bvps * a.n / a.bv); if(isNum(f)) o.ps = f; }
+  const sh = prof && prof.shareOutstanding;
+  if(isNum(sh) && sh > 0){ const fa = slWhole(a.n / sh), fb = b2 ? slWhole(b2.n / sh) : NaN; if(isNum(fa) && (!isNum(fb) || fb === fa)) o.sh = fa; }
+  return o;
+}
+const splitShown = S => S ? (S.ps !== 1 ? S.ps : S.sh !== 1 ? S.sh : S.f52) : 1;
+const splitOf = sym => { const m = cacheGet("/stock/metric?" + new URLSearchParams({ symbol: sym, metric: "all" })); return splitInfo(m, null, peek.td(sym)).ps; };
+function liveMetric(met, price, S){
   if(!met || !met.metric) return met;
   const mm = { ...met.metric };
-  if(f && f !== 1){ for(const k in mm) if(PER_SHARE(k) && isNum(mm[k])) mm[k] = mm[k] / f; mm._split = f; }
+  if(S && (S.ps !== 1 || S.f52 !== 1)){ for(const k in mm) if(PER_SHARE(k) && isNum(mm[k])) mm[k] = mm[k] / (/^52Week/.test(k) ? S.f52 : S.ps); mm._split = splitShown(S); }
   if(isNum(price) && price > 0){
     const pe = pick(mm, ["peTTM","peBasicExclExtraTTM","peExclExtraTTM"]), eps = pick(mm, ["epsTTM","epsBasicExclExtraItemsTTM","epsExclExtraItemsTTM"]);
     let at = isNum(pe) && isNum(eps) && pe > 0 && eps > 0 ? pe * eps : NaN; // the price Finnhub used
     if(!isNum(at) && isNum(mm.psTTM) && isNum(mm.revenuePerShareTTM) && mm.psTTM > 0 && mm.revenuePerShareTTM > 0) at = mm.psTTM * mm.revenuePerShareTTM;
-    const sc = price / at;
-    if(isNum(sc) && sc > 0.5 && sc < 2 && Math.abs(sc - 1) > 0.002){
+    // After a split Finnhub may work its ratios out from the new price and the old per-share figures (SNDK: P/E 0.69, P/FCF
+    // 0.77), so the gap to today's price can be the split itself: allowed up to the split factor then (7.14).
+    const sc = price / at, lim = S && S.ps !== 1 ? Math.max(S.ps, 1 / S.ps) : 1;
+    if(isNum(sc) && sc > 0.5 / lim && sc < 2 * lim && Math.abs(sc - 1) > 0.002){
       for(const k in mm) if(PRICE_RATIO(k) && isNum(mm[k])) mm[k] = mm[k] * sc;
       const cap = mm.marketCapitalization, ev = mm.enterpriseValue;
       if(isNum(cap) && isNum(ev) && ev > 0){ const evN = ev + cap * (sc - 1); if(evN > 0){ for(const k in mm) if(EV_RATIO(k) && isNum(mm[k])) mm[k] = mm[k] * evN / ev; mm.enterpriseValue = evN; } }
       if(isNum(cap)) mm.marketCapitalization = cap * sc;
       mm._priceScale = sc;
     }
+    // P/B at today's price (7.14): Finnhub's "quarterly" P/B is at the quarter's last day (SNDK 12.7× while today's price ÷
+    // book value per share is 5.0×; MU 7.6× vs 4.9×). Book value per share changes only with each report, so this is exact.
+    { const bv = pick(mm, ["bookValuePerShareQuarterly", "bookValuePerShareAnnual"]); if(isNum(bv) && bv > 0) mm.pbNow = price / bv; }
     // Today's price is part of the last 52 weeks (Finnhub's range can lag a day or more after a sharp move)
     if(isNum(mm["52WeekHigh"]) && price > mm["52WeekHigh"]) mm["52WeekHigh"] = price;
     if(isNum(mm["52WeekLow"]) && price < mm["52WeekLow"]) mm["52WeekLow"] = price;
@@ -1396,8 +1427,8 @@ async function liveData(sym, { profile = true, withTd = false } = {}){
   const [q, m, p] = await Promise.all([ safe(fh.quote(sym)), safe(fh.metric(sym)), profile ? safe(fh.profile(sym)) : Promise.resolve({ ok: false }) ]);
   if(withTd && state.tdKey) await Promise.race([safe(tdDaily(sym)), new Promise(r => setTimeout(r, 4000))]); // never hold the page up long
   const price = q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : NaN;
-  const f = m.ok && m.v ? splitFactor(m.v.metric, peek.td(sym)) : 1;
-  return [q, m.ok ? { ok: true, v: liveMetric(m.v, price, f) } : m, p.ok ? { ok: true, v: liveProfile(p.v, f, price) } : p, f];
+  const S = m.ok && m.v ? splitInfo(m.v, p.ok ? p.v : null, peek.td(sym)) : { f52: 1, ps: 1, sh: 1 };
+  return [q, m.ok ? { ok: true, v: liveMetric(m.v, price, S) } : m, p.ok ? { ok: true, v: liveProfile(p.v, S.sh, price) } : p, splitShown(S), S];
 }
 // Earnings calendar figures per share follow Finnhub's other figures after a split (SNDK expected EPS 58 = pre-split).
 function earnAdj(sym, cal){
@@ -1612,7 +1643,7 @@ async function viewStock(app, sym, tok){
   renderChartCard(app, sym, tok);
   if(!state.apiKey){ ["#val","#health","#rec","#ins","#news","#proj","#sales"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
-  const [q, m, p, splitF] = await liveData(sym, { withTd: !!state.tdKey });
+  const [q, m, p, splitF, splitS] = await liveData(sym, { withTd: !!state.tdKey });
   if(!live(tok)) return;
   const prof = p.ok ? p.v : {};
   const met = m.ok ? m.v : null;
@@ -1636,7 +1667,7 @@ async function viewStock(app, sym, tok){
   const key = own ? ["Your value","Your shares","52-week high","52-week low"] : ["Market cap","52-week high","52-week low","Dividend yield","Beta (vs market)"];
   $("#s-stats",app).innerHTML = stats.map(([k,v])=>`<div class="stat${key.includes(k) ? "" : " x"}"><span>${k}</span><b>${v}</b></div>`).join("") +
     (prof.weburl ? `<div class="stat x web"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "") +
-    (splitF && splitF !== 1 ? `<div class="small muted" style="grid-column:1/-1;flex-basis:100%;margin-top:2px">Adjusted for ${/^(8|11|18)\b/.test(String(Math.round(splitF > 1 ? splitF : 1 / splitF))) ? "an" : "a"} ${splitF > 1 ? `${splitF}-for-1` : `1-for-${Math.round(1 / splitF)} reverse`} stock split: Finnhub's per-share figures (earnings, book value, 52-week range, share count) were still on the old basis, so they're converted here.</div>` : "");
+    (splitF && splitF !== 1 ? `<div class="small muted" style="grid-column:1/-1;flex-basis:100%;margin-top:2px">Adjusted for ${/^(8|11|18)\b/.test(String(Math.round(splitF > 1 ? splitF : 1 / splitF))) ? "an" : "a"} ${splitF > 1 ? `${splitF}-for-1` : `1-for-${Math.round(1 / splitF)} reverse`} stock split: Finnhub still had ${(() => { const w = [splitS.ps !== 1 && "its per-share figures (earnings, book value, sales)", splitS.sh !== 1 && "the share count", splitS.f52 !== 1 && "the 52-week range"].filter(Boolean); return w.length > 1 ? w.slice(0, -1).join(", ") + " and " + w[w.length - 1] : w[0]; })()} on the old basis, so ${splitS.ps !== 1 || [splitS.sh, splitS.f52].filter(x => x !== 1).length > 1 ? "they're" : "it's"} converted here.</div>` : "");
 
   { const sg = $("#s-stats",app); if(sg.querySelector(".stat.x:not(.web)")){ sg.insertAdjacentHTML("beforeend", `<button type="button" class="statmore">More numbers</button>`);
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
