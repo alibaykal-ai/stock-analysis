@@ -571,9 +571,9 @@ function shapeFinancials(j){
 // change without losing counts. Only the last 2 days are kept.
 const RQ = { av: { day: 25, reset: 0 }, td: { day: 800, min: 8, reset: 0 }, fh: { min: 60, reset: 0 }, ai: { reset: 0 }, gh: { reset: 0 } };
 const RQ_KEEP = 2*86400, rqNow = () => Math.floor(Date.now() / 1000);
-let rqLog = null, rqTimer = null, rqShareTimer = null, rqFootTimer = null, rqPushed = "", rqSaving = false, rqPulled = 0;
+let rqLog = null, rqShareTimer = null, rqFootTimer = null, rqPushed = "", rqSaving = false, rqPulled = 0;
 function rqLoad(){
-  if(rqLog) return rqLog;
+  rqLog = null; // read fresh every time and written straight back, so two tabs of the app can't overwrite each other's counts
   try{ rqLog = JSON.parse(localStorage.getItem("sa.rq") || "null"); }catch(e){}
   if(!rqLog || typeof rqLog !== "object") rqLog = {};
   ["av", "td", "fh", "ai", "gh", "ghErr", "avlim"].forEach(k => { if(!Array.isArray(rqLog[k])) rqLog[k] = []; });
@@ -584,18 +584,17 @@ function rqLoad(){
   }
   return rqLog;
 }
-function rqTrim(){ const L = rqLoad(), cut = rqNow() - RQ_KEEP;
+function rqTrim(L){ const cut = rqNow() - RQ_KEEP;
   for(const k of ["av", "td", "fh", "gh"]) L[k] = L[k].filter(t => t > cut);
   L.ai = L.ai.filter(a => a[0] > cut); L.ghErr = L.ghErr.filter(a => a[0] > cut).slice(-10); L.avlim = L.avlim.slice(-5); }
-function rqFlush(){ clearTimeout(rqTimer); rqTimer = null; try{ rqTrim(); localStorage.setItem("sa.rq", JSON.stringify(rqLoad())); }catch(e){} }
+function rqFlush(){ try{ rqTrim(rqLog); localStorage.setItem("sa.rq", JSON.stringify(rqLog)); }catch(e){} } // writes the copy rqLoad() just read
 function rqNote(svc, x){
   const L = rqLoad(), t = rqNow();
   if(svc === "ai") L.ai.push([t, x.p, x.usd]); else L[svc].push(t);
-  if(svc === "av" || svc === "ai"){ rqFlush(); rqShareSoon(); } // the ones the other device needs to know about
-  else if(!rqTimer) rqTimer = setTimeout(rqFlush, 3000);
+  rqFlush();
+  if(svc === "av" || svc === "ai") rqShareSoon(); // the ones the other device needs to know about
   clearTimeout(rqFootTimer); rqFootTimer = setTimeout(rqShow, 800);
 }
-window.addEventListener("pagehide", () => rqFlush());
 function rqGhErr(status, m){ rqLoad().ghErr.push([rqNow(), status, String(m || "").slice(0, 120)]); rqFlush(); }
 // Alpha Vantage's daily-limit message: when it starts and when requests work again bracket its real reset time.
 function rqAvLimit(hit){ const L = rqLoad(), last = L.avlim[L.avlim.length - 1], t = rqNow();
@@ -605,7 +604,7 @@ function rqAvLimit(hit){ const L = rqLoad(), last = L.avlim[L.avlim.length - 1],
 function rqDayStart(svc){ const off = (RQ[svc].reset || 0) * 60, d = new Date((rqNow() - off) * 1000); d.setUTCHours(0, 0, 0, 0); return d.getTime() / 1000 + off; }
 function rqDevName(){ const u = navigator.userAgent;
   return /iPhone/.test(u) ? "iPhone" : /iPad/.test(u) || /Macintosh/.test(u) && navigator.maxTouchPoints > 1 ? "iPad" : /Mac/.test(u) ? "Mac" : /Android/.test(u) ? "Android" : /Windows/.test(u) ? "Windows PC" : "computer"; }
-function rqMine(){ const L = rqLoad(); rqTrim(); return { name: rqDevName(), t: rqNow(), av: L.av, td: L.td, ai: L.ai, avlim: L.avlim }; }
+function rqMine(){ const L = rqLoad(); rqTrim(L); return { name: rqDevName(), t: rqNow(), av: L.av, td: L.td, ai: L.ai, avlim: L.avlim }; }
 const rqSig = () => { const m = rqMine(); return JSON.stringify([m.av, m.td, m.ai, m.avlim]); };
 // What goes in the GitHub file: this device's entry fresh, the other devices' as last loaded (2 days at most).
 function rqSync(){ const me = rqLoad().dev, cut = rqNow() - RQ_KEEP, out = {};
