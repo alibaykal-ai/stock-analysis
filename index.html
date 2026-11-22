@@ -288,7 +288,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.0</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.1</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1318,7 +1318,7 @@ async function viewStock(app, sym, tok){
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
+    else { renderHealth(app, mm, price, prof); Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -1326,9 +1326,43 @@ async function viewStock(app, sym, tok){
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
 }
 
-async function renderValuation(app, sym, met, prof, tok){
+// PEG (7.1): today's P/E ÷ expected yearly earnings growth (%), using the growth Fair value starts from:
+// analysts' forecast for next year (Alpha Vantage, already saved), else past growth. No new requests.
+// n/a when losing money / no positive P/E, growth zero or negative, or a boom-and-bust company at a cyclical high (the rule
+// that also skips peer P/E). Banks, lenders and insurers: shown (P/E and earnings growth mean the same for them), but
+// without forecasts only their past earnings growth is used, because their cash flow (part of "past growth") is distorted.
+const PEG_RULE = "Below 1 = cheap for its growth, 1 to 2 = fair, above 2 = pricey.";
+function pegInfo(met, prof, price, av){
+  const mm = met && met.metric || {}, pe = nowValue(met, RATIOS[0]);
+  const inp = fvInputs(met, prof || {}, price, av || {});
+  if(isNum(inp.eps) && inp.eps <= 0) return { na: "losing money" };
+  if(!(pe > 0)) return { na: "no positive P/E" };
+  if(inp.cy) return { na: "profits at a cyclical high, so growth looks bigger than it will last", pe };
+  const fc = isFinancialCo(prof);
+  const gr = inp.exp ? { g: inp.exp.g, src: "analysts' forecast for next year", past: false }
+    : fc ? (isNum(mm.epsGrowth5Y) ? { g: mm.epsGrowth5Y, src: "past 5-year earnings growth: banks and insurers' cash flow isn't comparable", past: true } : null)
+    : isNum(inp.pastMid) ? { g: inp.pastMid, src: "middle of its past 5-year growth in earnings, sales and cash flow", past: true } : null;
+  if(!gr) return { na: "no growth figure", pe };
+  if(!(gr.g > 0)) return { na: `earnings growth zero or negative (${fmtPct(gr.g, 1)})`, pe, ...gr };
+  const peg = pe / gr.g;
+  const k = peg < 1 ? ["b-cheap", "Cheap for its growth"] : peg <= 2 ? ["b-inline", "Fair for its growth"] : ["b-rich", "Pricey for its growth"];
+  return { pe, ...gr, peg, k };
+}
+function pegRow(P){
+  const why = P.na ? `<span class="small muted">Not meaningful: ${esc(P.na)}.</span>`
+    : `<span class="badge ${P.k[0]}">${P.k[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g.toFixed(1)}% ${P.past ? "yearly growth" : "expected earnings growth"} (${esc(P.src)}). ${PEG_RULE}</div>`;
+  return `<tr class="peg-row">
+        <td><b title="Price/earnings divided by the expected yearly earnings growth in %. A fast grower can deserve a higher P/E: PEG puts the two side by side.">PEG</b><div class="small muted">P/E ÷ growth</div></td>
+        <td class="num"><b>${P.na ? "n/a" : P.peg.toFixed(2)}</b>${!P.na && P.past ? `<div class="small muted">(past growth, no forecasts)</div>` : ""}</td>
+        <td class="num small">${isNum(P.g) ? `growth ${fmtPct(P.g, 1)}/yr` : '<span class="muted">—</span>'}</td>
+        <td colspan="3">${why}</td>
+      </tr>`;
+}
+async function renderValuation(app, sym, met, prof, tok, price){
   const el = $("#val", app);
-  const draw = (peerInfo) => {
+  let pegAv = (() => { const v = peek.av(sym); return v ? parseAV(null, { ok: true, v }) : {}; })(), lastInfo = null;
+  el._peg = av => { pegAv = av || {}; if(el.isConnected) draw(lastInfo); }; // fair value calls this when the forecasts arrive
+  const draw = (peerInfo) => { lastInfo = peerInfo;
     const rows = RATIOS.map(r => ({ r, now: nowValue(met, r), hist: history(met, r) }));
     const anyRow = rows.some(x => isNum(x.now));
     if(!anyRow){ el.innerHTML = `<p class="muted">No valuation ratios available for this symbol.</p>`; return; }
@@ -1347,7 +1381,7 @@ async function renderValuation(app, sym, met, prof, tok){
         <td class="num small">${peerInfo ? (isNum(pm) ? fmtX(pm) : '<span class="muted">—</span>') : '<span class="spin"></span>'}</td>
         <td>${loss ? "" : peerInfo ? badge(vPeer, "the peer median") : ""}${!loss && peerInfo && isNum(pm) ? `<div class="ph-only small muted">peers ${fmtX(pm)}</div>` : ""}</td>
       </tr>`;
-    }).join("");
+    }).join("") + (isNum(nowValue(met, RATIOS[0])) ? pegRow(pegInfo(met, prof, price, pegAv)) : "");
     let summary = "";
     const gv = counted >= 2 ? null : "Not enough data";
     if(counted >= 2){
@@ -1366,6 +1400,7 @@ async function renderValuation(app, sym, met, prof, tok){
         "Usual range" is the middle half of the stock's values over the last ${state.settings.years} years; the verdict compares today with the middle value.
         "In line" means within ±${state.settings.band}% (change in <a href="#settings">Settings</a>).
         A stock can deserve a higher ratio if it is growing faster, so treat this as a starting point, not an answer.
+        <b>PEG</b> takes growth into account: P/E ÷ the expected yearly earnings growth in % (the same growth Fair value starts from: analysts' forecast for next year, or past growth without forecasts). ${PEG_RULE} It isn't counted in the verdict above.
       </p></details>
       ${rows.some(x => x.hist && x.hist.freq === "calc") ? `<p class="small muted">* Worked out by the app from the company's reports and month-end prices (Alpha Vantage), because the main data source has too little history for this stock.</p>` : ""}
       ${histNote ? `<p class="small muted">${histNote}</p>` : ""}
@@ -1772,7 +1807,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
   setSliders(); draw();
   Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peerInfo = pi || { medians:{}, used:[] }; draw(); });
-  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); avWant(sym, !!inp.cy); setSliders(); draw(); });
+  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); avWant(sym, !!inp.cy); const ve = $("#val", app); if(ve && ve._peg) ve._peg(fx.av); setSliders(); draw(); });
 }
 
 /* ================= At a glance strip ================= */
@@ -2246,7 +2281,7 @@ async function stockFacts(app, sym){
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
     (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
-    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
 const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
