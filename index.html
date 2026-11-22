@@ -135,6 +135,10 @@ h3{font-size:14px;margin:18px 0 8px}
 .slx{position:relative;height:32px;font-size:11px;color:var(--muted)}
 .slx span{position:absolute;top:2px;transform:translateX(-50%);text-align:center;line-height:1.25;white-space:nowrap}
 .slx span.fc{font-style:italic}
+.ov{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.ov h3{margin:0 0 6px}
+.ov-list{margin:4px 0;padding-left:18px}
+.ov-list li{margin:4px 0}
 .legend i.sl-fck{background:var(--neutralbg);border:1px dashed var(--muted);box-sizing:border-box}
 tr.sl-fcrow td{font-style:italic}
 @media (prefers-color-scheme:dark){ #c-chart,#perf,#c-sales{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
@@ -388,7 +392,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.14</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.15</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -401,7 +405,7 @@ const STORE_KEY = "stockAnalysis.v1";
 function dedupeWatch(){ try{ if(!Array.isArray(state.watchlist)) return;
   const own = new Set(myHoldings().map(h => h.symbol)); // fully sold stocks aren't in this list, so they can go back on the watchlist
   if(state.watchlist.some(s => own.has(s))) state.watchlist = state.watchlist.filter(s => !own.has(s)); }catch(e){} }
-const DEFAULTS = { fc: {}, apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, proj: {}, rq: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { fc: {}, ov: {}, apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, proj: {}, rq: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -1622,7 +1626,7 @@ async function viewStock(app, sym, tok){
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
-    <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
+    <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div><div id="ov"></div></div>
     <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div></div>
     <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
@@ -1673,7 +1677,7 @@ async function viewStock(app, sym, tok){
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; $("#sales",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
+    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -2107,6 +2111,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     }
     let top;
     const loadingAny = methods.some(m => m.loading);
+    fvNow = { sym, price, mid: NaN, future: false, fc: !!(inp.av && inp.av.fy1), cyc: !!cy, split: (met && met.metric && met.metric._split) || 1 };
     if(!vals.length){
       glance("g-fv", loadingAny ? "…" : "No range (methods don't fit)");
       top = `<p class="muted">${loadingAny ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
@@ -2119,6 +2124,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       // Price far above every method: the stock is priced on growth or new businesses that today's
       // numbers don't show. "Expensive, 1234% above" isn't useful; lead with what the price assumes.
       const future = price > 3 * hi;
+      Object.assign(fvNow, { lo, hi, mid, future });
       if(future) glance("g-fv", `<span class="badge b-warn">Priced for future growth</span> ${(price/hi).toFixed(0)}× the top of the range`);
       else glance("g-fv", `${vb} ${pct}% ${diff < 0 ? "below" : "above"} middle (${fmt(mid)})`);
       const notes = [];
@@ -2138,6 +2144,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
         ${cyNote}
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
     }
+    setTimeout(() => renderOutside(app, sym), 0); // the comparison follows every change to the range (sliders too)
     $("#fv-out", el).innerHTML = `${top}
       <details class="more" id="fv-more" ${fvMoreOpen ? "open" : ""}><summary>Show the details: analysts' forecasts, what growth the price assumes, each method's value</summary>
       <h3>What analysts expect</h3>${fvAnalysts(inp, price, fx)}
@@ -3000,7 +3007,7 @@ async function stockFacts(app, sym){
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
     (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
-    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Sales and profit (company reports; analysts' forecasts for the next years / quarters):\n${txt("#sales .sl-sum", 700)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Outside views (published estimates found on the web):\n${txt("#ov ul", 600) || "not looked up"}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Sales and profit (company reports; analysts' forecasts for the next years / quarters):\n${txt("#sales .sl-sum", 700)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
 const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
@@ -3040,6 +3047,124 @@ function renderAiCard(app, sym){
     }catch(e){ m.className = "small err"; m.textContent = Anthropic ? aiError(Anthropic, e) : (e.message || "Something went wrong."); el.querySelectorAll("[data-ai]").forEach(x => x.disabled = false); }
   };
   el.querySelectorAll("[data-ai]").forEach(b => b.onclick = () => aiWrite(b.dataset.ai));
+}
+/* ================= Outside views (7.15) ================= */
+// Owner, 22 Nov 2026: "check some other reputable places for confirmation using Claude… cheapest model", no typing in.
+// On a tap, Claude Haiku 5.5 searches a fixed list of reputable finance sites (web search tool, basic version: the only one
+// Haiku has) for published fair value estimates (Morningstar first) and the analysts' average 12-month price target, and
+// answers in JSON with the page and date of every figure. The app then keeps only figures whose page is among the search
+// results Claude actually got (so a figure can't be made up), and that are within 10× of today's price either way (catches
+// pre-split figures left unconverted). Saved in state.ov (synced, so Mac and iPhone share it) for 30 days.
+// Cost: Haiku tokens + $10 per 1,000 searches (at most 4 searches: ~1–4p a check). Shown after each check.
+const OV_SITES = ["morningstar.com", "morningstar.co.uk", "morningstar.com.au", "stockanalysis.com", "marketbeat.com", "tipranks.com", "finance.yahoo.com",
+  "nasdaq.com", "zacks.com", "simplywall.st", "reuters.com", "cnbc.com", "investing.com", "barrons.com", "benzinga.com", "fool.com", "seekingalpha.com", "wsj.com", "ft.com", "kiplinger.com"];
+const OV_KEEP = 30 * 864e5, OV_SEARCHES = 4, OV_SEARCH_USD = 0.01;
+let fvNow = null; // the stock page's latest fair value range, for the comparison
+const ovSystem = () => `You look up published valuations of one stock for a private investor's analysis app. Use web search on reputable finance sites.
+Find, as recent as possible:
+1. Fair value estimates published by research firms: Morningstar's fair value estimate first (search for it by name), then up to 2 others (for example Simply Wall St, Zacks, or a broker's published intrinsic value). Only real published estimates of what one share is worth.
+2. Wall Street analysts' consensus 12-month price target: average, lowest, highest and number of analysts, from an aggregator such as StockAnalysis, MarketBeat, TipRanks, Yahoo Finance or Nasdaq.
+Rules:
+- Every figure must come from a page in your search results: give that page's exact URL and the date the figure was published or updated (YYYY-MM-DD; "" if the page doesn't say).
+- Never estimate, average or invent a figure yourself. Leave out anything you can't find.
+- Figures are per share in US dollars, on the stock's current share basis. If the company split its shares recently and a figure is from before the split, divide it by the split ratio and say so in its note.
+Answer with only this JSON object, nothing before or after it:
+{"fairValues":[{"source":"Morningstar","value":0,"date":"","url":"","note":""}],"analystTarget":{"source":"","average":0,"low":0,"high":0,"analysts":0,"date":"","url":"","note":""},"remarks":""}
+Use "analystTarget": null if not found. "remarks": one short sentence on anything important (e.g. figures disagree, a recent cut, a split).`;
+const ovUrlKey = u => { try{ const x = new URL(String(u)); return (x.hostname.replace(/^www\./, "") + x.pathname.replace(/\/+$/, "")).toLowerCase(); }catch(e){ return ""; } };
+// Parse Claude's answer and keep only figures it really found. Exported shape: { fair: [...], target, remarks, dropped: [...] }.
+function ovCheck(text, found, price){
+  const m = String(text || "").match(/\{[\s\S]*\}/); if(!m) throw new Error("Claude's answer wasn't in the expected form. Try again.");
+  let j; try{ j = JSON.parse(m[0]); }catch(e){ throw new Error("Claude's answer wasn't in the expected form. Try again."); }
+  const seen = new Set(found.map(ovUrlKey).filter(Boolean)), dropped = [];
+  const onPage = u => { const k = ovUrlKey(u); return !!k && [...seen].some(s => s === k || s.startsWith(k + "/") || k.startsWith(s + "/")); };
+  const sane = v => isNum(v) && v > 0 && (!isNum(price) || (v > price / 10 && v < price * 10));
+  const fair = [];
+  for(const f of Array.isArray(j.fairValues) ? j.fairValues : []){
+    const v = parseFloat(f && f.value), src = String(f && f.source || "").slice(0, 40);
+    if(!src || !isNum(v)) continue;
+    if(!onPage(f.url)){ dropped.push(`${src} ${fmt(v)} (its page wasn't among the search results)`); continue; }
+    if(!sane(v)){ dropped.push(`${src} ${fmt(v)} (too far from today's price to be on the same basis)`); continue; }
+    fair.push({ src, v, date: String(f.date || "").slice(0, 10), url: String(f.url), note: String(f.note || "").slice(0, 160) });
+  }
+  let target = null; const t = j.analystTarget;
+  if(t && isNum(parseFloat(t.average))){
+    const avg = parseFloat(t.average), src = String(t.source || "Analysts").slice(0, 40);
+    if(!onPage(t.url)) dropped.push(`${src} target ${fmt(avg)} (its page wasn't among the search results)`);
+    else if(!sane(avg)) dropped.push(`${src} target ${fmt(avg)} (too far from today's price to be on the same basis)`);
+    else target = { src, avg, lo: parseFloat(t.low), hi: parseFloat(t.high), n: parseInt(t.analysts, 10), date: String(t.date || "").slice(0, 10), url: String(t.url), note: String(t.note || "").slice(0, 160) };
+  }
+  return { fair, target, remarks: String(j.remarks || "").slice(0, 240), dropped };
+}
+function ovAge(t){ const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`; }
+function renderOutside(app, sym){
+  const el = $("#ov", app); if(!el) return;
+  const o = state.ov && state.ov[sym] && Date.now() - state.ov[sym].t < OV_KEEP ? state.ov[sym] : null;
+  const F = fvNow && fvNow.sym === sym ? fvNow : null;
+  if(!state.aiKey){ el.innerHTML = `<div class="ov"><h3>Outside views</h3><p class="small muted" style="margin:0">Add an Anthropic API key in <a href="#settings">Settings</a> to compare this range with published estimates (Morningstar, analysts' targets), looked up by Claude on reputable finance sites for a few pence.</p></div>`; return; }
+  const link = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`;
+  const dt = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "date not given";
+  let body = "";
+  if(o){
+    const r = o.r, vals = r.fair.map(f => f.v), med = vals.length ? median(vals) : NaN;
+    const rows = r.fair.map(f => `<li><b>${fmt(f.v)}</b> ${link(f.url, f.src)} fair value estimate <span class="muted">· ${dt(f.date)}${f.note ? " · " + esc(f.note) : ""}</span></li>`).join("");
+    const tg = r.target ? `<li><b>${fmt(r.target.avg)}</b> ${link(r.target.url, r.target.src)} analysts' average 12-month target${isNum(r.target.lo) && isNum(r.target.hi) ? ` (range ${fmt(r.target.lo)}–${fmt(r.target.hi)}` + (isNum(r.target.n) ? `, ${r.target.n} analysts)` : ")") : ""} <span class="muted">· ${dt(r.target.date)}${r.target.note ? " · " + esc(r.target.note) : ""}</span>
+      <div class="small muted">A price target is a 12-month price prediction, usually above fair value estimates; it isn't a fair value.</div></li>` : "";
+    let cmp = "";
+    if(F && isNum(med) && isNum(F.mid) && !F.future){
+      const gap = (F.mid / med - 1) * 100, far = Math.abs(gap) >= 35;
+      const why = [];
+      if(far && !F.fc) why.push("no analysts' forecasts are loaded for this stock yet, so the app grows today's figures at a cautious past rate");
+      if(far && gap < 0) why.push(F.cyc ? "profits are at a cyclical high and the app fades them back to normal margins over the years set under Adjust the assumptions; outside estimates may expect the boom to last longer or end more gently"
+        : "outside models forecast profits and margins year by year, so they look through profits that are low today (heavy investment, one-off charges, a turnaround); the app starts from today's reported figures");
+      if(far && gap > 0) why.push(F.cyc ? "profits are at a cyclical high: outside models may expect a sharper downturn than the app's fade" : "outside models may expect slower growth or lower margins than the figures the app starts from");
+      cmp = `<p class="${far ? "callout" : "small"}" style="margin:8px 0 0">${far ? "<b>Far from outside views.</b> " : ""}Our middle (${fmt(F.mid)}) is <b>${Math.abs(gap).toFixed(0)}% ${gap < 0 ? "below" : "above"}</b> the outside fair value estimate${vals.length > 1 ? "s' middle" : ""} (${fmt(med)}).${far ? ` Likely reasons: ${why.join("; ")}. Check the methods under "Show the details" before relying on either.` : " That's within the usual spread between careful estimates."}</p>`;
+    } else if(F && F.future && isNum(med)) cmp = `<p class="small" style="margin:8px 0 0">Our methods value today's earnings only (this stock is priced for future growth); outside estimates (${fmt(med)}) include their growth forecasts.</p>`;
+    else if(!vals.length) cmp = `<p class="small muted" style="margin:8px 0 0">No published fair value estimate was found on the sites searched, so there's nothing to compare our range with.</p>`;
+    body = `${rows || tg ? `<ul class="ov-list">${rows}${tg}</ul>` : ""}${cmp}
+      ${r.remarks ? `<p class="small muted" style="margin:6px 0 0">Claude's note: ${esc(r.remarks)}</p>` : ""}
+      ${r.dropped.length ? `<p class="small muted" style="margin:6px 0 0">Left out: ${r.dropped.map(esc).join("; ")}.</p>` : ""}
+      <p class="small muted" style="margin:6px 0 0">Looked up ${ovAge(o.t)} by ${esc(o.by || "Claude Haiku 5.5")}${o.cost ? `, cost ${/^under/.test(o.cost) ? "" : "about "}${o.cost}` : ""}. Figures come from the linked pages; open them to check. AI can misread a page.</p>`;
+  }
+  el.innerHTML = `<div class="ov"><h3>Outside views</h3>${body}
+    <div class="row" style="margin-top:8px"><button data-ov class="${o ? "" : "primary"}">${o ? "Check again" : "Check outside views"}</button>
+    <span id="ov-msg" class="small muted">${o ? "" : "Claude Haiku searches Morningstar, StockAnalysis, MarketBeat, Yahoo Finance and other reputable sites (a few pence)."}</span></div></div>`;
+  $("[data-ov]", el).onclick = () => ovLookup(app, sym);
+}
+async function ovLookup(app, sym){
+  const el = $("#ov", app), m = $("#ov-msg", el), b = $("[data-ov]", el); if(!m) return;
+  b.disabled = true; m.className = "small muted"; m.innerHTML = `<span class="spin"></span> Claude Haiku is searching (usually 20–60 seconds)…`;
+  let Anthropic;
+  try{
+    const c = await aiClient(); Anthropic = c.Anthropic;
+    const F = fvNow && fvNow.sym === sym ? fvNow : null, name = ($("#s-name", app) || {}).textContent || sym;
+    const price = F ? F.price : NaN, split = F && F.split && F.split !== 1 ? F.split : 1;
+    const ask = `Stock: ${name} (ticker ${sym}). Current price: ${isNum(price) ? "$" + fmt(price) : "unknown"}. Today: ${ymd(new Date())}.` +
+      (split > 1 ? ` The company recently split its shares ${split}-for-1: figures published before the split must be divided by ${split}.` : "");
+    const messages = [{ role: "user", content: ask }];
+    const req = { model: AI_MODELS.quick.id, max_tokens: 8000, output_config: { effort: "low" }, system: ovSystem(),
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: OV_SEARCHES, allowed_domains: OV_SITES }] };
+    let r, usage = { in: 0, out: 0, searches: 0 }; const content = [];
+    for(let i = 0; i < 3; i++){ // server tools can pause a long turn: send it back to continue (at most twice)
+      r = await c.client.messages.create({ ...req, messages });
+      usage.in += r.usage.input_tokens || 0; usage.out += r.usage.output_tokens || 0;
+      usage.searches += (r.usage.server_tool_use && r.usage.server_tool_use.web_search_requests) || 0;
+      content.push(...r.content);
+      if(r.stop_reason !== "pause_turn") break;
+      messages.push({ role: "assistant", content: r.content });
+    }
+    if(r.stop_reason === "refusal") throw new Error("Claude Haiku declined this lookup.");
+    const found = content.filter(x => x.type === "web_search_tool_result" && Array.isArray(x.content)).flatMap(x => x.content.map(y => y && y.url)).filter(Boolean);
+    const text = r.content.filter(x => x.type === "text").map(x => x.text).join("\n");
+    const res = ovCheck(text, found, price);
+    const usd = (usage.in * AI_MODELS.quick.in + usage.out * AI_MODELS.quick.out) / 1e6 + usage.searches * OV_SEARCH_USD;
+    const fx = (await hvFor(renderToken).catch(() => ({}))).usdPerGbp, pence = isNum(fx) ? usd / fx * 100 : NaN;
+    const cost = isNum(pence) ? (pence < 1 ? "under 1p" : `${Math.round(pence)}p`) : `$${usd.toFixed(3)}`;
+    rqNote("ai", { p: isNum(pence) ? Math.round(pence * 100) / 100 : null, usd: Math.round(usd * 1e4) / 1e4 });
+    const ov = {}; for(const [k, v] of Object.entries(state.ov || {})) if(v && Date.now() - v.t < OV_KEEP) ov[k] = v; // older than 30 days: dropped
+    ov[sym] = { t: Date.now(), r: res, cost, by: AI_MODELS.quick.name, searches: usage.searches }; state.ov = ov; save();
+    renderOutside(app, sym);
+  }catch(e){ m.className = "small err"; m.textContent = Anthropic && e instanceof Anthropic.APIError ? aiError(Anthropic, e) : (e.message || "Something went wrong."); b.disabled = false; }
 }
 function renderRec(app, r){
   const el = $("#rec", app);
@@ -4775,7 +4900,7 @@ function viewSettings(app){
 // and loaded on any other browser or device that has the GitHub token. The token itself is never uploaded.
 const GH_API = "https://api.github.com", GH_FILE = "portfolio.json";
 const ghOn = () => !!(state.gh && state.gh.repo && state.gh.token);
-const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "proj", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey", "fc", "rq"];
+const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "proj", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey", "fc", "rq", "ov"];
 const syncData = () => { const d = {}; SYNCED.forEach(k => d[k] = k === "rq" ? rqSync() : state[k]); return d; };
 const b64enc = str => btoa(unescape(encodeURIComponent(str)));
 const b64dec = b64 => decodeURIComponent(escape(atob(String(b64).replace(/\s/g, ""))));
