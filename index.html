@@ -62,6 +62,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .up{color:var(--good)} .down{color:var(--bad)}
 .badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.sig .badge{white-space:normal;max-width:100%}
 .b-cheap{background:var(--goodbg);color:var(--good)}
 .b-rich{background:var(--badbg);color:var(--bad)}
 .b-inline{background:var(--neutralbg);color:var(--muted)}
@@ -287,7 +288,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 6.3</b> · 21 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.0</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -369,8 +370,8 @@ function cacheGet(k){
   if(!idb) try{ const s = JSON.parse(localStorage.getItem("sa.c."+k)||"null"); if(s && s.exp > Date.now()){ memCache.set(k,s); return s.v; } }catch(e){}
   return undefined;
 }
-function cacheSet(k, v, ttl){
-  const e = { v, exp: Date.now()+ttl }; memCache.set(k, e);
+function cacheSet(k, v, ttl, extra){
+  const e = { v, exp: Date.now()+ttl, ...(extra || {}) }; memCache.set(k, e);
   if(idb){ idbTx("readwrite", st => st.put(e, k)); return; }
   try{ localStorage.setItem("sa.c."+k, JSON.stringify(e)); }
   catch(err){ // full: drop expired entries, then the soonest-expiring ones, never everything
@@ -527,41 +528,65 @@ function shapeFinancials(j){
   return { years: [...byYear.values()].sort((a,b) => b.end.localeCompare(a.end)).slice(0, 6) };
 }
 /* ================= Alpha Vantage client (second free source) ================= */
-// Free key: 25 requests/day. Results are cached for a day so each stock costs at most 2 a day.
+// Free key: 25 requests/day, per key (so Mac and iPhone share them). Saving requests (7.0):
+//  * analysts' forecasts are kept 7 days and month-end prices 30 days (they change slowly);
+//  * a copy is kept for 60 days and used when a new request fails (daily limit), shown with its date;
+//  * after Alpha Vantage says the daily limit is reached, no more requests are sent for 2 hours;
+//  * boom-and-bust stocks that showed "Needs forecasts" get their forecasts first, when My Stocks opens.
 const AV = "https://www.alphavantage.co/query";
+const AV_FRESH = { EARNINGS_ESTIMATES: 7*24*3600e3, TIME_SERIES_MONTHLY: 30*24*3600e3 }, AV_KEEP = 60*24*3600e3;
 let avLast = 0;
-async function avApi(fn, sym, ttl, shape){
+const avLS = (k, v) => { try{ if(v === undefined) return JSON.parse(localStorage.getItem("sa.av." + k) || "null"); localStorage.setItem("sa.av." + k, JSON.stringify(v)); }catch(e){ return null; } };
+function avUsedToday(){ const u = avLS("used"); return u && u.d === ymd(new Date()) ? u.n : 0; }
+function avCount(){ avLS("used", { d: ymd(new Date()), n: avUsedToday() + 1 }); }
+function avBlocked(){ const b = avLS("limitAt"); return b && Date.now() - b < 2*3600e3; }
+async function avApi(fn, sym, ttl, shape, force){
   if(!state.avKey) throw new ApiError("No Alpha Vantage key yet.", "nokey");
-  const ck = "av:" + fn + ":" + sym;
-  const hit = cacheGet(ck); if(hit !== undefined) return hit;
+  const ck = "av:" + fn + ":" + sym, fresh = AV_FRESH[fn] || ttl || 24*3600e3;
+  const has = cacheGet(ck) !== undefined, ent = memCache.get(ck);
+  const at = ent ? (ent.t || ent.exp - 24*3600e3) : 0; // copies saved before 7.0 were kept for a day
+  const withAt = (v, stale) => v && typeof v === "object" ? { ...v, _at: at, _stale: !!stale } : v;
+  if(has && !force && Date.now() - at < fresh) return withAt(ent.v);
+  if(has && !force && avBlocked()) return withAt(ent.v, true);
+  if(!force && avBlocked()) throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit");
   if(inflight.has(ck)) return inflight.get(ck);
   const p = (async () => {
     const wait = avLast + 1200 - Date.now(); avLast = Math.max(Date.now(), avLast + 1200);
     if(wait > 0) await new Promise(r => setTimeout(r, wait));
     let r;
-    try{ r = await fetch(`${AV}?function=${fn}&symbol=${encodeURIComponent(sym)}&apikey=${encodeURIComponent(state.avKey)}`); }
+    try{ avCount(); r = await fetch(`${AV}?function=${fn}&symbol=${encodeURIComponent(sym)}&apikey=${encodeURIComponent(state.avKey)}`); }
     catch(e){ throw new ApiError("Couldn't reach Alpha Vantage.", "network"); }
     if(!r.ok) throw new ApiError(`Alpha Vantage error (${r.status}).`, "http");
     const j = await r.json();
     const info = j && (j.Information || j.Note || j["Error Message"]);
     if(info){
-      if(/limit|per day|frequency/i.test(info)) throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit");
+      if(/limit|per day|frequency/i.test(info)){ if(/day/i.test(info)) avLS("limitAt", Date.now()); throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit"); }
       if(/premium/i.test(info)) throw new ApiError("Not included in the free Alpha Vantage plan. Alpha Vantage says: " + String(info).slice(0, 140), "premium");
       if(/apikey|api key/i.test(info)) throw new ApiError("Alpha Vantage rejected the key. Check it in Settings. Alpha Vantage says: " + String(info).replace(/key as \S+/i, "key as …").slice(0, 140), "auth");
       throw new ApiError(String(info).slice(0, 160), "api");
     }
     const v = shape ? shape(j) : j;
-    cacheSet(ck, v, ttl || 24*3600e3);
-    return v;
+    cacheSet(ck, v, AV_KEEP, { t: Date.now() });
+    return { ...v, _at: Date.now(), _stale: false };
   })();
   inflight.set(ck, p);
-  try{ return await p; } finally{ inflight.delete(ck); }
+  try{ return await p; }
+  catch(e){ if(has && !force) return withAt(ent.v, true); throw e; } // a failed request falls back to the saved copy
+  finally{ inflight.delete(ck); }
+}
+// Boom-and-bust stocks that need forecasts (remembered by the stock page): fetched first when My Stocks opens.
+function avWant(sym, on){ const w = new Set(avLS("want") || []); if(on) w.add(sym); else w.delete(sym); avLS("want", [...w]); }
+async function avPriority(){
+  if(!state.avKey) return;
+  const owned = new Set([...myHoldings().map(h => h.symbol), ...state.watchlist]);
+  const due = (avLS("want") || []).filter(s => owned.has(s)).filter(s => { const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e || Date.now() - (e.t || e.exp - 24*3600e3) >= AV_FRESH.EARNINGS_ESTIMATES; });
+  for(const s of due.slice(0, 4)){ if(avBlocked()) return; await safe(avApi("EARNINGS_ESTIMATES", s)); }
 }
 const avq = {
   overview:  s => avApi("OVERVIEW", s),
-  estimates: s => avApi("EARNINGS_ESTIMATES", s),
+  estimates: (s, force) => avApi("EARNINGS_ESTIMATES", s, 0, null, force),
   // Month-end closing prices (free). Kept for a week; only the last 7 years are saved.
-  monthly:   s => avApi("TIME_SERIES_MONTHLY", s, 7*24*3600e3, j => {
+  monthly:   s => avApi("TIME_SERIES_MONTHLY", s, 30*24*3600e3, j => {
     const ts = j && j["Monthly Time Series"] || {}, out = {}, from = String(new Date().getFullYear() - 7);
     for(const [d, row] of Object.entries(ts)) if(d >= from && row && isFinite(+row["4. close"])) out[d.slice(0,7)] = +row["4. close"];
     return { m: out };
@@ -625,6 +650,13 @@ function technicals(h){
   const obv = [0]; for(let i = 1; i < n; i++) obv.push(obv[i-1] + (c[i] > c[i-1] ? v[i] : c[i] < c[i-1] ? -v[i] : 0));
   let cross = null; for(let i = last; i > 0; i--){ if(!isNum(m50[i]) || !isNum(m200[i]) || !isNum(m50[i-1]) || !isNum(m200[i-1])) break;
     const a = m50[i] - m200[i], b = m50[i-1] - m200[i-1]; if(a > 0 && b <= 0){ cross = { kind: "golden", date: h.d[i] }; break; } if(a < 0 && b >= 0){ cross = { kind: "death", date: h.d[i] }; break; } }
+  // Death cross approaching (7.0): the 50-day average is above the 200-day but falling toward it. At the pace the gap
+  // narrowed over the last 2 weeks (10 trading days), when would they meet? Amber when that's within 6 weeks.
+  let approach = null; const k = 10;
+  if(n > k && [m50[last], m200[last], m50[last-k], m200[last-k]].every(isNum) && m50[last] > m200[last] && m50[last] < m50[last-k]){
+    const gap = m50[last] - m200[last], perDay = ((m50[last-k] - m200[last-k]) - gap) / k;
+    if(perDay > 0 && gap / perDay / 5 <= 6) approach = { weeks: gap / perDay / 5, gapPct: gap / m200[last] * 100 };
+  }
   // Price direction: % change of a straight line fitted through the last 50 closes.
   const ys = c.slice(-50), m = ys.length, mx = (m-1)/2, my = ys.reduce((a,b)=>a+b,0)/m;
   let num = 0, den = 0; ys.forEach((y,i) => { num += (i-mx)*(y-my); den += (i-mx)*(i-mx); });
@@ -632,7 +664,7 @@ function technicals(h){
   // Volume flow: (up-day volume - down-day volume) / all volume, last 50 days (= On-Balance Volume's change over the window)
   const flow = up + dn > 0 ? (up - dn) / (up + dn) * 100 : NaN;
   return { rsi: r, rsiNow: r[last], relVol: avg30 > 0 ? v[last] / avg30 : NaN, upDown: dn > 0 ? up / dn : NaN,
-    obvTrend: flow, pxTrend: pxChg, m50: m50[last], m200: m200[last], cross, lastDate: h.d[last], px: c[last] };
+    obvTrend: flow, pxTrend: pxChg, m50: m50[last], m200: m200[last], cross, approach, lastDate: h.d[last], px: c[last] };
 }
 
 /* ---- Valuation history worked out from company reports + month-end prices ---- */
@@ -1071,6 +1103,7 @@ function riskFlags(c){
     if(isNum(t.rsiNow) && t.rsiNow >= 70) add("amber", `RSI ${t.rsiNow.toFixed(0)}: overbought`, "Price has risen fast; it often pauses or pulls back.");
     if(isNum(t.rsiNow) && t.rsiNow <= 30) add("amber", `RSI ${t.rsiNow.toFixed(0)}: oversold`, "Price has fallen fast; it often bounces, but check why it fell.");
     if(t.cross && t.cross.kind === "death" && (Date.now() - new Date(t.cross.date)) < 90*864e5) add("red", "Death cross", `50-day average fell below the 200-day on ${t.cross.date}.`);
+    if(t.approach) add("amber", `Death cross approaching (${wksShort(t.approach.weeks)})`, approachWhy(t));
     if(isNum(t.relVol) && t.relVol >= 2) add("amber", `Unusual volume (${t.relVol.toFixed(1)}×)`, "Latest day's trading at least twice the 30-day average: check the news.");
   }
   if(c.earn){ const nx = nextEarnings(c.earn), n = nx && daysUntil(nx.date);
@@ -1128,6 +1161,7 @@ let bgRun = null;
 function bgRefresh(){
   if(bgRun || !state.apiKey) return bgRun;
   bgRun = (async () => {
+    await avPriority().catch(() => {});
     const items = [...myHoldings(), ...state.watchlist.map(s => ({ symbol: s, type: "stock" }))];
     const todo = items.filter(h => { const stock = !h.type || h.type === "stock";
       return (state.tdKey && !peek.td(h.symbol) && !cacheGet("td:err:" + h.symbol)) || (stock && (!peek.fin(h.symbol) || !peek.finQ(h.symbol))); });
@@ -1231,7 +1265,7 @@ async function viewStock(app, sym, tok){
       <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>
       <div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
     </div>
-    <div class="card" id="c-ai"><h2>AI summary <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
+    <div class="card" id="c-ai"><h2>AI summary: bull &amp; bear case <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
@@ -1406,6 +1440,7 @@ function parseAV(ovRes, estRes){
   }
   if(estRes){
     if(estRes.ok){
+      if(estRes.v && estRes.v._at){ out.at = estRes.v._at; out.stale = estRes.v._stale; }
       const arr = estRes.v && (estRes.v.estimates || estRes.v.data);
       if(Array.isArray(arr)){
         const pack = e => e && { date: e.date || e.fiscalDateEnding, eps: avNum(e.eps_estimate_average), n: avNum(e.eps_estimate_analyst_count),
@@ -1620,7 +1655,7 @@ function fvAnalysts(inp, price, fx){
   const errs = (av.errs || []).length ? `<p class="small err" style="margin:6px 0 0">Alpha Vantage: ${esc(av.errs[0])}</p>` : "";
   if(!rows.length) return `<p class="small muted" style="margin:0">No analyst forecasts available for this stock.</p>${errs}`;
   return `<table><tbody>${rows.map(([k,v]) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join("")}</tbody></table>${errs}
-    <p class="small muted" style="margin-bottom:0">Forecasts change and are often too optimistic near the top of a cycle. The 90-day change shows which way analysts are moving.</p>`;
+    <p class="small muted" style="margin-bottom:0">Forecasts change and are often too optimistic near the top of a cycle. The 90-day change shows which way analysts are moving.${av.at ? ` Forecasts from Alpha Vantage, saved ${fmtDay(ymd(new Date(av.at)))}${av.stale ? " (couldn't refresh: daily limit reached; tries again later)" : "; refreshed weekly to save the 25 requests a day"}.` : ""}</p>`;
 }
 let fvMoreOpen = false;
 function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
@@ -1701,7 +1736,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
       if(loadingAny) notes.push("Still loading some data; this may change.");
       const cyNote = cy ? `<div class="callout"><b>Profits at a cyclical high.</b> ${esc(sym)}'s profit margin is ${(cy.cur*100).toFixed(0)}% against a usual ${(cy.usual*100).toFixed(0)}%${cy.usualHow} (median of the ${cy.years} years before ${cy.peakYear}), and it has been through boom and bust before. So fair value counts the high profits${cy.fcst.length ? " (analysts' forecasts)" : ""}, then assumes margins return to normal within <b>${a.cy} years</b> (change it under <b>Adjust the assumptions</b>).
-          ${noFc ? `<br><b>No analysts' forecasts loaded</b>${state.avKey ? " (Alpha Vantage limit or no data; try again tomorrow)" : ' (add a free <a href="#settings">Alpha Vantage key</a>)'}, so the high profits are assumed to fade from today's level, which undercounts a shortage that is still growing. No verdict until forecasts load.` : ""}</div>` : "";
+          ${noFc ? `<br><b>No analysts' forecasts loaded</b>${state.avKey ? " (Alpha Vantage's daily limit or no data; the app asks for this stock's forecasts first the next time My Stocks opens)" : ' (add a free <a href="#settings">Alpha Vantage key</a>)'}, so the high profits are assumed to fade from today's level, which undercounts a shortage that is still growing. No verdict until forecasts load.` : ""}</div>` : "";
       if(future) top = `<p style="margin-top:0"><span class="badge b-warn">Priced for future growth</span>
           Price ${fmt(price)} is <b>${(price/hi).toFixed(1)}×</b> the highest value today's earnings and cash flow support (${lo === hi ? "only one method fits: " + fmt(hi) : "methods range " + fmt(lo) + "–" + fmt(hi)}).</p>
         <div class="callout"><b>What the price assumes:</b> ${revHead ? revHead + " " + revPast : "can't be worked out: the reverse DCF needs positive free cash flow."}</div>
@@ -1737,7 +1772,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
   setSliders(); draw();
   Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peerInfo = pi || { medians:{}, used:[] }; draw(); });
-  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); setSliders(); draw(); });
+  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); avWant(sym, !!inp.cy); setSliders(); draw(); });
 }
 
 /* ================= At a glance strip ================= */
@@ -1771,7 +1806,8 @@ function drawChart(el, h){
   const summary = `Last close ${fmt(px)} is ${vs(m50[last], "50-day average")} and ${vs(m200[last], "200-day average")}.`;
   const tl = trendLabel(px, tx.m50, tx.m200);
   glance("g-tech", (tl ? `<span class="badge ${tl.k}" title="${esc(tl.why)}">${tl.word}</span> ` : "") +
-    (isNum(m200[last]) ? `${fmtPct((px/m200[last]-1)*100,0)} vs 200-day` : "") + (isNum(tx.rsiNow) ? ` · RSI ${tx.rsiNow.toFixed(0)}${tx.rsiNow >= 70 ? " overbought" : tx.rsiNow <= 30 ? " oversold" : ""}` : ""));
+    (isNum(m200[last]) ? `${fmtPct((px/m200[last]-1)*100,0)} vs 200-day` : "") + (isNum(tx.rsiNow) ? ` · RSI ${tx.rsiNow.toFixed(0)}${tx.rsiNow >= 70 ? " overbought" : tx.rsiNow <= 30 ? " oversold" : ""}` : "") +
+    (tx.approach ? ` <span class="badge b-warn" title="${esc(approachWhy(tx))}">Death cross ${wksShort(tx.approach.weeks)}</span>` : ""));
   const first = h.c[i0], chg = (px/first - 1)*100;
   // geometry (viewBox units; scales to the card width)
   const W = 1000, PH = 260, VH = 70, GAP = 14, RH = 70, L = 8, R = 64, T = 10, B = 22;
@@ -1864,6 +1900,7 @@ function signalsHtml(t){
       t.cross && (Date.now() - new Date(t.cross.date)) < 90*864e5 ? (t.cross.kind === "golden" ? "Golden cross" : "Death cross") : "",
       (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + (t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
                : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`));
+  const trA = t.approach ? tile("Trend (averages and price)", tlab ? tlab.word : "Uptrend", "b-warn", "Death cross approaching", (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + approachWhy(t)) : "";
   const rv = t.relVol;
   const rvT = tile("Relative volume", isNum(rv) ? rv.toFixed(1) + "×" : "—", isNum(rv) && rv >= 2 ? "b-warn" : "b-inline", isNum(rv) ? (rv >= 2 ? "Unusually busy" : rv <= 0.5 ? "Quiet" : "Normal") : "",
       `Latest day's shares traded vs the 30-day average. 2× or more usually means news. (If the market is open, today's figure is still building.)`);
@@ -1880,7 +1917,7 @@ function signalsHtml(t){
       `Last 50 days: price ${pDir} (${fmtPct(pT,0)}), volume ${oDir === "Rising" ? "flowing in" : oDir === "Falling" ? "flowing out" : "balanced"}. ` +
       (div ? "The two disagree, which often comes before a turn." : oDir === "Flat" || pDir === "flat" ? "No clear signal." : "Volume confirms the price move."));
   return `<h3 style="margin-top:16px">Technical signals <span class="small muted" style="font-weight:400">· supporting information for timing, not a reason to buy or sell on its own</span></h3>
-    <div class="grid sig">${rsiT}${tr}${rvT}${udT}${obvT}</div>`;
+    <div class="grid sig">${rsiT}${trA || tr}${rvT}${udT}${obvT}</div>`;
 }
 function chartTable(h, m50, m200, idx){
   // Weekly rows (every 5th trading day), newest first, at most 60
@@ -2189,21 +2226,19 @@ function aiError(Anthropic, e){
   if(e instanceof Anthropic.APIError) return "Claude error: " + String(e.message).slice(0, 160);
   return e && e.message || "Something went wrong.";
 }
-const AI_SYSTEM = `You write short, plain-English stock summaries for a private long-term investor in the UK who is not a finance professional.
+const AI_SYSTEM = `You help a private long-term investor in the UK, who is not a finance professional, think through one stock.
 Use only the facts provided below by their analysis app (its own calculations and data feeds). Don't add outside facts, prices, events or news. If something important is missing, say so briefly.
-Format, in Markdown, under 230 words:
-**In one line:** the overall picture in one sentence.
-**What the numbers say**
-- Valuation: ...
-- Fair value: ...
-- Financial health: ...
-- Price trend: ...
-- Analysts and insiders: ...
-**Worth watching**
-- two or three items (for example upcoming results, warning flags, risks)
-Explain any jargon in a few words. Be balanced: name the main strength and the main concern. Don't tell the reader to buy, sell or hold, and don't predict the price: this informs their own decision.`;
+Format, in Markdown, under 260 words:
+**In one line:** the overall picture in one balanced sentence.
+**Bull case**
+- the 3 strongest points in the stock's favour, each tied to a figure on the page
+**Bear case**
+- the 3 strongest points against it, each tied to a figure on the page
+**What would change the picture**
+- 2 or 3 specific, checkable things the reader can watch in the app (for example the next results date, analysts raising or cutting estimates, the price moving outside the fair value range, the trend or a death cross, a health score change), saying which case each would strengthen
+Give the bull and bear cases equal care; the reader decides which is more convincing. Explain any jargon in a few words. Don't tell the reader to buy, sell or hold, don't give a verdict on which case wins, and don't predict the price: this informs their own decision.`;
 async function stockFacts(app, sym){
-  const parts = ["#c-glance", "#val", "#fv", "#health", "#rec", "#ins"];
+  const parts = ["#c-glance", "#val", "#fv", "#health", "#rec", "#ins", "#chart"];
   for(let i = 0; i < 30 && parts.some(s => { const e = $(s, app); return e && e.querySelector(".spin"); }); i++) await new Promise(r => setTimeout(r, 500)); // let the sections finish loading
   const txt = (s, n) => { const e = $(s, app); return e ? e.innerText.replace(/\n{2,}/g, "\n").trim().slice(0, n) : ""; };
   const h = myHoldings().find(x => x.symbol === sym);
@@ -2211,19 +2246,19 @@ async function stockFacts(app, sym){
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
     (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
-    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`,
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 1800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
 const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
   if(m){ o.html += (o.inList ? "" : "<ul>") + `<li>${m[1]}</li>`; o.inList = true; } else { if(o.inList){ o.html += "</ul>"; o.inList = false; } if(l.trim()) o.html += `<p>${l}</p>`; } return o; }, { html: "", inList: false });
 function renderAiCard(app, sym){
   const el = $("#ai", app); if(!el) return;
-  const saved = cacheGet("ai:" + sym);
+  const saved = cacheGet("ai2:" + sym);
   const est = "under 1p, or about 2–5p for a more careful one";
-  if(!state.aiKey){ el.innerHTML = `<p class="small muted" style="margin:0">Add an Anthropic API key in <a href="#settings">Settings</a> to get a short plain-English summary of everything on this page, written by Claude (${est} per summary, paid from your Anthropic account).</p>`; return; }
+  if(!state.aiKey){ el.innerHTML = `<p class="small muted" style="margin:0">Add an Anthropic API key in <a href="#settings">Settings</a> to get a short plain-English bull case, bear case and "what would change the picture" from everything on this page, written by Claude (${est} per summary, paid from your Anthropic account).</p>`; return; }
   const body = saved ? (() => { const r = mdLite(saved.text); return r.html + (r.inList ? "</ul>" : ""); })() : "";
   el.innerHTML = `${saved ? `<div class="ai-text">${body}</div><p class="small muted" style="margin:6px 0 0">Written ${hhmm(saved.at)} by ${esc(saved.by || "Claude")} from this page's figures${saved.cost ? ` · cost ${/^under/.test(saved.cost) ? "" : "about "}${saved.cost}` : ""}. AI can misread numbers: check anything important in the sections below.</p>` : ""}
-    <div class="row" style="margin-top:${saved ? 8 : 0}px"><button data-ai="quick" class="${saved ? "" : "primary"}">${saved ? "Write a fresh summary" : "Write a plain-English summary"}</button>
+    <div class="row" style="margin-top:${saved ? 8 : 0}px"><button data-ai="quick" class="${saved ? "" : "primary"}">${saved ? "Write a fresh one" : "Write the bull &amp; bear case"}</button>
       <button data-ai="careful" title="Claude Opus 5.5: reads the figures more carefully and connects them better">More careful summary (Opus, about 2–5p)</button>
       <span id="ai-msg" class="small muted">${saved ? "" : "Uses your Anthropic key: under 1p (Haiku). Saved for a day."}</span></div>`;
   const aiWrite = async kind => {
@@ -2245,7 +2280,7 @@ function renderAiCard(app, sym){
       const usd = (r.usage.input_tokens * M.in + r.usage.output_tokens * M.out) / 1e6;
       const fx = (await hvFor(renderToken).catch(() => ({}))).usdPerGbp, pence = isNum(fx) ? usd / fx * 100 : NaN;
       const cost = isNum(pence) ? (pence < 1 ? "under 1p" : `${Math.round(pence)}p`) : `$${usd.toFixed(3)}`;
-      cacheSet("ai:" + sym, { text, at: new Date().toISOString(), cost, model: r.model, by: M.name }, 24*3600e3);
+      cacheSet("ai2:" + sym, { text, at: new Date().toISOString(), cost, model: r.model, by: M.name }, 24*3600e3);
       renderAiCard(app, sym);
     }catch(e){ m.className = "small err"; m.textContent = Anthropic ? aiError(Anthropic, e) : (e.message || "Something went wrong."); el.querySelectorAll("[data-ai]").forEach(x => x.disabled = false); }
   };
@@ -2454,6 +2489,9 @@ const lastOf = a => a[a.length-1];
 
 // Trend label: the averages (50 vs 200-day) AND where the price is. After a sharp fall the averages lag:
 // BE (Nov 2026) had 50-day above 200-day ("uptrend") while the price was 36% below the 200-day.
+const wksText = w => w < 1 ? "within a week" : `in about ${Math.round(w)} week${Math.round(w) === 1 ? "" : "s"}`;
+const wksShort = w => w < 1 ? "<1 wk" : `~${Math.round(w)} wk${Math.round(w) === 1 ? "" : "s"}`;
+function approachWhy(t){ const a = t.approach; return `The 50-day average (${fmt(t.m50)}) is ${a.gapPct.toFixed(1)}% above the 200-day (${fmt(t.m200)}) but falling; at the pace the gap closed over the last 2 weeks they would cross ${wksText(a.weeks)} (a death cross). Rule: amber when the 50-day is falling and the gap would close within 6 weeks at that pace. The averages can level off, so this is an early warning, not a certainty.`; }
 function trendLabel(px, m50, m200){
   if(!isNum(m50) || !isNum(m200) || !isNum(px)) return null;
   const up = m50 > m200, above = px >= m200;
@@ -3584,7 +3622,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
-      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day, and each stock uses 1 (saved for a day). Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
+      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day for this key (Mac and iPhone share them). Each stock uses 1 a week (forecasts are kept 7 days; month-end prices for valuation history, only when needed, 30 days). Requests sent from this device today: <b>${avUsedToday()}</b>${avBlocked() ? " · daily limit reached, pausing for a couple of hours" : ""}. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="avform" class="row">
         <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -3604,7 +3642,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Anthropic API key <span class="small muted">(optional, for AI summaries)</span></h2>
-      <p class="small muted" style="margin-top:0">Lets Claude write a plain-English summary on any stock's page, only when you click the button: under 1p with Claude Haiku, or about 2–5p for a "more careful" one with Claude Opus, paid from your Anthropic account. Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → API keys; add a little credit under Billing and set a monthly spend limit there. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
+      <p class="small muted" style="margin-top:0">Lets Claude write a plain-English bull case, bear case and "what would change the picture" on any stock's page, only when you click the button: under 1p with Claude Haiku, or about 2–5p for a "more careful" one with Claude Opus, paid from your Anthropic account. Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → API keys; add a little credit under Billing and set a monthly spend limit there. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="aiform" class="row">
         <input id="aikey" type="password" placeholder="Paste your Anthropic key (starts with sk-ant-)" value="${esc(state.aiKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -3691,8 +3729,8 @@ function viewSettings(app){
   };
   $("#avtest",app).onclick = async () => {
     state.avKey = $("#avkey",app).value.trim(); save();
-    msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); cacheDel(k => k === "av:EARNINGS_ESTIMATES:MSFT");
-    try{ const e = parseAV(null, {ok:true, v: await avq.estimates("MSFT")});
+    msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); 
+    try{ const e = parseAV(null, {ok:true, v: await avq.estimates("MSFT", true)});
       msg("#avmsg", e.fy2 && isNum(e.fy2.eps) ? `✓ Works. Analysts expect Microsoft to earn ${fmt(e.fy2.eps)} per share next fiscal year.` : "Key accepted, but no estimates came back.", !(e.fy2 && isNum(e.fy2.eps))); }
     catch(e){ msg("#avmsg", e.message, true); }
   };
