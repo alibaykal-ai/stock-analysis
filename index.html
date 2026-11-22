@@ -256,6 +256,24 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 /* ===== iPhone stock page (6.2): fewer number tiles, one swipeable line of section links, valuation numbers kept ===== */
 .ph-only,.statmore{display:none}
 @media (max-width:700px){
+  /* 7.10: wide tables as cards on the iPhone: one card per row, each number with its label (data-l) */
+  table.stack,table.stack tbody,table.stack tr{display:block;width:auto}
+  table.stack thead{display:none}
+  table.stack tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 8px;background:var(--card)}
+  table.stack td{display:block;border:0;padding:0;text-align:left}
+  table.stack td::before{content:attr(data-l);display:block;font-size:13px;color:var(--muted);margin-bottom:1px}
+  table.stack td>div.small,table.stack td>br+small{display:inline;margin-left:6px}
+  table.stack td>br{display:none}
+  table.stack td:first-child{grid-column:1/-1;font-size:16px;padding:0 0 6px;border-bottom:1px solid var(--line)}
+  table.stack td:first-child::before{content:none}
+  table.stack td:first-child>div.small{display:block;margin:2px 0 0}
+  table.stack td:first-child{order:-2}
+  table.stack td.st-key{order:-1;grid-column:1/-1;font-size:17px}
+  table.stack td.st-key::before{display:inline;margin-right:8px;font-size:14px}
+  table.stack td:empty,table.stack td.hide-sm{display:none}
+  table.stack tr.st-tot{background:var(--neutralbg)}
+  table.tight th,table.tight td{padding:7px 3px;font-size:14px}
+  table.tight th{font-size:11.5px}
   #rqring{position:absolute;right:6px;top:50%;margin:0;transform:translateY(-50%)}
   .rqpop{left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;max-height:85vh;overflow:auto;border-radius:18px 18px 0 0;border-bottom:0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));font-size:15px}
   .rqpop::before{content:"";display:block;width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
@@ -346,7 +364,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.9</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.10</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2399,7 +2417,7 @@ function signalsHtml(t){
 function chartTable(h, m50, m200, idx){
   // Weekly rows (every 5th trading day), newest first, at most 60
   const rows = []; for(let k = idx.length - 1; k >= 0 && rows.length < 60; k -= (idx.length > 70 ? 5 : 1)) rows.push(idx[k]);
-  return `<div style="overflow-x:auto;max-height:320px;overflow-y:auto"><table><thead><tr><th>Date</th><th class="num">Close</th><th class="num">50-day avg</th><th class="num">200-day avg</th><th class="num">Volume</th></tr></thead><tbody>${
+  return `<div style="overflow-x:auto;max-height:320px;overflow-y:auto"><table class="tight"><thead><tr><th>Date</th><th class="num">Close</th><th class="num">50-day avg</th><th class="num">200-day avg</th><th class="num">Volume</th></tr></thead><tbody>${
     rows.map(i => `<tr><td>${esc(h.d[i])}</td><td class="num">${fmt(h.c[i])}</td><td class="num">${fmt(m50[i])}</td><td class="num">${fmt(m200[i])}</td><td class="num">${Math.round(h.v[i]).toLocaleString()}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -2668,8 +2686,8 @@ async function renderInsiders(app, sym, tok){
   el.innerHTML = `
     <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div><p style="margin:0;flex:1;min-width:260px;max-width:760px">${line}</p></div>
     ${isNum(msprAvg) ? `<p class="small" style="margin:0 0 10px"><b>Insider sentiment</b> (last 3 months): ${msprAvg.toFixed(0)} on a scale from −100 (all selling) to +100 (all buying). ${sparkSvg([{ v: sd.slice(-12).map(x => x.mspr), cls: "s-ln" }], 160, 26, 0)}</p>` : ""}
-    ${top.length ? `<div style="overflow-x:auto"><table style="max-width:820px"><thead><tr><th>Date</th><th>Insider</th><th></th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>
-      ${top.map(r => `<tr><td>${fmtDay(r.transactionDate)}</td><td>${esc(r.name || "")}</td><td><span class="badge ${r.transactionCode === "P" ? "b-cheap" : "b-inline"}">${r.transactionCode === "P" ? "Bought" : "Sold"}</span></td><td class="num">${fmt(Math.abs(r.change || 0), 0)}</td><td class="num">${isNum(r.transactionPrice) && r.transactionPrice > 0 ? fmt(r.transactionPrice) : "—"}</td><td class="num">${fmtUSD(val(r))}</td></tr>`).join("")}
+    ${top.length ? `<div style="overflow-x:auto"><table class="tight" style="max-width:820px"><thead><tr><th>Date</th><th>Insider</th><th></th><th class="num">Shares</th><th class="num hide-sm">Price</th><th class="num">Value</th></tr></thead><tbody>
+      ${top.map(r => `<tr><td>${fmtDay(r.transactionDate)}</td><td>${esc(r.name || "")}</td><td><span class="badge ${r.transactionCode === "P" ? "b-cheap" : "b-inline"}">${r.transactionCode === "P" ? "Bought" : "Sold"}</span></td><td class="num">${fmt(Math.abs(r.change || 0), 0)}</td><td class="num hide-sm">${isNum(r.transactionPrice) && r.transactionPrice > 0 ? fmt(r.transactionPrice) : "—"}</td><td class="num">${fmtUSD(val(r))}</td></tr>`).join("")}
     </tbody></table></div>` : ""}
     ${other ? `<p class="small muted">Plus ${other} other filing${other === 1 ? "" : "s"} in 6 months (share grants, option exercises, shares withheld for tax, gifts): these aren't buying or selling decisions, so they're left out.</p>` : ""}
     <h3>Short interest</h3>
@@ -3416,7 +3434,7 @@ async function viewMacro(app, tok){
         ${qqq ? moodBlock(qqq, "Nasdaq-100", "QQQ", "The Nasdaq-100") : data.QQQ ? `<p class="small muted">Nasdaq-100 unavailable: ${esc(data.QQQ.err)}</p>` : `<p class="small muted"><span class="spin"></span> Loading the Nasdaq-100…</p>`}
         <div id="m-breadth" style="margin-top:12px"></div>
         <details class="more"><summary>Show the numbers and rules</summary>
-          <div style="overflow-x:auto"><table style="max-width:760px"><thead><tr><th></th><th class="num">Below 12-month high</th><th class="num">vs 200-day avg</th><th class="num">vs 50-day avg</th><th class="num">1 · 3 · 6 months</th></tr></thead><tbody>
+          <div style="overflow-x:auto"><table class="tight" style="max-width:760px"><thead><tr><th></th><th class="num">Below 12-month high</th><th class="num">vs 200-day avg</th><th class="num">vs 50-day avg</th><th class="num">1 · 3 · 6 months</th></tr></thead><tbody>
             ${numRows(spy, "S&amp;P 500")}${qqq ? numRows(qqq, "Nasdaq-100", "The Nasdaq-100") : ""}
           </tbody></table></div>
           <p class="small muted">Rules: 20% or more below the 12-month high = Bear market (red). 10–20% below = Correction (amber). Less than 10% below and above the 200-day average = Bull market (green); below the 200-day average = Pullback (amber). The Nasdaq-100 (QQQ fund) holds the 100 largest non-financial companies on the Nasdaq exchange, mostly tech; it usually swings more than the S&amp;P 500. For a long-term investor these describe the backdrop; they aren't buy or sell signals.</p>
@@ -3434,20 +3452,20 @@ async function viewMacro(app, tok){
       note.innerHTML = `
         ${loaded >= 6 ? `<p style="margin:0 0 12px">${rotationText(rows)}</p>` : ""}
         ${pending ? `<p class="small muted"><span class="spin"></span> Loading sectors (${done} of ${syms.length} funds)… Twelve Data allows 8 requests a minute, so the first load takes about 2 minutes. Kept for 12 hours after that.</p>` : ""}
-        <div style="overflow-x:auto"><table class="sect"><thead><tr>
+        <div style="overflow-x:auto"><table class="sect stack"><thead><tr>
           <th>Sector</th><th>vs S&amp;P 500, 3 months</th><th class="num">1 month</th><th class="num">3 months</th><th class="num">6 months</th>
           <th class="hide-sm">6 months vs S&amp;P 500</th><th>200-day avg</th><th>Your stocks</th></tr></thead><tbody>
           ${sorted.map(r => r.err ? `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td><td colspan="7" class="small muted">${esc(r.err)}</td></tr>`
             : !isNum(r.r3) ? `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td><td colspan="6" class="small muted">${data[r.etf] ? "Not enough history" : '<span class="spin"></span>'}</td><td>${tags(r.etf)}</td></tr>`
             : `<tr><td><b>${esc(r.name)}</b> <small class="muted">${r.etf}</small></td>
-              <td>${relBadge(r.rel3)}<br><small class="muted">${fmtPct(r.rel3,1).replace("%","")} pts</small></td>
-              <td class="num"><span class="${cls(r.r1)}">${fmtPct(r.r1,1)}</span></td>
-              <td class="num"><span class="${cls(r.r3)}">${fmtPct(r.r3,1)}</span></td>
-              <td class="num"><span class="${cls(r.r6)}">${fmtPct(r.r6,1)}</span></td>
+              <td data-l="vs S&amp;P 500, 3 months">${relBadge(r.rel3)}<br><small class="muted">${fmtPct(r.rel3,1).replace("%","")} pts</small></td>
+              <td class="num" data-l="1 month"><span class="${cls(r.r1)}">${fmtPct(r.r1,1)}</span></td>
+              <td class="num" data-l="3 months"><span class="${cls(r.r3)}">${fmtPct(r.r3,1)}</span></td>
+              <td class="num" data-l="6 months"><span class="${cls(r.r6)}">${fmtPct(r.r6,1)}</span></td>
               <td class="hide-sm">${sparkSvg([{v: r.rel, cls:"s-ln"}], 120, 28, 100)}</td>
-              <td>${r.above === null ? "—" : r.above ? '<span class="badge b-cheap">Above</span>' : '<span class="badge b-rich">Below</span>'}</td>
-              <td>${tags(r.etf)}</td></tr>`).join("")}
-          <tr><td class="muted">S&amp;P 500 <small>SPY</small></td><td></td><td class="num muted">${fmtPct(retN(spy,21),1)}</td><td class="num muted">${fmtPct(retN(spy,63),1)}</td><td class="num muted">${fmtPct(retN(spy,126),1)}</td><td class="hide-sm"></td><td></td><td></td></tr>
+              <td data-l="200-day average">${r.above === null ? "—" : r.above ? '<span class="badge b-cheap">Above</span>' : '<span class="badge b-rich">Below</span>'}</td>
+              <td data-l="Your stocks">${tags(r.etf)}</td></tr>`).join("")}
+          <tr class="st-tot"><td class="muted">S&amp;P 500 <small>SPY</small></td><td></td><td class="num muted" data-l="1 month">${fmtPct(retN(spy,21),1)}</td><td class="num muted" data-l="3 months">${fmtPct(retN(spy,63),1)}</td><td class="num muted" data-l="6 months">${fmtPct(retN(spy,126),1)}</td><td class="hide-sm"></td><td></td><td></td></tr>
         </tbody></table></div>
         <details class="more"><summary>How to read this</summary>
           <p class="small muted">Each sector is measured with its sector fund (e.g. XLK for technology), sorted by how much it beat or trailed the S&amp;P 500 over 3 months. <b>Leading</b> = 2+ points ahead of the index, <b>Lagging</b> = 2+ points behind (green / red), otherwise In line. The small line shows the sector divided by the S&amp;P 500 over 6 months: rising = beating the market; the dotted line is where it started.
@@ -3820,13 +3838,13 @@ function periodsHtml(per, rateFor){
       Your investments were worth ${fmtGBP(t.v0)} then; you bought ${fmtGBP(t.buys)} and sold ${fmtGBP(t.sells)} since, and they're worth ${fmtGBP(t.now)} now.
       The same money in the S&amp;P 500 would have ${t.spy >= 0 ? "made" : "lost"} ${sg(t.spy)} (${pc(t.spyRet)})${isNum(t.qqq) ? `; in the Nasdaq-100 ${sg(t.qqq)} (${pc(t.qqqRet)})` : ""}.
       <span class="small muted">Real money: what you actually held each day, with each purchase and sale on its date${miss.length ? `; left out, as there's no daily price history for them on the free plan: ${miss.map(g => esc(g.sym) + why(g)).join(", ")} (${fmtGBP(missVal)} today)` : ""}.</span></p></div>
-    <div style="overflow-x:auto"><table style="max-width:860px"><thead><tr><th></th>${per.map(p => `<th class="num">${p.label}</th>`).join("")}</tr></thead><tbody>
-      <tr><td><b>Your gain</b></td>${per.map(p => `<td class="num"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td>`).join("")}</tr>
-      <tr><td>Same money in the S&amp;P 500</td>${per.map(p => `<td class="num">${sg(p.tot.spy)}<div class="small">${pc(p.tot.spyRet)}</div></td>`).join("")}</tr>
-      ${per[0].tot.qqq !== undefined ? `<tr><td>In the Nasdaq-100</td>${per.map(p => `<td class="num">${sg(p.tot.qqq)}<div class="small">${pc(p.tot.qqqRet)}</div></td>`).join("")}</tr>` : ""}
-      <tr><td class="muted">You vs the S&amp;P 500</td>${per.map(p => `<td class="num">${sg(p.tot.gain - p.tot.spy)}</td>`).join("")}</tr>
-      <tr><td class="muted">Worth at the start</td>${per.map(p => `<td class="num muted">${fmtGBP(p.tot.v0)}</td>`).join("")}</tr>
-      <tr><td class="muted">Bought / sold in the period</td>${per.map(p => `<td class="num muted">${fmtGBP(p.tot.buys)} / ${fmtGBP(p.tot.sells)}</td>`).join("")}</tr>
+    <div style="overflow-x:auto"><table class="stack" style="max-width:860px"><thead><tr><th></th>${per.map(p => `<th class="num">${p.label}</th>`).join("")}</tr></thead><tbody>
+      <tr><td><b>Your gain</b></td>${per.map(p => `<td class="num" data-l="${p.label}"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td>`).join("")}</tr>
+      <tr><td>Same money in the S&amp;P 500</td>${per.map(p => `<td class="num" data-l="${p.label}">${sg(p.tot.spy)}<div class="small">${pc(p.tot.spyRet)}</div></td>`).join("")}</tr>
+      ${per[0].tot.qqq !== undefined ? `<tr><td>In the Nasdaq-100</td>${per.map(p => `<td class="num" data-l="${p.label}">${sg(p.tot.qqq)}<div class="small">${pc(p.tot.qqqRet)}</div></td>`).join("")}</tr>` : ""}
+      <tr><td class="muted">You vs the S&amp;P 500</td>${per.map(p => `<td class="num" data-l="${p.label}">${sg(p.tot.gain - p.tot.spy)}</td>`).join("")}</tr>
+      <tr><td class="muted">Worth at the start</td>${per.map(p => `<td class="num muted" data-l="${p.label}">${fmtGBP(p.tot.v0)}</td>`).join("")}</tr>
+      <tr><td class="muted">Bought / sold in the period</td>${per.map(p => `<td class="num muted" data-l="${p.label}">${fmtGBP(p.tot.buys)} / ${fmtGBP(p.tot.sells)}</td>`).join("")}</tr>
     </tbody></table></div>
     <div id="perf-detail"></div>`;
 }
@@ -3845,21 +3863,21 @@ function tradesHtml(R){
   const list = out.slice().sort((a, b) => (b.gain - sG(b)) - (a.gain - sG(a)));
   const row = r => { const sGain = sG(r), d = r.gain - sGain;
     return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.acct ? ` <small class="badge b-inline">${esc(r.acct)}</small>` : ""}${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
-      <td class="num">${fmtGBP(r.bought)}</td><td class="num">${r.sold ? fmtGBP(r.sold) : "—"}</td><td class="num">${r.held ? fmtGBP(r.value) : "—"}</td>
-      <td class="num">${sg(r.gain)}<div class="small">${pc(r.gain / r.bought * 100)}</div></td>
-      <td class="num">${r.held && r.book > 0 ? pc((r.value / r.book - 1) * 100) : "—"}</td>
-      <td class="num">${isNum(r.spy) ? sg(sGain) : "—"}</td><td class="num">${isNum(r.spy) ? sg(d) : "—"}</td></tr>`; };
+      <td class="num" data-l="Put in">${fmtGBP(r.bought)}</td><td class="num" data-l="Taken out">${r.sold ? fmtGBP(r.sold) : "—"}</td><td class="num" data-l="Worth now">${r.held ? fmtGBP(r.value) : "—"}</td>
+      <td class="num st-key" data-l="Your gain">${sg(r.gain)}<div class="small">${pc(r.gain / r.bought * 100)}</div></td>
+      <td class="num" data-l="On shares still held">${r.held && r.book > 0 ? pc((r.value / r.book - 1) * 100) : "—"}</td>
+      <td class="num" data-l="S&amp;P 500 instead">${isNum(r.spy) ? sg(sGain) : "—"}</td><td class="num" data-l="Difference">${isNum(r.spy) ? sg(d) : "—"}</td></tr>`; };
   return `
     <h3 style="margin-top:0">Your results vs the index <small class="muted" style="font-weight:400">(from your ${R.n ? "bank orders" : ""}${R.n && R.typed ? " and " : ""}${R.typed ? "typed purchases" : ""})</small></h3>
     <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div>
       <p style="margin:0;flex:1;min-width:260px;max-width:760px">Since your first order (${since}) you put in <b>${fmtGBP(tot.bought)}</b> and took out ${fmtGBP(tot.sold)}; your holdings are worth ${fmtGBP(tot.value)} today. Gain: <b>${sg(tot.gain)}</b>${annual ? `, <b>${fmtPct(tot.irr, 1)} a year</b>` : ""}.
       The same money in the S&amp;P 500 instead (bought on the same days, sold in the same proportions) would have gained ${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}${annual ? ` (${fmtPct(tot.spyIrr, 1)} a year)` : ""}${isNum(tot.qqqGain) ? `; in the Nasdaq-100 ${sg(tot.qqqGain)}${annual ? ` (${fmtPct(tot.qqqIrr, 1)} a year)` : ""}` : ""}.
       You are ${vs(gap, "S&amp;P 500")}${isNum(gapQ) ? ` and ${vs(gapQ, "Nasdaq-100")}` : ""}.</p></div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Investment</th><th class="num">Put in</th><th class="num">Taken out</th><th class="num">Worth now</th><th class="num">Your gain</th><th class="num">On shares still held<br><small>(as your bank shows)</small></th><th class="num">Same money in S&amp;P 500</th><th class="num">Difference</th></tr></thead><tbody>
+    <div style="overflow-x:auto"><table class="stack"><thead><tr><th>Investment</th><th class="num">Put in</th><th class="num">Taken out</th><th class="num">Worth now</th><th class="num">Your gain</th><th class="num">On shares still held<br><small>(as your bank shows)</small></th><th class="num">Same money in S&amp;P 500</th><th class="num">Difference</th></tr></thead><tbody>
       ${list.slice(0, 12).map(row).join("")}
-      <tr><td><b>Total</b></td><td class="num"><b>${fmtGBP(tot.bought)}</b></td><td class="num"><b>${fmtGBP(tot.sold)}</b></td><td class="num"><b>${fmtGBP(tot.value)}</b></td><td class="num"><b>${sg(tot.gain)}</b></td><td></td><td class="num"><b>${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}</b></td><td class="num"><b>${isNum(tot.spyGain) ? sg(tot.gain - tot.spyGain) : "—"}</b></td></tr>
+      <tr class="st-tot"><td><b>Total</b></td><td class="num" data-l="Put in"><b>${fmtGBP(tot.bought)}</b></td><td class="num" data-l="Taken out"><b>${fmtGBP(tot.sold)}</b></td><td class="num" data-l="Worth now"><b>${fmtGBP(tot.value)}</b></td><td class="num st-key" data-l="Your gain"><b>${sg(tot.gain)}</b></td><td></td><td class="num" data-l="S&amp;P 500 instead"><b>${isNum(tot.spyGain) ? sg(tot.spyGain) : "—"}</b></td><td class="num" data-l="Difference"><b>${isNum(tot.spyGain) ? sg(tot.gain - tot.spyGain) : "—"}</b></td></tr>
     </tbody></table></div>
-    ${list.length > 12 ? `<details class="more" style="margin-top:4px"><summary>Show all ${list.length}</summary><div style="overflow-x:auto"><table><tbody>${list.slice(12).map(row).join("")}</tbody></table></div></details>` : ""}
+    ${list.length > 12 ? `<details class="more" style="margin-top:4px"><summary>Show all ${list.length}</summary><div style="overflow-x:auto"><table class="stack"><tbody>${list.slice(12).map(row).join("")}</tbody></table></div></details>` : ""}
     ${R.skipped.length ? `<p class="small muted" style="margin:8px 0 0">Left out: ${R.skipped.join(", ")}.</p>` : ""}
     ${R.fxShort ? `<p class="small muted" style="margin:8px 0 0">Exchange rates before ${fmtDay(R.fxFirst)} aren't downloaded yet, so the earliest rate available was used for older orders. This fixes itself after the next daily data update.</p>` : ""}
     <details class="more"><summary>How to read this</summary>
@@ -3894,11 +3912,11 @@ function renderPeriods(el, actual, R, spy){
         </div>
       </div>
       <details class="more" id="perf-all"><summary>All ${p.rows.length} investments, ${p.label.toLowerCase()}</summary>
-        <div style="overflow-x:auto"><table class="perf-all"><thead><tr><th>Investment</th><th class="num">Worth at the start</th><th class="num">Bought</th><th class="num">Sold</th><th class="num">Worth now</th><th class="num">Gain</th></tr></thead><tbody>
+        <div style="overflow-x:auto"><table class="perf-all stack"><thead><tr><th>Investment</th><th class="num">Worth at the start</th><th class="num">Bought</th><th class="num">Sold</th><th class="num">Worth now</th><th class="num">Gain</th></tr></thead><tbody>
         ${p.rows.slice().sort((a, b) => a.gain - b.gain).map(x => `<tr><td><b>${esc(x.g.sym)}</b>${x.g.r.acct ? ` <small class="badge b-inline">${esc(x.g.r.acct)}</small>` : ""}${x.inP.length ? `<div class="small muted">${x.inP.map(t => `${t.s === "B" ? "bought" : "sold"} ${fmtDay(t.d)}`).slice(0, 3).join(", ")}${x.inP.length > 3 ? ` +${x.inP.length - 3} more` : ""}</div>` : ""}</td>
-          <td class="num">${x.v0 ? fmtGBP(x.v0) : "—"}</td><td class="num">${x.buys ? fmtGBP(x.buys) : "—"}</td><td class="num">${x.sells ? fmtGBP(x.sells) : "—"}</td><td class="num">${x.now ? fmtGBP(x.now) : "—"}</td>
-          <td class="num">${sg(x.gain)}<div class="small">${pc(x.ret)}</div></td></tr>`).join("")}
-        <tr><td><b>Total</b></td><td class="num"><b>${fmtGBP(p.tot.v0)}</b></td><td class="num"><b>${fmtGBP(p.tot.buys)}</b></td><td class="num"><b>${fmtGBP(p.tot.sells)}</b></td><td class="num"><b>${fmtGBP(p.tot.now)}</b></td><td class="num"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td></tr>
+          <td class="num" data-l="Worth at the start">${x.v0 ? fmtGBP(x.v0) : "—"}</td><td class="num" data-l="Bought">${x.buys ? fmtGBP(x.buys) : "—"}</td><td class="num" data-l="Sold">${x.sells ? fmtGBP(x.sells) : "—"}</td><td class="num" data-l="Worth now">${x.now ? fmtGBP(x.now) : "—"}</td>
+          <td class="num st-key" data-l="Gain">${sg(x.gain)}<div class="small">${pc(x.ret)}</div></td></tr>`).join("")}
+        <tr class="st-tot"><td><b>Total</b></td><td class="num" data-l="Worth at the start"><b>${fmtGBP(p.tot.v0)}</b></td><td class="num" data-l="Bought"><b>${fmtGBP(p.tot.buys)}</b></td><td class="num" data-l="Sold"><b>${fmtGBP(p.tot.sells)}</b></td><td class="num" data-l="Worth now"><b>${fmtGBP(p.tot.now)}</b></td><td class="num st-key" data-l="Gain"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td></tr>
         </tbody></table></div></details>`;
     if(perfAllOpen) $("#perf-all", el).open = true;
     $("#perf-all", el).ontoggle = e => { perfAllOpen = e.target.open; };
