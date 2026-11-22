@@ -366,7 +366,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.11</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.12</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -3229,7 +3229,6 @@ function renderFed(app, j){
   el.classList.remove("muted", "small");
   el.innerHTML = `
     ${sum ? `<div class="mood" style="margin-bottom:12px"><div><span class="badge big ${sum.k}">${sum.word}</span></div><p style="margin:0;flex:1;min-width:260px;max-width:760px">${sum.text}</p></div>` : ""}
-    ${comingHtml(j)}
     <h3 style="margin-top:4px">Inflation <span class="small muted" style="font-weight:400">· the Fed's target is 2% a year</span></h3>
     ${main ? `<p style="margin:0 0 10px">${main.name} inflation is <b>${main.now.toFixed(1)}%</b> a year (${fmtMonth(main.month)}), ${(main.now - 2).toFixed(1)} points ${main.now >= 2 ? "above" : "below"} target and <b>${main.trend}</b> over the last 3 months.</p>` : ""}
     <div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${infl.map(tile).join("")}</div>
@@ -3411,7 +3410,7 @@ function renderTop(app, data, mine, fredJ){
     vb.classList.remove("muted", "small");
     vb.innerHTML = `<div class="mood"><div><span class="badge big ${k}">${word}</span></div>
       <div style="flex:1;min-width:260px;max-width:760px"><p style="margin:0 0 6px">${sentence}</p>
-      <p class="small muted" style="margin:0">Combines the four sections below: market mood, sector rotation, where rates are heading and the economy. Each counts +1 for, 0 neutral, −1 against; +2 or more = Mostly tailwinds, −2 or less = Mostly headwinds. It describes the backdrop for stocks in general, not a reason to buy or sell any one stock.${parts.length < 4 ? " Some sections are still loading." : ""}</p></div></div>`;
+      <p class="small muted" style="margin:0">Combines the four other sections in the menu: market mood, sector rotation, where rates are heading (Inflation &amp; the Fed) and the economy. Each counts +1 for, 0 neutral, −1 against; +2 or more = Mostly tailwinds, −2 or less = Mostly headwinds. It describes the backdrop for stocks in general, not a reason to buy or sell any one stock.${parts.length < 4 ? " Some sections are still loading." : ""}</p></div></div>`;
   }
   // Macro → your stocks: one line per sector you own (holdings first, then watchlist-only sectors)
   const secs = SECTORS.map(([etf, name]) => ({ etf, name, t: mine[etf], r: rows.find(x => x.etf === etf) })).filter(x => x.t);
@@ -3426,19 +3425,41 @@ function renderTop(app, data, mine, fredJ){
     return `<div class="flag"><div style="min-width:74px">${relBadge(rel)}</div><div><b>${esc(x.name)}</b> (${tick}): ${perf} ${sectorMacroNote(x.etf, fedDir, econ && econ.k, oilTag)}</div></div>`;
   }).join("") + `<p class="small muted" style="margin:8px 0 0">Holdings in bold, watchlist in grey; ETFs and funds left out. Sector notes describe how these sectors usually react, not a forecast for any one company.</p>`;
 }
+// Macro sections (7.12): one at a time, from a menu like My Stocks' (left on the Mac, a swipeable row on the iPhone).
+// Every section still loads in the background; the menu shows each one's headline badge.
+const MSECS = [["overview", "Overview"], ["mood", "Market mood"], ["sect", "Sectors"], ["fed", "Inflation & the Fed"], ["econ", "Economy"]];
+let macroSec = (() => { try{ const v = localStorage.getItem("sa.msec"); return MSECS.some(m => m[0] === v) ? v : "overview"; }catch(e){ return "overview"; } })();
+function macroShow(app){
+  app.querySelectorAll("[data-msec]").forEach(c => c.hidden = c.dataset.msec !== macroSec);
+  app.querySelectorAll(".side [data-ms]").forEach(b => b.classList.toggle("on", b.dataset.ms === macroSec));
+}
+function macroBadges(app){ // the first big badge in each section, as the menu's second line
+  for(const [k] of MSECS){ const sm = $(`#ms-${k}`, app); if(!sm) continue;
+    const b = [...app.querySelectorAll(`[data-msec="${k}"] .badge.big`)][0], t = b ? b.textContent.trim() : "";
+    if(sm.textContent !== t) sm.textContent = t; }
+}
 async function viewMacro(app, tok){
   app.innerHTML = `
-    <div class="card" id="m-verdict"><h2>Overall: the backdrop for stocks</h2><div id="m-verdict-b" class="muted small"><span class="spin"></span> Loading…</div></div>
-    <div class="card" id="m-yours"><h2>Macro → your stocks</h2><div id="m-yours-b" class="muted small"><span class="spin"></span> Loading…</div></div>
-    <div class="card" id="m-mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
-    <div class="card" id="m-sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
-    <div class="card" id="m-fed"><h2>Inflation &amp; the Fed</h2><div id="m-fed-b" class="muted small"><span class="spin"></span> Loading…</div></div>
-    <div class="card" id="m-econ"><h2>The economy: tailwinds and headwinds</h2><div id="m-econ-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="homegrid">
+    <nav class="side" aria-label="Macro sections">${MSECS.map(([k, l]) => `<button data-ms="${k}" class="${k === macroSec ? "on" : ""}">${l.replace("&", "&amp;")}<small id="ms-${k}"></small></button>`).join("")}</nav>
+    <div class="side-main">
+    <div class="card" id="m-verdict" data-msec="overview"><h2>Overall: the backdrop for stocks</h2><div id="m-coming"></div><div id="m-verdict-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card" id="m-yours" data-msec="overview"><h2>Macro → your stocks</h2><div id="m-yours-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card" id="m-mood" data-msec="mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
+    <div class="card" id="m-sect" data-msec="sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
+    <div class="card" id="m-fed" data-msec="fed"><h2>Inflation &amp; the Fed</h2><div id="m-fed-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card" id="m-econ" data-msec="econ"><h2>The economy: tailwinds and headwinds</h2><div id="m-econ-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    </div></div>
 `;
+  macroShow(app);
+  app.querySelectorAll(".side [data-ms]").forEach(b => b.onclick = () => { macroSec = b.dataset.ms; try{ localStorage.setItem("sa.msec", macroSec); }catch(e){}
+    macroShow(app); window.scrollTo(0, 0); });
+  const mo = new MutationObserver(() => { if(!live(tok)){ mo.disconnect(); return; } macroBadges(app); });
+  mo.observe($(".side-main", app), { childList: true, subtree: true });
   const data = {};
   let mine = {}, fredJ = null;
   const top = () => { if(live(tok)) renderTop(app, data, mine, fredJ); };
-  macroData().then(j => { if(live(tok)){ fredJ = j; renderFed(app, j); renderEcon(app, j); top(); } }, e => { ["#m-fed-b","#m-econ-b"].forEach(id => { const el = $(id, app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }); });
+  macroData().then(j => { if(live(tok)){ fredJ = j; const cu = $("#m-coming", app); if(cu) cu.innerHTML = comingHtml(j); renderFed(app, j); renderEcon(app, j); top(); } }, e => { ["#m-fed-b","#m-econ-b"].forEach(id => { const el = $(id, app); if(el && live(tok)) el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }); });
   if(!state.tdKey){
     $("#m-mood-b", app).innerHTML = `Add a free <a href="#settings">Twelve Data key in Settings</a> to see the market mood and sectors (14 requests, kept 12 hours).`;
     $("#m-sect-b", app).textContent = "";
