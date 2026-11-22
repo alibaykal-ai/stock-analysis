@@ -392,7 +392,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.15</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.16</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -523,7 +523,7 @@ const fh = {
   metric:  s => api("/stock/metric", {symbol:s, metric:"all"}, "metric"),
   peers:   s => api("/stock/peers", {symbol:s}, "peers"),
   rec:     s => api("/stock/recommendation", {symbol:s}, "rec"),
-  earnings:s => api("/calendar/earnings", { symbol: s, from: ymd(new Date(Date.now() - 35*864e5)), to: ymd(new Date(Date.now() + 100*864e5)) }, "earn"),
+  earnings:s => api("/calendar/earnings", { symbol: s, from: ymd(new Date(Date.now() - 400*864e5)), to: ymd(new Date(Date.now() + 200*864e5)) }, "earn"), // 7.16: a year back (same quarter last year) to the next 2 quarters' estimates
   news:    s => { const to=new Date(), from=new Date(Date.now()-14*864e5); return api("/company-news",{symbol:s,from:ymd(from),to:ymd(to)},"news"); },
   search:  q => api("/search", {q}, "search"),
   // Annual reports as filed (10-K). Large reply, so only a small summary per year is kept.
@@ -901,6 +901,12 @@ async function avPriority(){
   const owned = new Set([...myHoldings().map(h => h.symbol), ...state.watchlist]);
   const due = (avLS("want") || []).filter(s => owned.has(s)).filter(s => { fcHydrate(s); const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e || Date.now() - (e.t || e.exp - 24*3600e3) >= AV_FRESH.EARNINGS_ESTIMATES; });
   for(const s of due.slice(0, 4)){ if(avBlocked()) return; await safe(avApi("EARNINGS_ESTIMATES", s)); }
+  // 7.16: every stock's forecasts, oldest first, refreshed weekly: at most 3 each time My Stocks opens and only while
+  // Mac + iPhone together have used under 15 of today's 25 (stock pages and boom-and-bust stocks keep the rest).
+  const age = s => { fcHydrate(s); const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e ? Infinity : Date.now() - (e.t || e.exp - 24*3600e3); };
+  const stocks = [...new Set([...myHoldings().filter(h => !h.type || h.type === "stock").map(h => h.symbol), ...state.watchlist])].filter(s => !/\.L$/i.test(s));
+  const all = stocks.filter(s => age(s) >= AV_FRESH.EARNINGS_ESTIMATES).sort((a, b) => age(b) - age(a));
+  for(const s of all.slice(0, 3)){ if(avBlocked() || rqToday("av").n >= 15) return; await safe(avApi("EARNINGS_ESTIMATES", s)); }
 }
 const avq = {
   overview:  s => avApi("OVERVIEW", s),
@@ -1446,7 +1452,7 @@ const peek = {
   td:  s => cacheGet("td:daily:" + s + ":1600"),
   av:  s => { fcHydrate(s); return cacheGet("av:EARNINGS_ESTIMATES:" + s); },
   fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual"})),
-  earn:s => cacheGet("/calendar/earnings?" + new URLSearchParams({ symbol: s, from: ymd(new Date(Date.now() - 35*864e5)), to: ymd(new Date(Date.now() + 100*864e5)) })),
+  earn:s => cacheGet("/calendar/earnings?" + new URLSearchParams({ symbol: s, from: ymd(new Date(Date.now() - 400*864e5)), to: ymd(new Date(Date.now() + 200*864e5)) })),
   finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly"})),
 };
 // Each flag: sev "red" (concern) or "amber" (watch), short text, one-line why.
@@ -1677,7 +1683,7 @@ async function viewStock(app, sym, tok){
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; $("#sales",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
+    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; const repP = Promise.all([finP, safe(fh.earnings(sym))]).then(([[f, fq], e]) => ({ fin: f.ok ? f.v : null, finQ: fq.ok ? fq.v : null, cal: e.ok ? e.v : null })); renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -1822,9 +1828,49 @@ function impliedGrowth(price, fcf, r, gt){
   for(let i=0; i<80; i++){ const m = (lo+hi)/2; if(dcfPerShare(fcf, m, r, gt) < price) lo = m; else hi = m; }
   return (lo+hi)/2;
 }
-// Fast growth rarely lasts: year 1 grows at g0, then the growth above long-term growth gt
-// halves each year. Returns the average over years 1-5, to feed the 5-year DCF stage.
-const fadeAvg5 = (g0, gt) => gt + (g0 - gt) * (1 + 0.5 + 0.25 + 0.125 + 0.0625) / 5;
+// Fast growth rarely lasts: year 1 grows at g0, then the growth above long-term growth gt halves every G_HALF years.
+// Returns the average over years 1-5, to feed the 5-year DCF stage. 7.16: halving every 2 years (was every year: a company
+// growing +87% got an average of 14%; checked against Morningstar on the owner's stocks, 22 Nov 2026).
+const G_HALF = 2;
+const fadeF5 = [1, 2, 3, 4, 5].reduce((t, y) => t + Math.pow(0.5, (y - 1) / G_HALF), 0) / 5;
+const fadeAvg5 = (g0, gt) => gt + (g0 - gt) * fadeF5;
+const gCap = g => Math.max(-20, Math.min(60, g)); // the growth slider's range
+// 7.16 (owner: "don't make easy assumptions… check the real numbers"): next year's growth comes from the most forward-looking
+// figure available (fvInputs): 1) analysts' yearly forecasts (Alpha Vantage); 2) analysts' sales estimates for the next 2
+// quarters vs the same quarters a year earlier (Finnhub's earnings calendar: free, every stock); 3) the company's last 12
+// months of sales vs the 12 months before (its reports); 4) the middle of Finnhub's 5-year growth figures, which lag
+// (PLTR: +32.6% while its last 12 months were +87%). Checked 22 Nov: the old rule assumed PLTR 14%, BE 9.5% (sales +111%),
+// GOOGL 8% (+20%), and TSLA 24.6% in year 1 (+8%).
+// Analysts' sales estimates for the next 2 quarters (Finnhub's earnings calendar) vs the same quarters a year earlier. The free
+// calendar only lists the latest reported quarter and the next two, so the year-earlier sales come from the company's own
+// quarterly reports: the latest reported quarter is found in the reports by its sales (within 2%; if the reports don't have it
+// yet, it's the quarter after their last one), and each estimate is that many quarters later.
+function calGrowth(cal, fin, finQ){
+  const rows = (cal && cal.earningsCalendar || []).filter(r => r && isNum(r.year) && isNum(r.quarter)), today = ymd(new Date());
+  const qn = r => r.year * 4 + r.quarter;
+  const act = rows.filter(r => r.revenueActual > 0).sort((a, b) => qn(b) - qn(a))[0];
+  const fut = rows.filter(r => r.date >= today && !isNum(r.revenueActual) && r.revenueEstimate > 0 && (!act || qn(r) > qn(act))).sort((a, b) => qn(a) - qn(b)).slice(0, 2);
+  const qs = salesQuarters(fin, finQ).filter(x => x.revenue > 0);
+  if(!act || !fut.length || qs.length < 4) return null;
+  const addM = (d, m) => { const x = new Date(d + "T00:00:00"); x.setMonth(x.getMonth() + m); return ymd(x); };
+  const hit = qs.find(x => Math.abs(x.revenue / act.revenueActual - 1) < 0.02 && monthsBetween(x.end, act.date) >= 0 && monthsBetween(x.end, act.date) <= 4);
+  const last = qs[qs.length - 1], endA = hit ? hit.end : act.date > addM(last.end, 0) && monthsBetween(last.end, act.date) <= 5 ? addM(last.end, 3) : null;
+  if(!endA) return null;
+  let now = 0, before = 0, n = 0;
+  for(const r of fut){
+    const ago = addM(endA, 3 * (qn(r) - qn(act)) - 12), p = qs.find(x => slNear(x.end, ago, 25));
+    if(!p) break; now += r.revenueEstimate; before += p.revenue; n++;
+  }
+  return n && before > 0 && now / before > 0.2 ? { g: (now / before - 1) * 100, n } : null;
+}
+function ttmGrowth(fin, finQ){
+  const q = salesQuarters(fin, finQ).filter(x => isNum(x.revenue));
+  if(q.length >= 8){ const l = q.slice(-8); let ok = true; for(let i = 1; i < 8; i++) if(Math.abs(monthsBetween(l[i - 1].end, l[i].end) - 3) > 1) ok = false;
+    if(ok){ const a = l.slice(4).reduce((t, x) => t + x.revenue, 0), b = l.slice(0, 4).reduce((t, x) => t + x.revenue, 0); if(b > 0) return { g: (a / b - 1) * 100, how: "last 12 months" }; } }
+  const ys = ((fin && fin.years) || []).filter(y => y.revenue > 0); // newest first
+  if(ys.length >= 2 && Math.abs(monthsBetween(ys[1].end, ys[0].end) - 12) <= 1) return { g: (ys[0].revenue / ys[1].revenue - 1) * 100, how: "last full year" };
+  return null;
+}
 const avNum = v => { const n = parseFloat(v); return isFinite(n) ? n : NaN; };
 function parseAV(ovRes, estRes){
   const out = { errs: [] };
@@ -1837,7 +1883,7 @@ function parseAV(ovRes, estRes){
       if(estRes.v && estRes.v._at){ out.at = estRes.v._at; out.stale = estRes.v._stale; }
       const arr = estRes.v && (estRes.v.estimates || estRes.v.data);
       if(Array.isArray(arr)){
-        const pack = e => e && { date: e.date || e.fiscalDateEnding, eps: avNum(e.eps_estimate_average), n: avNum(e.eps_estimate_analyst_count),
+        const pack = e => e && { date: e.date || e.fiscalDateEnding, eps: avNum(e.eps_estimate_average), n: avNum(e.eps_estimate_analyst_count), rev: avNum(e.revenue_estimate_average),
           eps90: avNum(e.eps_estimate_average_90_days_ago), up30: avNum(e.eps_estimate_revision_up_trailing_30_days), down30: avNum(e.eps_estimate_revision_down_trailing_30_days) };
         // Alpha Vantage labels every year just "fiscal year": take the next two that haven't ended yet.
         const today = ymd(new Date());
@@ -1903,7 +1949,7 @@ function impliedCycleYears(price, cy, fcf0, r, gt){
   for(let n = 2; n <= 30; n++) if(cycleDcf(cy, fcf0, n, r, gt) >= price) return n;
   return Infinity;
 }
-function fvInputs(met, prof, price, av){
+function fvInputs(met, prof, price, av, rep){
   const mm = met && met.metric || {};
   const eps = pick(mm, ["epsTTM","epsExclExtraItemsTTM","epsBasicExclExtraItemsTTM","epsInclExtraItemsTTM","epsAnnual"]);
   const bvps = pick(mm, ["bookValuePerShareQuarterly","bookValuePerShareAnnual"]);
@@ -1926,16 +1972,34 @@ function fvInputs(met, prof, price, av){
     how: `analysts' average earnings estimate goes from ${fmt(f1.eps)} per share this fiscal year to ${fmt(f2.eps)} next fiscal year` };
   else if(av.fwdPE > 0 && eps > 0 && isNum(price)){ const fe = price / av.fwdPE; exp = { g: (fe/eps - 1) * 100,
     how: `analysts expect about ${fmt(fe)} per share of earnings over the next year, vs ${fmt(eps)} over the last 12 months` }; }
-  // Start from analysts' expected growth for next year (or, without forecasts, the middle
-  // of past 5-year growth) and let the growth above 2.5% halve each year.
-  const g0 = exp ? exp.g : pastMid;
-  const startG = isNum(g0) ? Math.round(fadeAvg5(g0, 2.5) * 2) / 2 : 5;
-  const fadeTxt = "with the growth above 2.5% halving each year after that, because fast growth rarely lasts";
-  const startHow = exp ? `analysts expect earnings to grow ${fmtPct(exp.g,1)} next year, ${fadeTxt}`
-    : isNum(pastMid) ? `no analyst forecasts, so the middle of its past 5-year growth (${fmtPct(pastMid,1)}) for next year, ${fadeTxt}` : null;
+  // Next year's growth (7.16): the most forward-looking figure available, limited to the slider's −20…+60%; then the growth
+  // above 2.5% halves every 2 years.
+  rep = rep || {};
+  const avRev = av.fy1 && av.fy2 && av.fy1.rev > 0 && av.fy2.rev > 0 ? (av.fy2.rev / av.fy1.rev - 1) * 100 : NaN;
+  const cal = calGrowth(rep.cal, rep.fin, rep.finQ), ttm = ttmGrowth(rep.fin, rep.finQ);
+  let g0 = NaN, gSrc = "", gHow = "";
+  if(exp){ g0 = isNum(avRev) ? (exp.g + avRev) / 2 : exp.g; gSrc = "analysts";
+    gHow = isNum(avRev) ? `analysts expect sales to grow ${fmtPct(avRev, 1)} and earnings ${fmtPct(exp.g, 1)} next fiscal year (the app uses the middle: earnings alone overstate a jump from a low base, sales alone miss improving margins)` : `analysts expect earnings to grow ${fmtPct(exp.g, 1)} next year`; }
+  else if(cal){ g0 = cal.g; gSrc = "analysts"; gHow = `analysts expect sales ${fmtPct(cal.g, 1)} on a year earlier over the next ${cal.n === 1 ? "quarter" : cal.n + " quarters"} (Finnhub's earnings calendar)`; }
+  else if(ttm){ g0 = ttm.g; gSrc = "reports"; gHow = `no analysts' forecasts, so its sales growth over the ${ttm.how} (${fmtPct(ttm.g, 1)}, from its reports)`; }
+  else if(isNum(pastMid)){ g0 = pastMid; gSrc = "past"; gHow = `no forecasts or recent reports, so the middle of its past 5-year growth (${fmtPct(pastMid, 1)})`; }
+  const g1 = isNum(g0) ? gCap(g0) : NaN;
+  const startG = isNum(g1) ? Math.round(fadeAvg5(g1, 2.5) * 2) / 2 : 5;
+  const startHow = isNum(g1) ? `${gHow}${Math.abs(g1 - g0) > 0.05 ? `, limited to ${fmtPct(g1, 0)}` : ""} for next year, with the growth above 2.5% halving every ${G_HALF} years after that` : null;
   const fin = isFinancialCo(prof);
   const cy = fin ? null : cycleInfo(met, eps, fcf, price, av);
-  return { fin, eps, bvps, fcf, past, pastMid, exp, startG, startHow, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
+  // Cash flow held down for now (7.16, GOOGL: free cash flow 5.24 a share against earnings of 19.19, from heavy AI spending):
+  // when today's free cash flow is under 60% of what the company usually turns its earnings into (median of up to 5 earlier
+  // annual reports, at least 3), the DCF starts halfway between today's figure and the usual one. Not for boom-and-bust
+  // companies (their own model) or banks and insurers (no DCF).
+  const fcfRaw = fcf; let fcfHow = "";
+  if(!fin && !cy && isNum(fcf) && fcf > 0 && isNum(eps) && eps > 0){
+    const ys = ((rep.fin && rep.fin.years) || []).slice(1, 6).filter(y => isNum(y.fcf) && y.net > 0);
+    if(ys.length >= 3){ const conv = median(ys.map(y => y.fcf / y.net)), now = fcf / eps;
+      if(conv >= 0.5 && now < 0.6 * conv){ fcf = (fcfRaw + eps * Math.min(conv, 1.2)) / 2;
+        fcfHow = ` Today's free cash flow (${fmt(fcfRaw)} per share) is only ${(now * 100).toFixed(0)}% of earnings, against a usual ${(conv * 100).toFixed(0)}% (median of ${ys.length} earlier years), e.g. because of heavy investment, so the model starts halfway between today's figure and the usual one.`; } }
+  }
+  return { fin, eps, bvps, fcf, fcfRaw, fcfHow, past, pastMid, exp, startG, startHow, g1, gSrc, avRev, cal, ttm, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
 }
 function fvAssump(sym, inp){
   const s = state.fv[sym] || {};
@@ -1971,7 +2035,7 @@ function fvMethods(inp, a, met, fx){
   if(inp.fin) out.push({ name:"Discounted cash flow", v:NaN, note:"Skipped: for banks, lenders and insurers, cash flow includes loans made and customers' money held (e.g. premiums waiting to pay claims), so it isn't free cash the owners can take out." });
   else if(isNum(inp.fcf) && inp.fcf > 0){
     out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
-      note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.` });
+      note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.${inp.fcfHow || ""}` });
   } else out.push({ name:"Discounted cash flow", v:NaN, note: isNum(inp.fcf) ? "Skipped: free cash flow is negative, so there is nothing to discount yet." : "Skipped: no free cash flow data." });
   const epsOk = isNum(inp.eps) && inp.eps > 0;
   const peNote = (label, raw, ad, gThen, who) => {
@@ -1994,9 +2058,11 @@ function fvMethods(inp, a, met, fx){
     out.push({ name:"Peer P/E", v: ad.pe * inp.eps, counted:true, note: peNote("the peer median P/E", pm, ad, peerInfo.g5, "peers' past 5 years") });
   } else out.push({ name:"Peer P/E", v:NaN, note: epsOk ? "Skipped: not enough peer data." : "Skipped: the company isn't profitable, so P/E doesn't apply." });
   if(epsOk && isNum(inp.bvps) && inp.bvps > 0){
-    const fast = isNum(inp.epsG5) && inp.epsG5 > 15;
+    const fastNext = isNum(inp.g1) && inp.g1 > 15; // 7.16: AMD's Graham Number (66) was counted with +60% growth expected
+    const fast = fastNext || (isNum(inp.epsG5) && inp.epsG5 > 15);
     const light = isNum(inp.roe) && inp.roe > 20;
-    const why = fast ? ` Shown but not counted: earnings grew ${inp.epsG5.toFixed(0)}% a year, too fast for this formula.`
+    const why = fastNext ? ` Shown but not counted: ${fmtPct(inp.g1, 0)} growth is expected next year, too fast for this formula.`
+      : fast ? ` Shown but not counted: earnings grew ${inp.epsG5.toFixed(0)}% a year, too fast for this formula.`
       : light ? ` Shown but not counted: return on equity is ${inp.roe.toFixed(0)}%, so the business earns far more than its assets suggest and this formula undervalues it.` : "";
     out.push({ name:"Graham Number", v: Math.sqrt(22.5 * inp.eps * inp.bvps), counted: !fast && !light,
       note: `√(22.5 × earnings per share × book value per share). Built for steady, profitable companies.` + why });
@@ -2052,11 +2118,21 @@ function fvAnalysts(inp, price, fx){
     <p class="small muted" style="margin-bottom:0">Forecasts change and are often too optimistic near the top of a cycle. The 90-day change shows which way analysts are moving.${av.at ? ` Forecasts from Alpha Vantage, saved ${fmtDay(ymd(new Date(av.at)))}${av.stale ? " (couldn't refresh: daily limit reached; tries again later)" : "; refreshed weekly to save the 25 requests a day"}.` : ""}</p>`;
 }
 let fvMoreOpen = false;
-function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
+// "Growth used" line (7.16): what the fair value assumes next to what the company is actually doing, so a gap like PLTR's
+// (14% assumed, sales +87%) is visible on the page. Amber when the growth used comes from past averages and is 25+ points
+// away from the last 12 months.
+function growthCheck(inp, a){
+  if(!isNum(inp.g1) && !a.custom) return "";
+  const t = inp.ttm, recent = t ? ` Its ${t.how}: sales <b>${fmtPct(t.g, 0)}</b> (company reports).` : "";
+  const far = t && inp.gSrc === "past" && Math.abs(inp.g1 - gCap(t.g)) > 25;
+  const used = a.custom ? `your setting of <b>${a.g}%</b> a year for 5 years (the app's would be ${inp.startG}%)` : `<b>${fmtPct(inp.g1, 0)}</b> next year (${esc(inp.startHow.split(" for next year")[0])}), about <b>${inp.startG}%</b> a year over 5 years`;
+  return `<p class="small ${far ? "b-warn" : ""}" style="margin:8px 0 0;${far ? "padding:6px 10px;border-radius:8px" : ""}"><b>Growth used:</b> ${used}.${inp.gSrc !== "reports" ? recent : ""}${far ? " <b>Check:</b> recent growth is far from the growth used." : ""}</p>`;
+}
+function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
   const el = $("#fv", app);
   if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so fair value can't be compared.</p>`; return; }
-  const fx = { peerInfo: null, avState: avP ? "loading" : "none", av: {} };
-  let inp = fvInputs(met, prof, price, fx.av);
+  const fx = { peerInfo: null, avState: avP ? "loading" : "none", av: {}, rep: { cal: peek.earn(sym) } };
+  let inp = fvInputs(met, prof, price, fx.av, fx.rep);
   const sliders = inp.cy ? [
     ["cy", "Years until profits are back to normal", 1, 10, 1, "How long the high profits last before margins return to the company's usual level. Short = the boom ends soon; long = it lasts."],
     ["r", "Required return", 6, 15, 0.5, "The yearly return you want. Higher = stricter, lower fair value."],
@@ -2094,7 +2170,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     else if(!isNum(inp.fcf) || inp.fcf <= 0) rev = `<p class="muted small">Reverse DCF needs positive free cash flow, which this company doesn't have right now.</p>`;
     else {
       const igp = ig * 100, ref = inp.startG;
-      const expTxt = inp.exp ? `Analysts expect earnings to grow <b>${fmtPct(inp.exp.g,1)}</b> next year; if the growth above ${a.gt}% then halves each year, that averages about <b>${fmtPct(fadeAvg5(inp.exp.g, a.gt),1)}</b> a year over the next 5. ` : "";
+      const expTxt = inp.exp ? `Analysts expect earnings to grow <b>${fmtPct(inp.exp.g,1)}</b> next year; if the growth above ${a.gt}% then halves every ${G_HALF} years, that averages about <b>${fmtPct(fadeAvg5(inp.exp.g, a.gt),1)}</b> a year over the next 5. ` : "";
       const pastTxt = inp.past.length ? `Over the last 5 years it grew ${inp.past.map(([n,v]) => `${n} <b>${fmtPct(v,1)}</b>`).join(", ")} a year.` : "";
       let vb;
       if(igp === -Infinity) vb = `<span class="badge b-cheap">Very low expectations</span>`;
@@ -2111,7 +2187,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
     }
     let top;
     const loadingAny = methods.some(m => m.loading);
-    fvNow = { sym, price, mid: NaN, future: false, fc: !!(inp.av && inp.av.fy1), cyc: !!cy, split: (met && met.metric && met.metric._split) || 1 };
+    fvNow = { sym, price, mid: NaN, future: false, fc: inp.gSrc === "analysts" || !!(inp.av && inp.av.fy1), cyc: !!cy, split: (met && met.metric && met.metric._split) || 1 };
     if(!vals.length){
       glance("g-fv", loadingAny ? "…" : "No range (methods don't fit)");
       top = `<p class="muted">${loadingAny ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
@@ -2141,6 +2217,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
       else top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
           ${price > buyAt ? `With your ${state.settings.fvBuy}% safety margin, it would be attractive below <b>${fmt(buyAt)}</b>.` : `That's beyond your ${state.settings.fvBuy}% safety margin.`}</p>
         ${fvBar(lo, mid, hi, price, buyAt, richAt, inp.av && inp.av.target > 0 ? inp.av.target : NaN)}
+        ${cy ? "" : growthCheck(inp, a)}
         ${cyNote}
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
     }
@@ -2169,7 +2246,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
   setSliders(); draw();
   Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peerInfo = pi || { medians:{}, used:[] }; draw(); });
-  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); avWant(sym, !!inp.cy); const ve = $("#val", app); if(ve && ve._peg) ve._peg(fx.av); setSliders(); draw(); });
+  if(repP) repP.then(r => { if(!live(tok) || !r) return; fx.rep = r; inp = fvInputs(met, prof, price, fx.av, fx.rep); setSliders(); draw(); });
+  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av, fx.rep); avWant(sym, !!inp.cy); const ve = $("#val", app); if(ve && ve._peg) ve._peg(fx.av); setSliders(); draw(); });
 }
 
 /* ================= 5-year projections (7.4) ================= */
@@ -2192,7 +2270,7 @@ const pjRet = v => isNum(v) ? (v < -0.005 ? "−" : "") + Math.abs(v * 100).toFi
 const pjSep = lo => isNum(lo) && lo < -0.005 ? " to " : "–"; // "−6% to −2%", not "−6%–−2%"
 // Colour against the required return: at or above = green, below = grey, a loss = red
 const pjCls = (ret, eps, R) => !(eps > 0) || (isNum(ret) && ret < 0) ? "pj-loss" : isNum(ret) && ret * 100 >= R ? "pj-hit" : "pj-miss";
-function projStart(met, prof, price, fin, finQ, av, peerInfo, cyYears){
+function projStart(met, prof, price, fin, finQ, av, peerInfo, cyYears, cal){
   const mm = met && met.metric || {};
   const y0 = fin && fin.years && fin.years[0], T = fin ? ttmFrom(fin, finQ) : null;
   const cur = String(prof.currency || "USD").toUpperCase();
@@ -2209,10 +2287,10 @@ function projStart(met, prof, price, fin, finQ, av, peerInfo, cyYears){
   }
   if(!(sales > 0) || !isNum(profit) || !(shares > 0)) return null;
   const m0 = profit / sales * 100;
-  const inp = fvInputs(met, prof, price, av || {});
-  const g0raw = inp.exp ? inp.exp.g : inp.pastMid, g0 = isNum(g0raw) ? Math.max(-20, Math.min(60, g0raw)) : 5;
-  const gHow = inp.exp ? `analysts expect earnings to grow ${fmtPct(inp.exp.g, 1)} next year` : isNum(inp.pastMid) ? `no analysts' forecasts, so the middle of its past 5-year growth (${fmtPct(inp.pastMid, 1)})` : "no growth data, so a cautious 5%";
-  const g = [1, 2, 3, 4, 5].map(t => pjR1(2.5 + (g0 - 2.5) * Math.pow(0.5, t - 1)));
+  const inp = fvInputs(met, prof, price, av || {}, { fin, finQ, cal });
+  const g0 = isNum(inp.g1) ? inp.g1 : 5;
+  const gHow = inp.startHow ? inp.startHow.split(" for next year")[0] : "no growth data, so a cautious 5%";
+  const g = [1, 2, 3, 4, 5].map(t => pjR1(2.5 + (g0 - 2.5) * Math.pow(0.5, (t - 1) / G_HALF)));
   const cy = inp.cy, N = cyYears || 5;
   const m = [1, 2, 3, 4, 5].map(t => pjR1(cy ? m0 + (cy.usual * 100 - m0) * Math.min(1, t / N) : m0));
   const mHow = cy ? `today's ${m0.toFixed(1)}%, fading to its usual ${(cy.usual * 100).toFixed(1)}% over ${N} years (boom-and-bust company at a high; Fair value's "years until normal")` : `today's ${m0.toFixed(1)}% (last 12 months), kept the same`;
@@ -2493,7 +2571,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     if(el.contains(document.activeElement) && document.activeElement.classList.contains("pj-in")){ pending = true; return; }
     pending = false;
     if(fx.fin === undefined){ el.innerHTML = `<span class="spin"></span> Loading the company's reports…`; return; }
-    S = projStart(met, prof, price, fx.fin, fx.finQ, fx.av, fx.peer, (() => { const s = state.fv[sym]; return s && isNum(s.cy) ? s.cy : 5; })());
+    S = projStart(met, prof, price, fx.fin, fx.finQ, fx.av, fx.peer, (() => { const s = state.fv[sym]; return s && isNum(s.cy) ? s.cy : 5; })(), peek.earn(sym));
     if(!S){ el.innerHTML = `<p class="muted">Not enough data (sales, profit and share count) to project this company.</p>`; glance("g-proj", "Not enough data"); return; }
     cur = values();
     const yrs = window.matchMedia("(max-width:700px)").matches ? "" : " open";
@@ -2508,7 +2586,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
       <details class="more"><summary>Where the app's numbers come from</summary>
         <p class="small">Starting point: sales ${pjBig(S.sales)}, profit ${pjBig(S.profit)} (margin ${S.m0.toFixed(1)}%), ${pjShares(S.shares)} shares, so earnings of ${pjMoney(S.eps0)} per share: ${esc(S.from)}. Each year below is 12 months after that.</p>
         <ul class="small">
-          <li><b>Base sales growth:</b> ${esc(S.gHow)}, with the growth above 2.5% halving each year after that (same rule as Fair value); limited to −20%…+60%.</li>
+          <li><b>Base sales growth:</b> ${esc(S.gHow)}, with the growth above 2.5% halving every 2 years after that (same rule as Fair value); limited to −20%…+60%.</li>
           <li><b>Base profit margin:</b> ${esc(S.mHow)}.</li>
           <li><b>Base P/E:</b> ${S.pe ? esc(S.pe.how) : "no usual P/E and no peer P/E, so the boxes are empty: type your own"}.</li>
           <li><b>Shares:</b> change ${esc(S.dilHow)}, the same in all three cases.</li>
