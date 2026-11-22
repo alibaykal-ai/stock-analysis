@@ -290,7 +290,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.2</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.3</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -3428,15 +3428,26 @@ async function alertCtx(sym, type){
   const r = isStock ? await safe(fh.rec(sym)) : { ok: false };
   const c = { isStock, mm: m.ok && m.v && m.v.metric || {}, price: q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : NaN, prof: p.ok ? p.v : {}, rec: r.ok ? r.v : undefined,
     td: peek.td(sym), fin: peek.fin(sym), finQ: peek.finQ(sym), av: peek.av(sym), earn: peek.earn(sym), cur: String((p.ok && p.v && p.v.currency) || "USD").toUpperCase() };
+  c.mask = (c.td ? 1 : 0) + (c.fin ? 2 : 0) + (c.earn ? 4 : 0) + (c.av ? 8 : 0) + (Object.keys(c.mm).length && isNum(c.price) ? 16 : 0) + (Array.isArray(c.rec) ? 32 : 0);
   return { c, flags: riskFlags(c) };
 }
+// Which data each flag needs (7.3): 1 price history, 2 company reports, 4 earnings calendar, 8 analysts' forecasts,
+// 16 key numbers + price, 32 analyst ratings. The remembered flags (A.seen) are shared by the Mac and the iPhone, but each
+// device has its own saved data: a device without the data behind a flag keeps the remembered flag instead of dropping it
+// (before 7.3 the two devices kept overwriting each other, saving to GitHub on every check and repeating alerts).
+const flagSrc = k => /^(Below 200-day avg|RSI|Death cross|Death cross approaching|Unusual volume)$/.test(k) ? 1
+  : /^(Weak health|Negative free cash flow 3 years)$/.test(k) ? 2 : k === "Earnings soon" ? 4 : k === "Analysts cutting estimates" ? 8
+  : k === "Analysts less positive" ? 32 : 16;
+// Which data this device has ever had per stock (kept on this device only, not in the GitHub file).
+const devData = { get(){ try{ return JSON.parse(localStorage.getItem("sa.alertData") || "{}"); }catch(e){ return {}; } }, set(v){ try{ localStorage.setItem("sa.alertData", JSON.stringify(v)); }catch(e){} } };
 let alertsRun = null;
 async function checkAlerts(app, tok){
   const A = alertsState(), now = new Date().toISOString();
   const syms = [...myHoldings().map(h => [h.symbol, h.type]), ...state.watchlist.filter(s => !state.holdings.some(h => h.symbol === s)).map(s => [s, "stock"])];
   const res = await Promise.all(syms.map(async ([s, t]) => [s, t, await alertCtx(s, t).catch(() => null)]));
   if(!live(tok)) return;
-  let changed = false; const fresh = [];
+  let changed = false, devChanged = false; const fresh = [], dev = devData.get();
+  if(A.data){ delete A.data; changed = true; } // moved to this device only (7.3)
   for(const [s, t, x] of res){
     if(!x) continue;
     // price levels
@@ -3447,17 +3458,19 @@ async function checkAlerts(app, tok){
         changed = true;
       }
     }
-    // New flags. When more saved data has become available since the last check (e.g. price history after "Run full check"),
-    // flags that were already true would look new: note them quietly instead of alerting.
+    // New flags. Data this device has never had for the stock (e.g. price history before the first "Run full check") would make
+    // flags that were already true look new: those are noted quietly. Flags whose data this device lacks right now keep their
+    // remembered state and aren't judged.
+    const known = x.c.mask, had = dev[s], firstData = had === undefined ? known : known & ~had;
+    if((had | 0 | known) !== had){ dev[s] = (had | 0) | known; devChanged = true; }
     const keys = x.flags.map(f => flagKey(f.text)), before = A.seen[s];
-    A.data = A.data || {}; const mask = (x.c.td ? 1 : 0) + (x.c.fin ? 2 : 0) + (x.c.earn ? 4 : 0), had = A.data[s];
-    if(had !== undefined && (had & ~mask) !== 0) continue; // saved data expired and is being refreshed: compare next time
-    const moreData = had === undefined || (mask & ~had) !== 0;
-    if(had !== mask){ A.data[s] = mask; changed = true; }
-    if(before && !moreData){ x.flags.filter(f => !before.includes(flagKey(f.text))).forEach(f => fresh.push({ id: now + s + flagKey(f.text), type: "flag", sym: s, sev: f.sev, text: `${s}: ${f.text}`, why: f.why, at: now })); }
-    if(!before || keys.join("|") !== before.join("|")){ A.seen[s] = keys; changed = true; }
+    const next = [...new Set([...keys, ...(before || []).filter(k => !(known & flagSrc(k)))])];
+    if(before) x.flags.filter(f => { const k = flagKey(f.text); return !before.includes(k) && !(firstData & flagSrc(k)); })
+      .forEach(f => fresh.push({ id: now + s + flagKey(f.text), type: "flag", sym: s, sev: f.sev, text: `${s}: ${f.text}`, why: f.why, at: now }));
+    if(!before || next.slice().sort().join("|") !== before.slice().sort().join("|")){ A.seen[s] = next; changed = true; }
   }
   if(fresh.length){ A.events = [...fresh.map(e => ({ ...e, isNew: true })), ...A.events].slice(0, 150); }
+  if(devChanged) devData.set(dev);
   if(changed || fresh.length) save();
   drawAlertBadges(app);
   if(homeSec === "alerts") renderAlerts(app);
