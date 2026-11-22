@@ -182,6 +182,8 @@ details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:
 .rqp-sub{font-size:13px;color:var(--muted)}
 .rqp-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:9px;font-size:13px;color:var(--muted)}
 .rqback{position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.35)}
+.coming{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:0 0 12px;background:var(--neutralbg)}
+.coming ul{margin:6px 0 0;padding-left:18px}.coming li{margin:3px 0}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
 .hide-sm{}
 @media (max-width:700px){
@@ -364,7 +366,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.10</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.11</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -3094,6 +3096,31 @@ async function holdingSectors(){
 // to the repo's "macro-data" branch (see .github/workflows/macro-data.yml). No key needed.
 const MACRO_URL = "https://raw.githubusercontent.com/alibaykal-ai/stock-analysis/macro-data/macro.json";
 // Fed rate decisions (second day of each meeting). Source: federalreserve.gov calendar, 2027 dates tentative. Update yearly.
+// Coming-up dates (7.11): CPI and the jobs report from FRED's release calendar (saved in macro.json by the GitHub job,
+// UTC times), the Fed decision from FED_DECISIONS at 2pm New York time. Shown in the device's own time zone.
+function nyToUtc(day, hh, mm){ // New York wall time → Date (EST −5, EDT −4)
+  const [y, m, d] = day.split("-").map(Number);
+  for(const off of [4, 5]){ const t = new Date(Date.UTC(y, m - 1, d, hh + off, mm));
+    const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).formatToParts(t).find(x => x.type === "hour");
+    if(p && +p.value === hh) return t; }
+  return new Date(Date.UTC(y, m - 1, d, hh + 5, mm));
+}
+function comingUp(j){
+  const now = Date.now(), rel = (j && j.releases) || {}, out = [];
+  const next = a => (a || []).map(t => new Date(t)).filter(t => t.getTime() > now - 3600e3).sort((a, b) => a - b)[0];
+  const jobs = next(rel.JOBS), cpi = next(rel.CPI), fed = FED_DECISIONS.map(d => nyToUtc(d, 14, 0)).find(t => t.getTime() > now - 3600e3);
+  if(jobs) out.push({ t: jobs, name: "Jobs report", what: "jobs added, unemployment and wage growth for last month" });
+  if(cpi) out.push({ t: cpi, name: "CPI inflation", what: "last month's consumer prices" });
+  if(fed) out.push({ t: fed, name: "Fed decision", what: "interest rates, with a press conference half an hour later" });
+  return out.sort((a, b) => a.t - b.t);
+}
+const whenTxt = t => t.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+function inDays(t){ const a = new Date(); a.setHours(0, 0, 0, 0); const b = new Date(t); b.setHours(0, 0, 0, 0); const n = Math.round((b - a) / 864e5);
+  return n <= 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`; }
+function comingHtml(j){
+  const c = comingUp(j); if(!c.length) return "";
+  return `<div class="coming"><b>Coming up</b> <span class="small muted">(these releases often move the whole market)</span><ul>${c.map(x => `<li><b>${x.name}</b> ${whenTxt(x.t)} <span class="muted">(${inDays(x.t)})</span><span class="small muted"> · ${x.what}</span></li>`).join("")}</ul></div>`;
+}
 const FED_DECISIONS = ["2026-12-09","2027-01-27","2027-03-17","2027-04-28","2027-06-09","2027-07-28","2027-09-15","2027-11-17","2028-01-26"];
 async function macroData(force){
   const ck = "fred:macro";
@@ -3202,18 +3229,19 @@ function renderFed(app, j){
   el.classList.remove("muted", "small");
   el.innerHTML = `
     ${sum ? `<div class="mood" style="margin-bottom:12px"><div><span class="badge big ${sum.k}">${sum.word}</span></div><p style="margin:0;flex:1;min-width:260px;max-width:760px">${sum.text}</p></div>` : ""}
+    ${comingHtml(j)}
     <h3 style="margin-top:4px">Inflation <span class="small muted" style="font-weight:400">· the Fed's target is 2% a year</span></h3>
     ${main ? `<p style="margin:0 0 10px">${main.name} inflation is <b>${main.now.toFixed(1)}%</b> a year (${fmtMonth(main.month)}), ${(main.now - 2).toFixed(1)} points ${main.now >= 2 ? "above" : "below"} target and <b>${main.trend}</b> over the last 3 months.</p>` : ""}
     <div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${infl.map(tile).join("")}</div>
     <div class="row" style="gap:18px;margin-top:10px;align-items:flex-end">
       <div>${sparkSvg([{v: (cpi.line||[]), cls:"s-ma"}, {v: (pce.line||[]), cls:"s-ln"}], 300, 70, 2)}
         <div class="legend" style="margin-top:4px"><span><i class="lk" style="background:var(--accent)"></i>Core PCE</span><span><i class="lk" style="background:#1baf7a"></i>CPI</span><span>dotted = 2% target · last 2 years</span></div></div>
-      <p class="small muted" style="margin:0;flex:1;min-width:220px">Next: CPI ${cpi.ok ? nextRelease(cpi.month, "cpi") : "—"}; PCE ${pce.ok ? nextRelease(pce.month, "pce") : "—"} (usual timing). Big surprises in these releases often move the whole market.</p>
+      <p class="small muted" style="margin:0;flex:1;min-width:220px">Next: CPI ${(() => { const c = comingUp(j).find(x => x.name.startsWith("CPI")); return c ? `out ${whenTxt(c.t)} (${inDays(c.t)})` : cpi.ok ? nextRelease(cpi.month, "cpi") + " (usual timing)" : "—"; })()}; PCE ${pce.ok ? nextRelease(pce.month, "pce") + " (usual timing)" : "—"}. Big surprises in these releases often move the whole market.</p>
     </div>
     ${f ? `<h3>Interest rates: where the Fed is heading</h3>
     <div class="grid sig" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
       <div class="stat"><span>Fed's rate now</span><b>${f.lo.toFixed(2)}–${f.up.toFixed(2)}%</b><p class="small muted" style="margin:4px 0 0">The target range for overnight lending between banks.</p></div>
-      <div class="stat"><span>Next Fed decision</span><b>${f.next ? fmtDay(f.next) : "—"}</b><p class="small muted" style="margin:4px 0 0">${f.next ? "Announced 2pm New York time (7pm UK)." : "Next year's dates need adding to the app."}</p></div>
+      <div class="stat"><span>Next Fed decision</span><b>${f.next ? fmtDay(f.next) : "—"}</b><p class="small muted" style="margin:4px 0 0">${f.next ? `Announced 2pm New York time (${nyToUtc(f.next, 14, 0).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} your time), ${inDays(nyToUtc(f.next, 14, 0))}.` : "Next year's dates need adding to the app."}</p></div>
       ${f.y2 ? `<div class="stat"><span>2-year Treasury yield</span><b>${f.y2.v.toFixed(2)}%</b><p class="small muted" style="margin:4px 0 0">${f.gap >= 0 ? "+" : ""}${f.gap.toFixed(2)} vs the Fed's rate (middle of the range), ${fmtDay(f.y2.d)}.</p></div>` : ""}
     </div>
     <p style="margin:10px 0 4px"><b>What bond markets expect:</b> ${f.mktText || "—"}</p>
@@ -3267,6 +3295,18 @@ function econItems(S){
     if(n >= 5){ const avg = (v[n-1].x - v[n-4].x) / 3, ch = []; for(let k = 1; k < n; k++) ch.push(v[k].x - v[k-1].x);
       const tag = avg >= 150 ? "tail" : avg >= 50 ? "neutral" : "head";
       add("jobs", "Jobs added (payrolls)", "k", { d: v[n-1].d, v: avg }, tag, `About ${Math.round(avg)}k jobs a month on average over the last 3 months. ${tag === "tail" ? "Solid hiring." : tag === "neutral" ? "Hiring has slowed but is still positive." : avg < 0 ? "Jobs are being lost: a recession warning." : "Hiring has nearly stalled."}`, ch.slice(-24), 0); } }
+  // Wage growth (7.11): average hourly earnings, private sector, % over 12 months (BLS, via FRED)
+  const W = S.CES0500000003;
+  if(W){ const v = W.v.map((x, i) => ({ d: W.d[i], x })).filter(o => isNum(o.x)), n = v.length;
+    if(n >= 16){ const yoy = k => (v[k].x / v[k-12].x - 1) * 100, now = yoy(n-1), ago = yoy(n-4), line = []; for(let k = Math.max(12, n - 24); k < n; k++) line.push(yoy(k));
+      const tag = now > 4.5 ? "head" : now > 3.5 || now < 2.5 ? "neutral" : "tail";
+      add("jobs", "Wage growth (hourly pay)", "yoy", { d: v[n-1].d, v: now }, tag, `Pay up ${now.toFixed(1)}% over 12 months (${ago.toFixed(1)}% 3 months earlier). ${tag === "head" ? "Fast pay rises keep services inflation sticky, so the Fed is slower to cut rates." : now < 2.5 ? "Pay is barely rising: weak demand for workers, which can mean slower spending ahead." : tag === "neutral" ? "A bit above the 3–3.5% that fits 2% inflation: the Fed watches this closely." : "Pay rising at a pace that fits 2% inflation: no pressure on the Fed from wages."}`, line, 3.5); } }
+  // Job openings (7.11): JOLTS, in thousands; 12-month change
+  const J = S.JTSJOL;
+  if(J){ const v = J.v.map((x, i) => ({ d: J.d[i], x })).filter(o => isNum(o.x)), n = v.length;
+    if(n >= 13){ const now = v[n-1].x, ch = (now / v[n-13].x - 1) * 100;
+      const tag = ch <= -20 ? "head" : ch <= -10 ? "neutral" : "tail";
+      add("jobs", "Job openings (JOLTS)", "m", { d: v[n-1].d, v: now }, tag, `${(now / 1000).toFixed(1)} million jobs on offer, ${ch >= 0 ? "up" : "down"} ${Math.abs(ch).toFixed(0)}% in a year. ${tag === "head" ? "Firms are pulling job adverts fast: this usually comes before layoffs and a rise in unemployment." : tag === "neutral" ? "Fewer jobs on offer than a year ago: the job market is cooling." : "Demand for workers is holding up."} Openings often turn before the unemployment rate does.`, v.slice(-24).map(o => o.x)); } }
   // GDP growth (annualised, quarterly)
   c = lastObs(S.A191RL1Q225SBEA);
   if(c){ const tag = c.v >= 2 ? "tail" : c.v >= 0 ? "neutral" : "head", q = new Date(c.d + "T12:00:00Z");
@@ -3290,8 +3330,8 @@ function renderEcon(app, j){
   const items = econItems(j.series);
   if(!items.length){ el.innerHTML = `<span class="err">No economy data in the file.</span>`; return; }
   const cnt = k => items.filter(x => x.tag === k).length;
-  const val = x => x.unit === "%" ? x.cur.v.toFixed(x.name.startsWith("Unemp") || x.name.startsWith("Econ") ? 1 : 2) + "%" : x.unit === " pts" ? (x.cur.v > 0 ? "+" : "") + x.cur.v.toFixed(2) : x.unit === "k" ? (x.cur.v >= 0 ? "+" : "") + Math.round(x.cur.v) + "k/month" : x.unit === "$" ? "$" + x.cur.v.toFixed(2) : x.cur.v.toFixed(x.cur.v < 50 ? 1 : 0);
-  const asOf = x => x.name.startsWith("Jobs") ? "3 months to " + fmtMonth(x.cur.d) : x.name.startsWith("Unemp") ? fmtMonth(x.cur.d) : x.name.startsWith("Econ") ? "latest quarter" : fmtDay(x.cur.d);
+  const val = x => x.unit === "%" ? x.cur.v.toFixed(x.name.startsWith("Unemp") || x.name.startsWith("Econ") ? 1 : 2) + "%" : x.unit === " pts" ? (x.cur.v > 0 ? "+" : "") + x.cur.v.toFixed(2) : x.unit === "k" ? (x.cur.v >= 0 ? "+" : "") + Math.round(x.cur.v) + "k/month" : x.unit === "$" ? "$" + x.cur.v.toFixed(2) : x.unit === "yoy" ? x.cur.v.toFixed(1) + "% a year" : x.unit === "m" ? (x.cur.v / 1000).toFixed(1) + " million" : x.cur.v.toFixed(x.cur.v < 50 ? 1 : 0);
+  const asOf = x => x.name.startsWith("Jobs") ? "3 months to " + fmtMonth(x.cur.d) : x.name.startsWith("Unemp") || x.name.startsWith("Wage") || x.name.startsWith("Job openings") ? fmtMonth(x.cur.d) : x.name.startsWith("Econ") ? "latest quarter" : fmtDay(x.cur.d);
   const tile = x => `<div class="stat">
       <span>${esc(x.name)}</span>
       <div class="row" style="justify-content:space-between;align-items:flex-end;gap:6px;margin:2px 0"><b style="margin:0">${val(x)}</b>${sparkSvg([{v: x.line, cls:"s-ln"}], 110, 26, x.base)}</div>
@@ -3308,7 +3348,7 @@ function renderEcon(app, j){
       ${h ? `Headwinds: ${names("head").join(", ")}.` : ""} ${t ? `Tailwinds: ${names("tail").join(", ")}.` : ""}</p></div>
     ${group("rates", "Rates &amp; credit")}${group("jobs", "Jobs &amp; growth")}${group("mkt", "Markets")}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted"><b>Tailwind</b> (green) = usually helps stocks, <b>Headwind</b> (red) = usually weighs on them, <b>Neutral</b> (grey) = in between or mixed. Rules: 10-year yield headwind at 4.75%+ or up 0.4+ points in 3 months, tailwind at 3.5% or below or down 0.4+. Yield curve: below 0 headwind, under 0.5 or recently inverted neutral. Credit spreads: above 5.5 or up 1+ point in 3 months headwind; up 0.5+ or above 4 neutral. Unemployment: Sahm rule (3-month average 0.5+ above its 12-month low) headwind; up 0.3+ neutral. Jobs: 150k+/month tailwind, 50–150k neutral, below 50k headwind. GDP: 2%+ tailwind, 0–2% neutral, below 0 headwind. VIX: below 20 tailwind, 20–30 neutral, above 30 headwind. Dollar: ±3% in 3 months. Oil: $100+ or up 20%+ in 3 months headwind, down 20%+ tailwind.
+      <p class="small muted"><b>Tailwind</b> (green) = usually helps stocks, <b>Headwind</b> (red) = usually weighs on them, <b>Neutral</b> (grey) = in between or mixed. Rules: 10-year yield headwind at 4.75%+ or up 0.4+ points in 3 months, tailwind at 3.5% or below or down 0.4+. Yield curve: below 0 headwind, under 0.5 or recently inverted neutral. Credit spreads: above 5.5 or up 1+ point in 3 months headwind; up 0.5+ or above 4 neutral. Unemployment: Sahm rule (3-month average 0.5+ above its 12-month low) headwind; up 0.3+ neutral. Jobs: 150k+/month tailwind, 50–150k neutral, below 50k headwind. Wage growth (12 months): 2.5–3.5% tailwind, 3.5–4.5% or below 2.5% neutral, above 4.5% headwind. Job openings: down 20%+ in a year headwind, down 10–20% neutral. GDP: 2%+ tailwind, 0–2% neutral, below 0 headwind. VIX: below 20 tailwind, 20–30 neutral, above 30 headwind. Dollar: ±3% in 3 months. Oil: $100+ or up 20%+ in 3 months headwind, down 20%+ tailwind.
       Small lines show the last 2 years (jobs: monthly jobs added; dotted line = zero). Economic data describes the backdrop, not when to buy or sell: markets often move before the economy does. Data: FRED (St. Louis Fed).</p>
     </details>`;
 }
