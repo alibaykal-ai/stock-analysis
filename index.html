@@ -1636,7 +1636,7 @@ async function viewStock(app, sym, tok){
     <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div></div>
     <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
-    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>
+    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div></div>
     <div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
     <div class="card" id="c-news"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
   if($("#b-watch", app)) $("#b-watch", app).onclick = () => {
@@ -1684,6 +1684,7 @@ async function viewStock(app, sym, tok){
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; $("#sales",app).innerHTML=""; }
     else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; const repP = Promise.all([finP, safe(fh.earnings(sym))]).then(([[f, fq], e]) => ({ fin: f.ok ? f.v : null, finQ: fq.ok ? fq.v : null, cal: e.ok ? e.v : null })); renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
+    recTarget(app, sym);
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -2073,7 +2074,7 @@ function fvMethods(inp, a, met, fx){
   else if(fx.avState === "loading") out.push({ name:"Analyst price target", v:NaN, loading:true, note:"Loading from Alpha Vantage…" });
   return out;
 }
-function fvBar(lo, mid, hi, price, buyAt, richAt, target){
+function fvBar(lo, mid, hi, price, buyAt, richAt, target, tMeta){
   const pts = [lo, hi, price, buyAt, richAt, target].filter(isNum);
   const a = Math.max(0, Math.min(...pts) * 0.9), b = Math.max(...pts) * 1.06;
   const x = v => Math.max(0, Math.min(100, (v - a) / (b - a) * 100));
@@ -2090,7 +2091,7 @@ function fvBar(lo, mid, hi, price, buyAt, richAt, target){
       <div class="fvplab" style="left:${px}%;transform:${lab}">Price ${fmt(price)}</div>
     </div>
     <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${hi - lo < 0.005 ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>
-    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analyst price target ${fmt(target)} (reference)</div>` : ""}`;
+    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analysts' average 12-month price target ${fmt(target)}${tMeta ? ` (${esc(tMeta.src)}${tMeta.date ? ", " + new Date(tMeta.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""}, from Outside views below)` : ""}: a prediction of the share price in a year, not a fair value, so it isn't part of the range.</div>` : ""}`;
 }
 function fvAnalysts(inp, price, fx){
   if(!state.avKey) return `<p class="small muted" style="margin:0">Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' earnings forecasts. They make the fair value more accurate.</p>`;
@@ -2216,7 +2217,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
           The useful question is whether the growth above is believable. To test your own view, open <b>Adjust the assumptions</b> and raise the growth.</p>`;
       else top = `<p style="margin-top:0">${vb} Price ${fmt(price)} is <b>${pct}% ${diff < 0 ? "below" : "above"}</b> the middle of the fair value range (${fmt(mid)}).
           ${price > buyAt ? `With your ${state.settings.fvBuy}% safety margin, it would be attractive below <b>${fmt(buyAt)}</b>.` : `That's beyond your ${state.settings.fvBuy}% safety margin.`}</p>
-        ${fvBar(lo, mid, hi, price, buyAt, richAt, inp.av && inp.av.target > 0 ? inp.av.target : NaN)}
+        ${(() => { const t = ovTarget(sym); return fvBar(lo, mid, hi, price, buyAt, richAt, t ? t.avg : inp.av && inp.av.target > 0 ? inp.av.target : NaN, t); })()}
         ${cy ? "" : growthCheck(inp, a)}
         ${cyNote}
         ${notes.length ? `<p class="small b-warn" style="padding:6px 10px;border-radius:8px">${notes.join(" ")}</p>` : ""}`;
@@ -2244,7 +2245,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
     $("#fv-v-"+k, el).textContent = e.target.value + unit(k); draw();
   }; });
   $("#fv-reset", el).onclick = () => { delete state.fv[sym]; save(); setSliders(); draw(); };
-  setSliders(); draw();
+  setSliders(); draw(); fvRedraw = { sym, draw: () => live(tok) && draw() };
   Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peerInfo = pi || { medians:{}, used:[] }; draw(); });
   if(repP) repP.then(r => { if(!live(tok) || !r) return; fx.rep = r; inp = fvInputs(met, prof, price, fx.av, fx.rep); setSliders(); draw(); });
   if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av, fx.rep); avWant(sym, !!inp.cy); const ve = $("#val", app); if(ve && ve._peg) ve._peg(fx.av); setSliders(); draw(); });
@@ -3137,7 +3138,8 @@ function renderAiCard(app, sym){
 const OV_SITES = ["morningstar.com", "morningstar.co.uk", "morningstar.com.au", "stockanalysis.com", "marketbeat.com", "tipranks.com", "finance.yahoo.com",
   "nasdaq.com", "zacks.com", "simplywall.st", "reuters.com", "cnbc.com", "investing.com", "barrons.com", "benzinga.com", "fool.com", "seekingalpha.com", "wsj.com", "ft.com", "kiplinger.com"];
 const OV_KEEP = 30 * 864e5, OV_SEARCHES = 4, OV_SEARCH_USD = 0.01;
-let fvNow = null; // the stock page's latest fair value range, for the comparison
+let fvNow = null, fvRedraw = null;
+const ovTarget = sym => { const o = state.ov && state.ov[sym]; return o && Date.now() - o.t < OV_KEEP && o.r && o.r.target && isNum(o.r.target.avg) ? o.r.target : null; }; // the stock page's latest fair value range, for the comparison
 const ovSystem = () => `You look up published valuations of one stock for a private investor's analysis app. Use web search on reputable finance sites.
 Find, as recent as possible:
 1. Fair value estimates published by research firms: Morningstar's fair value estimate first (search for it by name), then up to 2 others (for example Simply Wall St, Zacks, or a broker's published intrinsic value). Only real published estimates of what one share is worth.
@@ -3204,9 +3206,10 @@ function renderOutside(app, sym){
       ${r.dropped.length ? `<p class="small muted" style="margin:6px 0 0">Left out: ${r.dropped.map(esc).join("; ")}.</p>` : ""}
       <p class="small muted" style="margin:6px 0 0">Looked up ${ovAge(o.t)} by ${esc(o.by || "Claude Haiku 5.5")}${o.cost ? `, cost ${/^under/.test(o.cost) ? "" : "about "}${o.cost}` : ""}. Figures come from the linked pages; open them to check. AI can misread a page.</p>`;
   }
-  el.innerHTML = `<div class="ov"><h3>Outside views</h3>${body}
+  const what = `<p class="small muted" style="margin:0 0 6px">A second opinion on our range: Claude (Haiku, the cheapest model) searches reputable finance sites (Morningstar, StockAnalysis, MarketBeat, Yahoo Finance and others) for <b>published fair value estimates</b> of this stock and the <b>analysts' average price target</b>. The app keeps only figures from pages Claude actually found, links each one, and compares them with our range. About 1–4p a check from your Anthropic account; kept 30 days on both your devices.</p>`;
+  el.innerHTML = `<div class="ov"><h3>Outside views</h3>${o ? "" : what}${body}
     <div class="row" style="margin-top:8px"><button data-ov class="${o ? "" : "primary"}">${o ? "Check again" : "Check outside views"}</button>
-    <span id="ov-msg" class="small muted">${o ? "" : "Claude Haiku searches Morningstar, StockAnalysis, MarketBeat, Yahoo Finance and other reputable sites (a few pence)."}</span></div></div>`;
+    <span id="ov-msg" class="small muted">${o ? "" : "Usually 20–60 seconds."}</span></div>${o ? `<details class="more"><summary>What is this?</summary>${what}</details>` : ""}</div>`;
   $("[data-ov]", el).onclick = () => ovLookup(app, sym);
 }
 async function ovLookup(app, sym){
@@ -3241,8 +3244,15 @@ async function ovLookup(app, sym){
     rqNote("ai", { p: isNum(pence) ? Math.round(pence * 100) / 100 : null, usd: Math.round(usd * 1e4) / 1e4 });
     const ov = {}; for(const [k, v] of Object.entries(state.ov || {})) if(v && Date.now() - v.t < OV_KEEP) ov[k] = v; // older than 30 days: dropped
     ov[sym] = { t: Date.now(), r: res, cost, by: AI_MODELS.quick.name, searches: usage.searches }; state.ov = ov; save();
-    renderOutside(app, sym);
+    renderOutside(app, sym); if(fvRedraw && fvRedraw.sym === sym) fvRedraw.draw(); recTarget(app, sym);
   }catch(e){ m.className = "small err"; m.textContent = Anthropic && e instanceof Anthropic.APIError ? aiError(Anthropic, e) : (e.message || "Something went wrong."); b.disabled = false; }
+}
+function recTarget(app, sym){
+  const el = $("#rec-tgt", app); if(!el) return;
+  const t = ovTarget(sym), o = state.ov && state.ov[sym];
+  el.innerHTML = t ? `<p class="small" style="margin:10px 0 0"><b>Average 12-month price target: ${fmt(t.avg)}</b>${isNum(t.lo) && isNum(t.hi) ? ` (lowest ${fmt(t.lo)}, highest ${fmt(t.hi)}${isNum(t.n) ? `, ${t.n} analysts` : ""})` : ""}, <a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.src)}</a>${t.date ? `, ${new Date(t.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}.
+      <span class="muted">Where analysts expect the price to be in a year; found by Outside views ${ovAge(o.t)}. Targets usually sit above fair value estimates.</span></p>`
+    : `<p class="small muted" style="margin:10px 0 0">Price target: not looked up yet. The free data services don't include it; tap <b>Check outside views</b> under Fair value to find it.</p>`;
 }
 function renderRec(app, r){
   const el = $("#rec", app);
