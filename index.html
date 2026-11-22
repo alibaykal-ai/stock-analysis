@@ -2282,12 +2282,13 @@ function renderSales(app, sym, prof, finP, avP, tok){
     const unit = (fin && fin.years && fin.years[0] && fin.years[0].unit) || "USD";
     const years = ((fin && fin.years) || []).filter(y => isNum(y.revenue) || isNum(y.net)).map(y => ({ end: y.end, revenue: y.revenue > 0 ? y.revenue : NaN, net: y.net }))
       .sort((x, y) => x.end.localeCompare(y.end));
-    const qAll = salesQuarters(fin, finQ);
+    for(let i = years.length - 1; i > 0; i--) if(monthsBetween(years[i - 1].end, years[i].end) > 14){ years.splice(0, i); break; }
+    const qAll = salesQuarters(fin, finQ).filter(q => !years.length || q.end > years[0].end || slNear(q.end, years[0].end));
     const shares = isNum(prof.shareOutstanding) && prof.shareOutstanding > 0 ? prof.shareOutstanding * 1e6 : NaN;
     // forecasts are in dollars: not mixed with reports in another currency
     const F = unit === "USD" ? salesForecasts(avRaw, years.length ? years[years.length - 1].end : null, qAll.length ? qAll[qAll.length - 1].end : null, shares) : { y: [], q: [], any: false };
     if(!years.some(y => isNum(y.revenue)) && !qAll.some(q => isNum(q.revenue))){
-      el.innerHTML = `<p class="muted">No sales figures in this company's reports (Finnhub)${fin ? ". Banks and insurers often report income in other ways" : ""}.</p>`; return; }
+      el.innerHTML = `<p class="muted">${fin && fin.years && fin.years.length ? "No sales figures in this company's reports (Finnhub): some banks and insurers report their income in other ways." : "No company reports from Finnhub for this stock (funds have none, and some companies listed outside the US aren't covered)."}</p>`; return; }
     const S = { y: { past: years.slice(-5), all: years, fc: F.y }, q: { past: qAll.slice(-6), all: qAll, fc: F.q } };
     drawSales(el, S, F, unit, avRaw);
   });
@@ -2303,7 +2304,8 @@ function drawSales(el, S, F, unit, avRaw){
   const past = D.past.filter(c => isNum(c.revenue)), last = past[past.length - 1], bits = [];
   if(view === "y" && last){
     const first = past[0], yrs = monthsBetween(first.end, last.end) / 12, m = slMargin(last), pm = past.length > 1 ? slMargin(past[past.length - 2]) : NaN;
-    bits.push(`Sales <b>${money(last.revenue)}</b> in ${slFY(last.end)}` + (yrs >= 1.5 ? `, <b>${fmtPct((Math.pow(last.revenue / first.revenue, 1 / yrs) - 1) * 100, 0)} a year</b> since ${slFY(first.end)} (${money(first.revenue)})` : isNum(yearAgo(last, "revenue")) ? `, ${fmtPct(yearAgo(last, "revenue"), 0)} ${why}` : "") +
+    const cg = (Math.pow(last.revenue / first.revenue, 1 / yrs) - 1) * 100;
+    bits.push(`Sales <b>${money(last.revenue)}</b> in ${slFY(last.end)}` + (yrs >= 1.5 ? `, <b>${Math.abs(cg) < 0.5 ? "about flat" : fmtPct(cg, 0) + " a year"}</b> since ${slFY(first.end)} (${money(first.revenue)})` : isNum(yearAgo(last, "revenue")) ? `, ${fmtPct(yearAgo(last, "revenue"), 0)} ${why}` : "") +
       (isNum(m) ? `; profit margin <b>${m.toFixed(1)}%</b>${isNum(pm) ? ` (${slFY(past[past.length - 2].end)}: ${pm.toFixed(1)}%)` : ""}` : "") + ".");
   } else if(last){
     const g = yearAgo(last, "revenue"), m = slMargin(last);
