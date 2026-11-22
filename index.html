@@ -1990,7 +1990,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     const pr = S.pe ? `its usual P/E ${fmtX(S.pe.lo)}–${fmtX(S.pe.hi)} (middle ${fmtX(S.pe.mid)})` : "no usual P/E (type your own)";
     el.innerHTML = `<div class="pj-top"><div id="pj-status">${status()}</div>${saved() ? `<button type="button" id="pj-reset">Reset to the app's values</button>` : ""}</div>
       <div class="pj-sum">${PJ_CASES.map(([c, l]) => sumLine(c, l, projRows(S, cur[c], price), cur[c])).join("")}</div>
-      <p class="small muted" style="margin:6px 0 0">Today's price <b>${pjMoney(price)}</b> · ${pr} · colours vs your <b>${R()}%</b> required return: <span class="pj-hit">green</span> at or above, <span class="pj-miss">grey</span> below, <span class="pj-loss">red</span> a loss.
+      <p class="small muted" style="margin:6px 0 0">Today's price <b>$${fmt(price)}</b> · ${pr} · colours vs your <b>${R()}%</b> required return: <span class="pj-hit">green</span> at or above, <span class="pj-miss">grey</span> below, <span class="pj-loss">red</span> a loss.
         The P/E assumed in the last year drives most of the answer. These are scenarios built on your assumptions, not forecasts.</p>
       <details class="pj-years"${yrs}><summary><b>Show the years</b> <span class="small muted">(change any box: growth, margin, P/E)</span></summary>
         ${PJ_CASES.map(([c, l]) => caseTable(c, l, cur)).join("")}
