@@ -166,6 +166,22 @@ details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:
 .mine-tags b{font-weight:600} .mine-tags span{color:var(--muted)}
 .rq-row{padding:8px 0;border-top:1px solid var(--line)}.rq-row p{margin:4px 0 0}.rq-n{font-weight:600;margin-left:6px}
 .rq-bar{display:inline-block;vertical-align:middle;width:90px;height:7px;margin-left:10px;border-radius:4px;background:var(--line);overflow:hidden}.rq-bar>span{display:block;height:100%}
+.bar{position:relative}
+.rqring{flex:none;width:44px;height:44px;margin:-6px -8px -6px 0;display:inline-flex;align-items:center;justify-content:center;background:none;border:0;padding:0;cursor:pointer;border-radius:50%}
+.rqring:hover,.rqring[aria-expanded=true]{background:var(--neutralbg)}
+.rqring svg{width:24px;height:24px;transform:rotate(-90deg)}
+.rqr-bg{fill:none;stroke:var(--line);stroke-width:4.5}.rqr-fg{fill:none;stroke-width:4.5;stroke-linecap:round;transition:stroke-dasharray .4s}
+.rqpop{position:fixed;z-index:40;width:350px;max-width:calc(100vw - 24px);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.22);padding:14px 16px 12px;font-size:14px;line-height:1.4}
+.rqpop[hidden],.rqback[hidden]{display:none}
+.rqp-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 4px}.rqp-h b{font-size:16px}
+.rqp-x{display:none;width:44px;height:44px;margin:-10px -12px -10px 0;border:0;border-radius:50%;background:var(--neutralbg);color:var(--ink);font-size:20px;line-height:1;cursor:pointer}
+.rqp-st{margin:2px 0 8px}
+.rqp-row{padding:9px 0;border-top:1px solid var(--line)}
+.rqp-top{display:flex;justify-content:space-between;gap:8px;font-weight:600}.rqp-top span:last-child{white-space:nowrap}
+.rqp-bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:6px 0 4px}.rqp-bar>span{display:block;height:100%;border-radius:4px}
+.rqp-sub{font-size:13px;color:var(--muted)}
+.rqp-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:9px;font-size:13px;color:var(--muted)}
+.rqback{position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.35)}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
 .hide-sm{}
 @media (max-width:700px){
@@ -240,6 +256,12 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 /* ===== iPhone stock page (6.2): fewer number tiles, one swipeable line of section links, valuation numbers kept ===== */
 .ph-only,.statmore{display:none}
 @media (max-width:700px){
+  #rqring{position:absolute;right:6px;top:50%;margin:0;transform:translateY(-50%)}
+  .rqpop{left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;max-height:85vh;overflow:auto;border-radius:18px 18px 0 0;border-bottom:0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));font-size:15px}
+  .rqpop::before{content:"";display:block;width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+  .rqp-x{display:inline-flex;align-items:center;justify-content:center}
+  .rqp-sub,.rqp-foot{font-size:14px}
+  .rqp-foot a{display:inline-flex;align-items:center;min-height:44px}
   #rqfoot a{display:inline-block;padding:6px 0;min-height:44px;line-height:32px}
   .ph-only{display:block}
   #c-top h1{font-size:21px}
@@ -312,7 +334,10 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
     <a href="#macro" data-nav="macro">Macro</a>
     <a href="#settings" data-nav="settings">Settings</a>
   </nav>
+  <button id="rqring" class="rqring" type="button" data-rq="ring" hidden aria-haspopup="dialog" aria-label="Requests today"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="rqr-bg" cx="18" cy="18" r="14"/><circle class="rqr-fg" cx="18" cy="18" r="14"/></svg></button>
 </div></header>
+<div id="rqback" class="rqback" hidden></div>
+<div id="rqpop" class="rqpop" role="dialog" aria-label="Requests today" hidden></div>
 <main id="app"></main>
 <nav class="tabbar" aria-label="Main">
   <a href="#home" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>My Stocks</a>
@@ -321,7 +346,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.7</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.8</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -639,7 +664,9 @@ function rqOthers(t){ const o = t.per.filter(d => !d.mine);
 function rqShow(){
   const f = document.getElementById("rqfoot");
   if(f){ const parts = []; if(state.avKey) parts.push(`Alpha Vantage ${rqToday("av").n}/${RQ.av.day}`); if(state.tdKey) parts.push(`Twelve Data ${rqToday("td").n}/${RQ.td.day}`);
-    f.innerHTML = parts.length ? `<a href="#settings" data-rq="1">Requests today: ${parts.join(" · ")}</a> · ` : ""; }
+    f.innerHTML = parts.length ? `<a href="#settings" data-rq="foot" aria-haspopup="dialog">Requests today: ${parts.join(" · ")}</a> · ` : ""; }
+  rqRing();
+  const pop = document.getElementById("rqpop"); if(pop && !pop.hidden) pop.innerHTML = rqPanel();
   const b = document.getElementById("rqbody"); if(b) b.innerHTML = rqCard();
   const tb = document.getElementById("tdusage"); if(tb) tb.onclick = tdUsage;
   const au = document.getElementById("avused"); if(au) au.textContent = `${rqToday("av").n} of ${RQ.av.day}`;
@@ -675,6 +702,72 @@ function rqCard(){
         <p class="small muted">Limit 5,000 an hour.${e ? ` ${errs.length} error${errs.length > 1 ? "s" : ""} today, last at ${rqClock(e[0])}: GitHub said ${esc(e[1])}${e[2] ? " " + esc(e[2]) : ""}.` : ""}</p></div>`); } }
   return `<p class="small muted" style="margin-top:0">Requests this app sent today, counted for each service's own day. ${both ? "Mac and iPhone are added together (each device adds its count to your GitHub file), because the free limits are per key." : "This device only: connect GitHub saving above to add your other devices."}</p>${out.join("")}`;
 }
+// The ring in the top bar (7.8, like Claude's usage ring): fills with whichever daily limit is closest to running out.
+// Hover (Mac) or tap (iPhone, a sheet from the bottom) shows the panel; the footer line opens the same panel.
+const RQ_C = 2 * Math.PI * 14;
+function rqDaily(){ const out = [];
+  if(state.avKey) out.push({ svc: "av", name: "Alpha Vantage", n: rqToday("av").n, lim: RQ.av.day, stop: avBlocked() });
+  if(state.tdKey) out.push({ svc: "td", name: "Twelve Data", n: rqToday("td").n, lim: RQ.td.day, stop: false });
+  out.forEach(d => { d.f = d.stop ? 1 : Math.min(1, d.n / d.lim); d.left = d.stop ? 0 : Math.max(0, d.lim - d.n); d.reset = rqDayStart(d.svc) + 86400; });
+  return out; }
+const rqColour = f => f >= 1 ? "var(--bad)" : f >= 0.8 ? "var(--mid)" : "var(--good)";
+function rqRing(){ const b = document.getElementById("rqring"); if(!b) return;
+  const d = rqDaily(); b.hidden = !d.length; if(!d.length) return;
+  const top = d.slice().sort((x, y) => y.f - x.f)[0], c = b.querySelector(".rqr-fg");
+  c.style.strokeDasharray = `${Math.max(top.f > 0 ? 2 : 0, top.f * RQ_C)} ${RQ_C}`; c.style.stroke = rqColour(top.f);
+  b.setAttribute("aria-label", "Requests today: " + d.map(x => `${x.name} ${x.n} of ${x.lim}`).join(", ")); }
+function rqStatus(d){
+  if(!d.length) return "Add an Alpha Vantage or Twelve Data key in Settings to count their requests.";
+  const t = d.slice().sort((x, y) => y.f - x.f)[0], at = `${rqClock(t.reset)} (in ${rqIn(t.reset)})`;
+  if(t.f >= 1) return `<b>${t.name} is used up</b> until ${at}. Saved ${t.svc === "av" ? "forecasts" : "prices"} are shown meanwhile.`;
+  const w = t.f >= 0.8 ? "Getting close." : t.f >= 0.5 ? "On track." : "Plenty left.";
+  return `<b>${w}</b> ${t.left} ${t.name} request${t.left === 1 ? "" : "s"} left until ${at}.`; }
+function rqPanel(){
+  const d = rqDaily(), L = rqLoad(), rows = [];
+  for(const x of d){ const sp = rqSplit(rqToday(x.svc));
+    rows.push(`<div class="rqp-row"><div class="rqp-top"><span>${x.name}</span><span>${x.n} / ${x.lim}</span></div>
+      <div class="rqp-bar"><span style="width:${Math.round(x.f * 100)}%;background:${rqColour(x.f)}"></span></div>
+      <div class="rqp-sub">${x.stop && x.n < x.lim ? "Alpha Vantage said today's limit is reached" : `${x.left} left`} · resets at ${rqClock(x.reset)} (in ${rqIn(x.reset)})${sp ? "<br>" + sp.slice(2, -1) : ""}</div></div>`); }
+  const s = rqDayStart("fh"), fh = L.fh.map(Number), pk = rqPeak(fh, s);
+  rows.push(`<div class="rqp-row"><div class="rqp-top"><span>Finnhub, busiest minute</span><span>${pk} / ${RQ.fh.min}</span></div>
+    <div class="rqp-bar"><span style="width:${Math.round(Math.min(1, pk / RQ.fh.min) * 100)}%;background:${rqColour(pk / RQ.fh.min)}"></span></div>
+    <div class="rqp-sub">No daily limit · ${fh.filter(t => t >= s).length} requests from this device today</div></div>`);
+  const ai = rqToday("ai").per.flatMap(p => p.list);
+  if(ai.length || state.aiKey){ const p = ai.filter(a => isNum(a[1])).reduce((t, a) => t + a[1], 0), usd = ai.filter(a => !isNum(a[1])).reduce((t, a) => t + (a[2] || 0), 0);
+    rows.push(`<div class="rqp-row"><div class="rqp-top"><span>AI summaries</span><span>${ai.length ? (usd > 0 ? `about ${Math.round(p)}p + $${usd.toFixed(3)}` : p < 1 ? "under 1p" : `about ${Math.round(p)}p`) : "0p"}</span></div>
+      <div class="rqp-sub">${ai.length} today · paid per use, no limit</div></div>`); }
+  return `<div class="rqp-h"><b>Requests today</b><button type="button" class="rqp-x" data-rqx aria-label="Close">×</button></div>
+    <p class="rqp-st">${rqStatus(d)}</p>${rows.join("")}
+    <div class="rqp-foot"><span>${ghOn() ? "Mac and iPhone together" : "This device only"}</span><a href="#settings" data-rqx>More in Settings</a></div>`; }
+const rqPhone = () => matchMedia("(max-width:700px)").matches, rqHover = () => matchMedia("(hover:hover) and (pointer:fine)").matches;
+let rqPin = false, rqHideT = null, rqFrom = null;
+function rqOpen(trigger, pin){
+  const pop = document.getElementById("rqpop"); if(!pop) return;
+  clearTimeout(rqHideT); rqPin = rqPin || !!pin; rqFrom = trigger;
+  pop.innerHTML = rqPanel(); pop.hidden = false; document.getElementById("rqback").hidden = !rqPhone();
+  document.getElementById("rqring").setAttribute("aria-expanded", "true");
+  if(!rqPhone()){ const r = trigger.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    let top = r.bottom + 8; if(top + h > innerHeight - 8) top = Math.max(8, r.top - h - 8);
+    pop.style.left = Math.min(Math.max(12, r.right - w), innerWidth - w - 12) + "px"; pop.style.top = top + "px"; }
+  rqPull().then(() => { if(!pop.hidden) pop.innerHTML = rqPanel(); });
+}
+function rqClose(){ const pop = document.getElementById("rqpop"); if(!pop || pop.hidden) return;
+  pop.hidden = true; document.getElementById("rqback").hidden = true; rqPin = false;
+  document.getElementById("rqring").setAttribute("aria-expanded", "false"); }
+document.addEventListener("click", e => {
+  const t = e.target.closest && e.target.closest("[data-rq]"), x = e.target.closest && e.target.closest("[data-rqx]");
+  if(x){ rqClose(); return; } // the close button, or "More in Settings" (the link still goes there)
+  if(t){ e.preventDefault(); const pop = document.getElementById("rqpop");
+    if(!pop.hidden && rqPin && rqFrom === t) rqClose(); else rqOpen(t, true); return; }
+  if(!e.target.closest("#rqpop")) rqClose();
+});
+document.addEventListener("mouseover", e => { if(!rqHover()) return;
+  const t = e.target.closest("[data-rq]"); if(t) rqOpen(t, false); else if(e.target.closest("#rqpop")) clearTimeout(rqHideT); });
+document.addEventListener("mouseout", e => { if(!rqHover() || rqPin) return;
+  const to = e.relatedTarget; if(to && to.closest && (to.closest("[data-rq]") || to.closest("#rqpop"))) return;
+  if(e.target.closest("[data-rq]") || e.target.closest("#rqpop")){ clearTimeout(rqHideT); rqHideT = setTimeout(() => { if(!rqPin) rqClose(); }, 250); } });
+document.addEventListener("keydown", e => { if(e.key === "Escape") rqClose(); });
+window.addEventListener("hashchange", rqClose);
 // Twelve Data's own figure for the key (all devices and tools); costs 1 request, so only when asked.
 async function tdUsage(){
   const m = document.getElementById("tdumsg"); if(m){ m.className = "muted"; m.textContent = "Asking…"; }
