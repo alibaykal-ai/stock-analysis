@@ -277,7 +277,9 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 .pj-hit{color:var(--good)} .pj-miss{color:var(--muted)} .pj-loss{color:var(--bad)}
 .pj-years{margin-top:12px} .pj-years>summary{cursor:pointer;padding:6px 0}
 .pj-h{margin:18px 0 0;padding:8px 12px;border-radius:8px 8px 0 0;border-left:5px solid;font-size:16px}
-.pj-h-bear{--pjc:var(--bad)} .pj-h-base{--pjc:var(--accent)} .pj-h-bull{--pjc:var(--good)}
+.pj-h-bear,.pj-l-bear{--pjc:var(--bad)} .pj-h-base,.pj-l-base{--pjc:var(--accent)} .pj-h-bull,.pj-l-bull{--pjc:var(--good)}
+.pj-line{border-left:5px solid var(--pjc)}
+.pj-tag{color:var(--pjc);background:color-mix(in srgb,var(--pjc) 18%,transparent)}
 .pj-h{color:var(--pjc);border-color:var(--pjc);background:color-mix(in srgb,var(--pjc) 14%,transparent)}
 .pj-h+.pj-t{border-left:5px solid var(--pjc2,var(--line))}
 .pj-h-bear+.pj-t{--pjc2:var(--bad)} .pj-h-base+.pj-t{--pjc2:var(--accent)} .pj-h-bull+.pj-t{--pjc2:var(--good)}
@@ -316,7 +318,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.5</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.6</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1955,7 +1957,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     const what = !isNum(r.eps) ? `<span class="muted">fill in every box to see ${r.year}'s result</span>` : !(r.eps > 0) ? `<b class="pj-loss">still losing money in ${r.year}</b> (EPS ${pjMoney(r.eps)})`
       : !isNum(r.pLo) || !isNum(r.pHi) ? `EPS ${pjMoney(r.eps)} in ${r.year}; <span class="muted">type a P/E to see a price</span>`
       : `<b class="${k}">${pjMoney(r.pLo)}</b>–<b class="${kh}">${pjMoney(r.pHi)}</b> in ${r.year}, <b class="${k}">${pjRet(r.rLo)}</b>${pjSep(r.rLo)}<b class="${kh}">${pjRet(r.rHi)}</b> a year`;
-    return `<div class="pj-line" data-case="${c}"><span class="badge ${c === "bear" ? "b-rich" : c === "bull" ? "b-cheap" : "b-inline"}">${label}</span> <span>${what}</span>
+    return `<div class="pj-line pj-l-${c}" data-case="${c}"><span class="badge pj-tag">${label}</span> <span>${what}</span>
       <div class="small muted">${r.year}: sales growth ${isNum(v.g[4]) ? v.g[4] + "%" : "—"}, profit margin ${isNum(v.m[4]) ? v.m[4] + "%" : "—"}, P/E ${isNum(v.lo[4]) ? v.lo[4] : "—"}–${isNum(v.hi[4]) ? v.hi[4] : "—"}×, EPS ${pjMoney(r.eps)}</div></div>`;
   };
   const cell = (c, k, i, v) => `<input type="number" step="any" class="pj-in" data-c="${c}" data-k="${k}" data-i="${i}" value="${isNum(v) ? v : ""}" aria-label="${c} ${k} year ${i + 1}">`;
