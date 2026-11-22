@@ -116,8 +116,28 @@ h3{font-size:14px;margin:18px 0 8px}
 .hp-bar{height:8px;background:var(--neutralbg);border-radius:4px;overflow:hidden}
 .hp-bar i{display:block;height:100%;border-radius:4px}
 .hp-v{text-align:right;font-variant-numeric:tabular-nums}
-#c-chart,#perf{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
-@media (prefers-color-scheme:dark){ #c-chart,#perf{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
+#c-chart,#perf,#c-sales{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
+.slwrap{position:relative;touch-action:pan-y}
+.slwrap svg,.slov{display:block;width:100%;height:330px}
+.slov{position:absolute;top:0;left:0;right:0;pointer-events:none}
+.slov span{position:absolute;transform:translateY(-50%);font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.slov .pl{transform:none;font-weight:600}
+.slwrap .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.slwrap .grid.zero{stroke:var(--muted)}
+.slwrap .b-s{fill:var(--s1)} .slwrap .b-p{fill:var(--s3)}
+.slwrap .fcb{fill-opacity:.4;stroke-width:1.5;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.slwrap .b-s.fcb{stroke:var(--s1)} .slwrap .b-p.fcb{stroke:var(--s3)}
+.slwrap .fcband{fill:var(--neutralbg)} .slwrap .hl{fill:var(--line);opacity:.55}
+.slwrap .mln{fill:none;stroke:var(--s2);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.slwrap .mln.fc{stroke-dasharray:6 5}
+.sldot{position:absolute;width:9px;height:9px;border-radius:50%;border:2.5px solid var(--s2);background:var(--card);transform:translate(-50%,-50%);box-sizing:border-box}
+.sldot.fc{background:var(--s2);opacity:.55}
+.slx{position:relative;height:32px;font-size:11px;color:var(--muted)}
+.slx span{position:absolute;top:2px;transform:translateX(-50%);text-align:center;line-height:1.25;white-space:nowrap}
+.slx span.fc{font-style:italic}
+.legend i.sl-fck{background:var(--neutralbg);border:1px dashed var(--muted);box-sizing:border-box}
+tr.sl-fcrow td{font-style:italic}
+@media (prefers-color-scheme:dark){ #c-chart,#perf,#c-sales{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--vol:#334155} }
 .chartwrap{position:relative;padding-right:0;touch-action:pan-y}
 .chartwrap svg{display:block;width:100%;height:420px}
 .chartwrap .rsiband{fill:var(--neutralbg)}
@@ -276,6 +296,8 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   table.stack tr.st-tot{background:var(--neutralbg)}
   table.tight th,table.tight td{padding:7px 3px;font-size:14px}
   table.tight th{font-size:12px}
+  .slov span,.slx{font-size:12px}
+  .slwrap svg,.slov{height:300px}
   #rqring{position:absolute;right:6px;top:50%;margin:0;transform:translateY(-50%)}
   .rqpop{left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;max-height:85vh;overflow:auto;border-radius:18px 18px 0 0;border-bottom:0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));font-size:15px}
   .rqpop::before{content:"";display:block;width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
@@ -366,7 +388,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.12</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.13</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -849,10 +871,11 @@ async function avApi(fn, sym, ttl, shape, force){
 // Forecasts shared between devices (7.2): every new EARNINGS_ESTIMATES answer is also saved, trimmed to the yearly
 // estimates the app reads, in state.fc (synced to the private GitHub file). A device that opens a stock uses a copy saved by
 // the other device if it's newer than its own, so the Mac and the iPhone don't each spend a request on the same stock.
-const FC_FIELDS = ["date", "horizon", "eps_estimate_average", "eps_estimate_analyst_count", "eps_estimate_average_90_days_ago", "eps_estimate_revision_up_trailing_30_days", "eps_estimate_revision_down_trailing_30_days"];
+const FC_FIELDS = ["date", "horizon", "eps_estimate_average", "eps_estimate_analyst_count", "eps_estimate_average_90_days_ago", "eps_estimate_revision_up_trailing_30_days", "eps_estimate_revision_down_trailing_30_days", "revenue_estimate_average", "revenue_estimate_analyst_count"];
 let fcSaving = false;
 function fcShape(j){ const arr = j && (j.estimates || j.data); if(!Array.isArray(arr)) return null;
-  return { estimates: arr.filter(e => e && /fiscal year/i.test(String(e.horizon || ""))).map(e => { const o = {}; FC_FIELDS.forEach(k => { if(e[k] != null) o[k] = e[k]; }); return o; }) }; }
+  const qFrom = ymd(new Date(Date.now() - 120*864e5)); // 7.13: the coming quarters too (sales chart), not past ones
+  return { estimates: arr.filter(e => e && (/fiscal year/i.test(String(e.horizon || "")) || /fiscal quarter/i.test(String(e.horizon || "")) && String(e.date || "") >= qFrom)).map(e => { const o = {}; FC_FIELDS.forEach(k => { if(e[k] != null) o[k] = e[k]; }); return o; }) }; }
 function fcHydrate(sym){
   const f = state.fc && state.fc[sym]; if(!f || !f.v || !f.t || Date.now() - f.t >= AV_KEEP) return;
   const ck = "av:EARNINGS_ESTIMATES:" + sym, has = cacheGet(ck) !== undefined, e = memCache.get(ck);
@@ -1553,7 +1576,7 @@ async function viewStock(app, sym, tok){
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
     </div>
     <nav class="jump" id="jump">
-      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-proj">Projections</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a><a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
+      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-sales">Sales</a><a data-go="c-proj">Projections</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a><a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
     </nav>
     <div class="card glance" id="c-glance">
       <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
@@ -1569,6 +1592,7 @@ async function viewStock(app, sym, tok){
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
+    <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div></div>
     <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
     <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>
@@ -1586,7 +1610,7 @@ async function viewStock(app, sym, tok){
   const jb = $("#jump", app); if(jb) jb.style.top = ($("header").offsetHeight) + "px";
   if(!state.tdKey) glance("g-tech", `<a href="#settings">Add Twelve Data key</a>`);
   renderChartCard(app, sym, tok);
-  if(!state.apiKey){ ["#val","#health","#rec","#ins","#news","#proj"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
+  if(!state.apiKey){ ["#val","#health","#rec","#ins","#news","#proj","#sales"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
   const [q, m, p, splitF] = await liveData(sym, { withTd: !!state.tdKey });
   if(!live(tok)) return;
@@ -1617,8 +1641,8 @@ async function viewStock(app, sym, tok){
   { const sg = $("#s-stats",app); if(sg.querySelector(".stat.x:not(.web)")){ sg.insertAdjacentHTML("beforeend", `<button type="button" class="statmore">More numbers</button>`);
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
-    if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); }
+    if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; $("#sales",app).innerHTML=""; }
+    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -2185,6 +2209,204 @@ function projRows(S, v, price){
   return out;
 }
 const pjNum = x => x === null || x === undefined || x === "" ? NaN : +x;
+/* ================= Sales & profit chart (7.13) ================= */
+// Owner's idea (22 Nov 2026, screenshots of an "Income statement" chart): sales and profit per year or quarter with the
+// profit margin, plus analysts' forecasts, and the figures on hover / tap. No new requests:
+//   * past years and quarters: the company's reports (Finnhub, already saved for the health score)
+//   * the next 2 fiscal years and 2 quarters: Alpha Vantage EARNINGS_ESTIMATES (the weekly request fair value already
+//     makes), which has average sales and EPS forecasts per fiscal year and quarter. Forecast profit = forecast EPS ×
+//     today's share count (split-adjusted). Analysts' EPS usually leaves out one-off costs, so the page says so.
+// Margin is drawn in its own small panel under the bars (same columns), never on a second scale over them.
+let salesView = "y";
+const slNear = (a, b, d = 20) => Math.abs(new Date(a) - new Date(b)) < d * 864e5;
+// 3-month figures for every quarter the reports cover. 10-Q filings give either the 3 months or the year to date (the
+// period length tells which): year to date minus the quarter before = the 3 months. 4th quarter = the year's report − 9 months.
+function salesQuarters(fin, finQ){
+  const ys = ((fin && fin.years) || []).slice().sort((a, b) => a.end.localeCompare(b.end)), qs = (finQ && finQ.q) || [];
+  if(!ys.length || !qs.length) return [];
+  const ytd = (end, fyEnd, k) => {
+    const sinceFY = monthsBetween(fyEnd, end), one = qs.find(q => slNear(q.end, end));
+    if(one && isNum(one[k]) && Math.abs(one.months - sinceFY) <= 1) return one[k];
+    let sum = 0, got = 0;
+    for(const q of qs) if(q.end > fyEnd && !slNear(q.end, fyEnd) && (q.end < end || slNear(q.end, end)) && q.months <= 4 && isNum(q[k])){ sum += q[k]; got += q.months; }
+    return got && Math.abs(got - sinceFY) <= 1 ? sum : NaN;
+  };
+  const ends = [];
+  for(const e of [...qs.map(q => q.end), ...ys.map(y => y.end)].sort()) if(!ends.length || !slNear(ends[ends.length - 1], e)) ends.push(e);
+  const out = [];
+  for(const e of ends){
+    const A = ys.find(y => slNear(y.end, e)), P = ys.filter(y => y.end < e && !slNear(y.end, e)).pop();
+    if(!P) continue;                                              // the fiscal year's start isn't known
+    const prev = ends.filter(x => x > P.end && !slNear(x, P.end) && x < e && !slNear(x, e)).pop(), len = monthsBetween(prev || P.end, e);
+    if(len < 2 || len > 4) continue;                              // a quarter is missing in between
+    const q = { end: e, start: prev || P.end, q4: !!A };
+    for(const k of ["revenue", "net"]){
+      const now = A ? A[k] : ytd(e, P.end, k), before = prev ? ytd(prev, P.end, k) : 0;
+      q[k] = isNum(now) && isNum(before) ? now - before : NaN;
+    }
+    if(!(q.revenue > 0)) q.revenue = NaN;
+    if(isNum(q.revenue) || isNum(q.net)) out.push(q);
+  }
+  return out;
+}
+// Analysts' forecasts after the last reported year / quarter: the next 2 of each.
+function salesForecasts(av, lastY, lastQ, shares){
+  const arr = av && (av.estimates || av.data), o = { y: [], q: [], at: av && av._at, stale: av && av._stale, any: Array.isArray(arr) };
+  if(!Array.isArray(arr)) return o;
+  const today = ymd(new Date());
+  const pick = (re, after) => arr.filter(e => re.test(String(e.horizon || "")) && e.date && (after ? String(e.date) > after && !slNear(e.date, after) : String(e.date) >= today))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 2)
+    .map(e => { const rev = avNum(e.revenue_estimate_average), eps = avNum(e.eps_estimate_average);
+      return { end: String(e.date).slice(0, 10), revenue: rev > 0 ? rev : NaN, net: isNum(eps) && isNum(shares) ? eps * shares : NaN, eps,
+        n: avNum(e.eps_estimate_analyst_count), nRev: avNum(e.revenue_estimate_analyst_count), fc: true }; })
+    .filter(x => isNum(x.revenue) || isNum(x.net));
+  o.y = pick(/fiscal year/i, lastY); o.q = pick(/fiscal quarter/i, lastQ);
+  return o;
+}
+// Labels. Fiscal years by the year they end in (a year ending in the first days of January belongs to the year before);
+// quarters by the month they end in.
+const slD = end => new Date(String(end).slice(0, 10) + "T00:00:00");
+const slFY = end => { const d = slD(end); return "FY" + (d.getMonth() === 0 && d.getDate() <= 7 ? d.getFullYear() - 1 : d.getFullYear()); };
+const slQd = end => { const d = slD(end); if(d.getDate() <= 7) d.setDate(0); return d; };
+const SL_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const slQ = end => { const d = slQd(end); return SL_MON[d.getMonth()] + " " + d.getFullYear(); };
+const slLong = end => slD(end).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+const slMon = end => slQd(end).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+const slMargin = c => isNum(c.net) && c.revenue > 0 ? c.net / c.revenue * 100 : NaN;
+function renderSales(app, sym, prof, finP, avP, tok){
+  const el = $("#sales", app); if(!el) return;
+  Promise.all([finP, avP ? avP.catch(() => null) : null]).then(([fr, a]) => {
+    if(!live(tok)) return;
+    const [f, fq] = fr || [], fin = f && f.ok ? f.v : null, finQ = fq && fq.ok ? fq.v : null;
+    const avRaw = a && a[1] && a[1].ok ? a[1].v : peek.av(sym);
+    const unit = (fin && fin.years && fin.years[0] && fin.years[0].unit) || "USD";
+    const years = ((fin && fin.years) || []).filter(y => isNum(y.revenue) || isNum(y.net)).map(y => ({ end: y.end, revenue: y.revenue > 0 ? y.revenue : NaN, net: y.net }))
+      .sort((x, y) => x.end.localeCompare(y.end));
+    const qAll = salesQuarters(fin, finQ);
+    const shares = isNum(prof.shareOutstanding) && prof.shareOutstanding > 0 ? prof.shareOutstanding * 1e6 : NaN;
+    // forecasts are in dollars: not mixed with reports in another currency
+    const F = unit === "USD" ? salesForecasts(avRaw, years.length ? years[years.length - 1].end : null, qAll.length ? qAll[qAll.length - 1].end : null, shares) : { y: [], q: [], any: false };
+    if(!years.some(y => isNum(y.revenue)) && !qAll.some(q => isNum(q.revenue))){
+      el.innerHTML = `<p class="muted">No sales figures in this company's reports (Finnhub)${fin ? ". Banks and insurers often report income in other ways" : ""}.</p>`; return; }
+    const S = { y: { past: years.slice(-5), all: years, fc: F.y }, q: { past: qAll.slice(-6), all: qAll, fc: F.q } };
+    drawSales(el, S, F, unit, avRaw);
+  });
+}
+function drawSales(el, S, F, unit, avRaw){
+  const view = salesView === "q" && S.q.past.length ? "q" : "y", D = S[view], cols = [...D.past, ...D.fc], all = [...D.all, ...D.fc];
+  const money = v => unit === "USD" ? pjBig(v) : pjBig(v).replace("$", "") + " " + unit;
+  const lab = c => view === "y" ? slFY(c.end) : slQ(c.end);
+  // Growth: vs the year before (annual), vs the same quarter a year earlier (quarterly)
+  const yearAgo = (c, k) => { const b = all.filter(x => x.end < c.end && Math.abs(monthsBetween(x.end, c.end) - 12) <= 1).pop(); return b && isNum(b[k]) && isNum(c[k]) && b[k] > 0 ? (c[k] / b[k] - 1) * 100 : NaN; };
+  const why = view === "y" ? "on the year before" : "on the same quarter a year earlier";
+  // ---- the sentences on top
+  const past = D.past.filter(c => isNum(c.revenue)), last = past[past.length - 1], bits = [];
+  if(view === "y" && last){
+    const first = past[0], yrs = monthsBetween(first.end, last.end) / 12, m = slMargin(last), pm = past.length > 1 ? slMargin(past[past.length - 2]) : NaN;
+    bits.push(`Sales <b>${money(last.revenue)}</b> in ${slFY(last.end)}` + (yrs >= 1.5 ? `, <b>${fmtPct((Math.pow(last.revenue / first.revenue, 1 / yrs) - 1) * 100, 0)} a year</b> since ${slFY(first.end)} (${money(first.revenue)})` : isNum(yearAgo(last, "revenue")) ? `, ${fmtPct(yearAgo(last, "revenue"), 0)} ${why}` : "") +
+      (isNum(m) ? `; profit margin <b>${m.toFixed(1)}%</b>${isNum(pm) ? ` (${slFY(past[past.length - 2].end)}: ${pm.toFixed(1)}%)` : ""}` : "") + ".");
+  } else if(last){
+    const g = yearAgo(last, "revenue"), m = slMargin(last);
+    bits.push(`Latest quarter (3 months to ${slLong(last.end)}): sales <b>${money(last.revenue)}</b>${isNum(g) ? `, <b>${fmtPct(g, 0)}</b> ${why}` : ""}${isNum(m) ? `; profit margin <b>${m.toFixed(1)}%</b>` : ""}.`);
+  }
+  const fcR = D.fc.filter(c => isNum(c.revenue));
+  if(fcR.length){
+    const what = fcR.map(c => { const g = yearAgo(c, "revenue"); return `<b>${money(c.revenue)}</b> ${view === "y" ? "in " + slFY(c.end) : "for the quarter to " + slMon(c.end)}${isNum(g) ? ` (${fmtPct(g, 0)})` : ""}`; });
+    // margin jump vs the last reported year, or (quarters, which are seasonal) vs the same quarter a year earlier
+    const fm = fcR.map(slMargin).filter(isNum), base = view === "y" ? last : fcR[0] && all.filter(x => !x.fc && x.end < fcR[0].end && Math.abs(monthsBetween(x.end, fcR[0].end) - 12) <= 1).pop(), lm = base ? slMargin(base) : NaN;
+    bits.push(`Analysts expect sales of ${what.join(view === "y" ? " and " : ", then ")}` + (fm.length ? `, with a profit margin of about ${fm.map(x => x.toFixed(0) + "%").join(" and ")}` : "") + "." +
+      (fm.length && isNum(lm) && fm[0] - lm >= 5 ? ` <span class="muted">Part of the jump in margin may be analysts leaving out one-off costs (see the note under the chart).</span>` : ""));
+  } else if(D.fc.length) bits.push(`<span class="muted">The saved forecasts for this stock have earnings but no sales figures (an older saved copy); sales forecasts come with the next weekly forecast update.</span>`);
+  else bits.push(`<span class="muted">${!state.avKey && !avRaw ? `Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' forecasts for the next 2 years and quarters.`
+    : unit !== "USD" ? `Forecasts not shown: this company reports in ${esc(unit)}, the forecasts are in dollars.`
+    : avRaw ? `No forecasts for the coming ${view === "y" ? "years" : "quarters"} in Alpha Vantage's answer for this stock.`
+    : `No analysts' forecasts saved for this stock yet: they're fetched with fair value (Alpha Vantage, 1 request a week). Open the page again later.`}</span>`);
+  // ---- chart geometry (viewBox units; the SVG stretches to the card width, so labels and dots are HTML placed in %)
+  const W = 1000, L = 8, R = Math.max(60, Math.min(160, Math.round(52 / Math.max(1, el.clientWidth || 600) * 1000))), T = 26, PH = 220, GAP = 30, MH = 84, B = 6, H = T + PH + GAP + MH + B, n = cols.length;
+  const slot = (W - L - R) / Math.max(1, n), cx = i => L + slot * (i + 0.5), bw = Math.min(slot * 0.32, 64);
+  const vals = cols.flatMap(c => [c.revenue, c.net]).filter(isNum);
+  let hi = Math.max(0, ...vals), lo = Math.min(0, ...vals); hi += (hi - lo) * 0.06 || 1;
+  if(lo < 0) lo -= (hi - lo) * 0.04;
+  const yP = v => T + (hi - v) / (hi - lo) * PH;
+  const nice = raw => { const mag = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(x => x * mag).find(s => s >= raw) || raw; };
+  const st = nice((hi - lo) / 4), ticks = []; for(let v = Math.ceil(lo / st) * st; v <= hi; v += st) ticks.push(Math.abs(v) < st / 1e6 ? 0 : v);
+  const mv = cols.map(slMargin), mOk = mv.filter(isNum);
+  let mlo = Math.min(...mOk), mhi = Math.max(...mOk); if(mhi - mlo < 2){ mlo -= 1; mhi += 1; } const mp = (mhi - mlo) * 0.15; mlo -= mp; mhi += mp;
+  const M0 = T + PH + GAP, yM = v => M0 + (mhi - v) / (mhi - mlo) * MH;
+  const mticks = []; if(mOk.length){ let mst = nice((mhi - mlo) / 2.5); const tk = () => { mticks.length = 0; for(let v = Math.ceil(mlo / mst) * mst; v <= mhi + 1e-9; v += mst) mticks.push(+v.toFixed(6)); };
+    tk(); if(mticks.length < 2){ mst = nice((mhi - mlo) / 4); tk(); } if(mticks.length < 2){ mst /= 2; tk(); } }
+  const pY = y => (y / H * 100).toFixed(2) + "%", pX = x => (x / W * 100).toFixed(2) + "%";
+  const f0 = D.past.length, bar = (i, v, k, fc) => { if(!isNum(v)) return ""; const y0 = yP(Math.max(v, 0)), y1 = yP(Math.min(v, 0));
+    return `<rect class="${k}${fc ? " fcb" : ""}" x="${(cx(i) + (k === "b-s" ? -bw - 3 : 3)).toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y1 - y0).toFixed(1)}"/>`; };
+  const seg = (a, b) => { let d = "", pen = false; for(let i = a; i <= b && i < n; i++){ if(!isNum(mv[i])){ pen = false; continue; } d += (pen ? "L" : "M") + cx(i).toFixed(1) + " " + yM(mv[i]).toFixed(1); pen = true; } return d; };
+  const legend = `<div class="legend"><span><i style="background:var(--s1)"></i>Sales</span><span><i style="background:var(--s3)"></i>Profit (net income)</span><span><i class="lk" style="background:var(--s2)"></i>Profit margin</span>${D.fc.length ? `<span><i class="sl-fck"></i>Forecast</span>` : ""}</div>`;
+  const qNote = view === "q" ? ` A 4th quarter is the year's report minus the first three quarters.` : "";
+  const fcNote = D.fc.length ? ` Forecasts (paler bars, shaded) are analysts' averages from Alpha Vantage${F.at ? `, saved ${slLong(ymd(new Date(F.at)))}${F.stale ? " (an older copy: the daily limit was reached)" : ""}` : ""}; forecast profit = their expected earnings per share × today's share count. Analysts usually leave out one-off costs (and often share-based pay), so forecast profit and margin can sit above what the company later reports.` : "";
+  // both tables are listed under "Show the numbers", whichever view is on
+  const tables = () => [["Years", "y"], ["Quarters", "q"]].filter(([, k]) => S[k].past.length).map(([t, k]) => tableFor(t, k)).join("");
+  const tableFor = (t, k) => { const Dk = S[k], allK = [...Dk.all, ...Dk.fc];
+    const yA = (c, kk) => { const b = allK.filter(x => x.end < c.end && Math.abs(monthsBetween(x.end, c.end) - 12) <= 1).pop(); return b && isNum(b[kk]) && isNum(c[kk]) && b[kk] > 0 ? (c[kk] / b[kk] - 1) * 100 : NaN; };
+    const r = c => { const g = yA(c, "revenue"), m = slMargin(c);
+      return `<tr${c.fc ? ` class="sl-fcrow"` : ""}><td>${k === "y" ? slFY(c.end) : slQ(c.end)}${c.fc ? ` <span class="small muted">forecast${isNum(c.nRev || c.n) ? `, ${c.nRev || c.n} analysts` : ""}</span>` : ""}</td><td class="num">${isNum(c.revenue) ? money(c.revenue) : "—"}</td><td class="num">${isNum(g) ? fmtPct(g, 1) : "—"}</td><td class="num">${isNum(c.net) ? money(c.net) : "—"}</td><td class="num">${isNum(m) ? m.toFixed(1) + "%" : "—"}</td></tr>`; };
+    return `<h3 class="small" style="margin:12px 0 4px">${t}</h3><table class="tight sl-t"><thead><tr><th>${k === "y" ? "Fiscal year" : "Quarter to"}</th><th class="num">Sales</th><th class="num">Sales vs a year before</th><th class="num">Profit</th><th class="num">Profit margin</th></tr></thead><tbody>${[...Dk.past, ...Dk.fc].map(r).join("")}</tbody></table>`; };
+  el.innerHTML = `<p class="sl-sum" style="margin:0 0 10px">${bits.join(" ")}</p>
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <div class="tabs" style="margin:0"><button data-v="y" class="${view === "y" ? "on" : ""}">Annual</button><button data-v="q" class="${view === "q" ? "on" : ""}"${S.q.past.length ? "" : ` disabled title="No quarterly reports (companies outside the US often report yearly only)"`}>Quarterly</button></div>
+      ${legend}
+    </div>
+    ${n < 2 ? `<p class="muted">Not enough reports to draw a chart.</p>` : `<div class="slwrap">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Sales, profit and profit margin, ${view === "y" ? "by year" : "by quarter"}">
+        ${D.fc.length ? `<rect class="fcband" x="${(L + slot * f0).toFixed(1)}" y="0" width="${(slot * D.fc.length).toFixed(1)}" height="${H - B}"/>` : ""}
+        <rect id="slhl" class="hl" x="0" y="0" width="${slot.toFixed(1)}" height="${H - B}" style="display:none"/>
+        ${ticks.map(v => `<line class="grid${v === 0 ? " zero" : ""}" x1="${L}" x2="${W - R}" y1="${yP(v).toFixed(1)}" y2="${yP(v).toFixed(1)}"/>`).join("")}
+        ${mticks.map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${yM(v).toFixed(1)}" y2="${yM(v).toFixed(1)}"/>`).join("")}
+        ${mOk.length && mlo < 0 && mhi > 0 ? `<line class="grid zero" x1="${L}" x2="${W - R}" y1="${yM(0).toFixed(1)}" y2="${yM(0).toFixed(1)}"/>` : ""}
+        ${cols.map((c, i) => bar(i, c.revenue, "b-s", c.fc) + bar(i, c.net, "b-p", c.fc)).join("")}
+        <path class="mln" d="${seg(0, f0 - 1)}"/>${D.fc.length ? `<path class="mln fc" d="${seg(Math.max(0, f0 - 1), n - 1)}"/>` : ""}
+      </svg>
+      <div class="slov">
+        ${ticks.map(v => `<span class="yl" style="top:${pY(yP(v))};right:0">${v === 0 ? "0" : money(v)}</span>`).join("")}
+        ${mticks.map(v => `<span class="yl" style="top:${pY(yM(v))};right:0">${Math.round(v * 10) / 10}%</span>`).join("")}
+        <span class="pl" style="top:${pY(M0 - 12)};left:4px">Profit margin</span>
+        ${D.fc.length ? `<span class="pl" style="top:${pY(10)};left:calc(${pX(L + slot * f0)} + 4px)">Forecast</span>` : ""}
+        ${cols.map((c, i) => isNum(mv[i]) ? `<i class="sldot${c.fc ? " fc" : ""}" style="left:${pX(cx(i))};top:${pY(yM(mv[i]))}"></i>` : "").join("")}
+      </div>
+      <div class="slx">${cols.map((c, i) => { const l = lab(c).split(" "); return `<span style="left:${pX(cx(i))}"${c.fc ? ` class="fc"` : ""}>${view === "y" ? `${l[0].slice(0, 2)}<br>${l[0].slice(2)}` : `${l[0]}<br>${l[1]}`}</span>`; }).join("")}</div>
+      <div id="sltip" class="tip" style="display:none"></div>
+    </div>`}
+    <p class="small muted" style="margin:8px 0 0">Sales and profit (net income) from the company's reports (Finnhub).${qNote}${fcNote} ${matchMedia("(hover:none)").matches ? "Tap" : "Hover over"} a ${view === "y" ? "year" : "quarter"} for its figures.</p>
+    <details class="more"><summary>Show the numbers</summary>${tables()}</details>`;
+  el.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { if(b.disabled) return; salesView = b.dataset.v; drawSales(el, S, F, unit, avRaw); });
+  if(n < 2) return;
+  // hover / tap: the column lights up, one box lists its figures
+  const wrap = $(".slwrap", el), svg = $("svg", wrap), hl = $("#slhl", wrap), tip = $("#sltip", wrap);
+  const move = ev => {
+    const r = svg.getBoundingClientRect(), fx = (ev.clientX - r.left) / r.width * W, i = Math.max(0, Math.min(n - 1, Math.floor((fx - L) / slot))), c = cols[i];
+    hl.setAttribute("x", (L + slot * i).toFixed(1)); hl.style.display = "";
+    tip.replaceChildren();
+    const line = (txt, cls) => { const d = document.createElement("div"); if(cls) d.className = cls; d.textContent = txt; tip.append(d); };
+    const val = (color, label, v, extra) => { const d = document.createElement("div"); if(color){ const s = document.createElement("i"); s.className = "lk"; s.style.background = color; d.append(s); }
+      const b = document.createElement("b"); b.textContent = v; d.append(label + " ", b); if(extra){ const s = document.createElement("span"); s.className = "muted"; s.textContent = " " + extra; d.append(s); } tip.append(d); };
+    line(view === "y" ? `${slFY(c.end)} · ${c.fc ? "year to " + slMon(c.end) : "year to " + slLong(c.end)}` : `${c.fc ? "Quarter to " + slMon(c.end) : "3 months to " + slLong(c.end)}`, "muted");
+    if(c.fc) line(`Forecast${isNum(c.nRev || c.n) ? ` · ${c.nRev || c.n} analysts` : ""}`, "muted");
+    const g = yearAgo(c, "revenue"), gp = yearAgo(c, "net"), m = slMargin(c);
+    val("var(--s1)", "Sales", isNum(c.revenue) ? money(c.revenue) : "—", isNum(g) ? fmtPct(g, 1) : "");
+    val("var(--s3)", "Profit", isNum(c.net) ? money(c.net) : "—", isNum(gp) && c.net > 0 ? fmtPct(gp, 1) : "");
+    val("var(--s2)", "Profit margin", isNum(m) ? m.toFixed(1) + "%" : "—");
+    if(c.fc && isNum(c.eps)) line(`Expected EPS ${pjMoney(c.eps)} × today's shares`, "muted");
+    else if(isNum(g)) line(`% = ${why}`, "muted");
+    tip.style.display = "";
+    // beside the column (right of it, or left past the middle), always kept inside the chart's width
+    const left = cx(i) / W * r.width, half = slot / W * r.width * 0.5, tw = tip.offsetWidth;
+    let x = left > r.width * 0.55 ? left - tw - half : left + half; if(x + tw > r.width) x = left - tw - half; tip.style.left = Math.max(0, Math.min(r.width - tw, x)) + "px";
+  };
+  const hide = () => { hl.style.display = "none"; tip.style.display = "none"; };
+  wrap.onpointermove = move; wrap.onpointerdown = move;
+  // a finger lifting also "leaves": on touch the readout stays until a tap elsewhere
+  wrap.onpointerleave = ev => { if(ev.pointerType !== "touch") hide(); };
+  slHide = ev => { if(!wrap.isConnected || !wrap.contains(ev.target)) hide(); };
+}
+let slHide = null; document.addEventListener("pointerdown", ev => { if(slHide) slHide(ev); }, true);
 function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
   const el = $("#proj", app); if(!el) return;
   if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so returns can't be worked out.</p>`; glance("g-proj", "No price"); return; }
@@ -2737,7 +2959,7 @@ Format, in Markdown, under 260 words:
 - 2 or 3 specific, checkable things the reader can watch in the app (for example the next results date, analysts raising or cutting estimates, the price moving outside the fair value range, the trend or a death cross, a health score change), saying which case each would strengthen
 Give the bull and bear cases equal care; the reader decides which is more convincing. Explain any jargon in a few words. Don't tell the reader to buy, sell or hold, don't give a verdict on which case wins, and don't predict the price: this informs their own decision.`;
 async function stockFacts(app, sym){
-  const parts = ["#c-glance", "#val", "#fv", "#proj", "#health", "#rec", "#ins", "#chart"];
+  const parts = ["#c-glance", "#val", "#fv", "#proj", "#sales", "#health", "#rec", "#ins", "#chart"];
   for(let i = 0; i < 30 && parts.some(s => { const e = $(s, app); return e && e.querySelector(".spin"); }); i++) await new Promise(r => setTimeout(r, 500)); // let the sections finish loading
   const txt = (s, n) => { const e = $(s, app); return e ? e.innerText.replace(/\n{2,}/g, "\n").trim().slice(0, n) : ""; };
   const h = myHoldings().find(x => x.symbol === sym);
@@ -2745,7 +2967,7 @@ async function stockFacts(app, sym){
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
     (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
-    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Sales and profit (company reports; analysts' forecasts for the next years / quarters):\n${txt("#sales .sl-sum", 700)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
 const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
