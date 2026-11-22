@@ -26,6 +26,7 @@ a{color:var(--accent);text-decoration:none}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
 .bar{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:10px 16px}
 .brand{font-weight:700;font-size:17px;color:var(--ink);white-space:nowrap}
+.hdrsym{font-weight:700;font-size:17px;color:var(--ink);white-space:nowrap;border-left:1px solid var(--line);padding-left:12px}
 nav{display:flex;gap:4px;margin-left:auto}
 nav a{padding:6px 10px;border-radius:8px;color:var(--muted);font-weight:500;white-space:nowrap}
 nav a.on{background:var(--neutralbg);color:var(--ink)}
@@ -265,14 +266,15 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   #s-ex a{display:inline-block;padding:13px 4px;margin:-13px 0}
   .jump a{min-height:44px;display:flex;align-items:center}
   .tabs button{min-width:48px}
-  header .brand{display:inline-flex;align-items:center;min-height:44px}
+  header .brand,header .hdrsym{display:inline-flex;align-items:center;min-height:44px}
+  header .hdrsym[hidden]{display:none}
   nav.tabbar a{min-height:54px}
 }
 </style>
 </head>
 <body>
 <header><div class="bar">
-  <a class="brand" href="#home">📈<span> Stock Analysis</span></a>
+  <a class="brand" href="#home">📈<span> Stock Analysis</span></a><a id="hdrsym" class="hdrsym" href="#" hidden></a>
   <nav>
     <a href="#home" data-nav="home">My Stocks</a>
     <a href="#search" data-nav="search">Search</a>
@@ -288,7 +290,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.1</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.2</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -301,7 +303,7 @@ const STORE_KEY = "stockAnalysis.v1";
 function dedupeWatch(){ try{ if(!Array.isArray(state.watchlist)) return;
   const own = new Set(myHoldings().map(h => h.symbol)); // fully sold stocks aren't in this list, so they can go back on the watchlist
   if(state.watchlist.some(s => own.has(s))) state.watchlist = state.watchlist.filter(s => !own.has(s)); }catch(e){} }
-const DEFAULTS = { apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { fc: {}, apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -542,6 +544,7 @@ function avCount(){ avLS("used", { d: ymd(new Date()), n: avUsedToday() + 1 }); 
 function avBlocked(){ const b = avLS("limitAt"); return b && Date.now() - b < 2*3600e3; }
 async function avApi(fn, sym, ttl, shape, force){
   if(!state.avKey) throw new ApiError("No Alpha Vantage key yet.", "nokey");
+  if(fn === "EARNINGS_ESTIMATES") fcHydrate(sym);
   const ck = "av:" + fn + ":" + sym, fresh = AV_FRESH[fn] || ttl || 24*3600e3;
   const has = cacheGet(ck) !== undefined, ent = memCache.get(ck);
   const at = ent ? (ent.t || ent.exp - 24*3600e3) : 0; // copies saved before 7.0 were kept for a day
@@ -567,6 +570,7 @@ async function avApi(fn, sym, ttl, shape, force){
     }
     const v = shape ? shape(j) : j;
     cacheSet(ck, v, AV_KEEP, { t: Date.now() });
+    if(fn === "EARNINGS_ESTIMATES" && !force) fcStore(sym, v);
     return { ...v, _at: Date.now(), _stale: false };
   })();
   inflight.set(ck, p);
@@ -574,12 +578,33 @@ async function avApi(fn, sym, ttl, shape, force){
   catch(e){ if(has && !force) return withAt(ent.v, true); throw e; } // a failed request falls back to the saved copy
   finally{ inflight.delete(ck); }
 }
+// Forecasts shared between devices (7.2): every new EARNINGS_ESTIMATES answer is also saved, trimmed to the yearly
+// estimates the app reads, in state.fc (synced to the private GitHub file). A device that opens a stock uses a copy saved by
+// the other device if it's newer than its own, so the Mac and the iPhone don't each spend a request on the same stock.
+const FC_FIELDS = ["date", "horizon", "eps_estimate_average", "eps_estimate_analyst_count", "eps_estimate_average_90_days_ago", "eps_estimate_revision_up_trailing_30_days", "eps_estimate_revision_down_trailing_30_days"];
+let fcSaving = false;
+function fcShape(j){ const arr = j && (j.estimates || j.data); if(!Array.isArray(arr)) return null;
+  return { estimates: arr.filter(e => e && /fiscal year/i.test(String(e.horizon || ""))).map(e => { const o = {}; FC_FIELDS.forEach(k => { if(e[k] != null) o[k] = e[k]; }); return o; }) }; }
+function fcHydrate(sym){
+  const f = state.fc && state.fc[sym]; if(!f || !f.v || !f.t || Date.now() - f.t >= AV_KEEP) return;
+  const ck = "av:EARNINGS_ESTIMATES:" + sym, has = cacheGet(ck) !== undefined, e = memCache.get(ck);
+  const mine = has && e ? (e.t || e.exp - 24*3600e3) : 0;
+  if(f.t > mine) cacheSet(ck, f.v, AV_KEEP - (Date.now() - f.t), { t: f.t });
+}
+function fcStore(sym, j){
+  const v = fcShape(j); if(!v || !v.estimates.length) return;
+  const now = Date.now(), fc = {};
+  for(const [k, f] of Object.entries(state.fc || {})) if(f && now - f.t < AV_KEEP) fc[k] = f; // older than 60 days: dropped
+  fc[sym] = { t: now, v }; state.fc = fc;
+  fcSaving = true; try{ save(); } finally{ fcSaving = false; }
+}
+function fcMerge(remote){ const out = { ...(remote || {}) }; for(const [k, f] of Object.entries(state.fc || {})) if(f && (!out[k] || f.t > out[k].t)) out[k] = f; return out; }
 // Boom-and-bust stocks that need forecasts (remembered by the stock page): fetched first when My Stocks opens.
 function avWant(sym, on){ const w = new Set(avLS("want") || []); if(on) w.add(sym); else w.delete(sym); avLS("want", [...w]); }
 async function avPriority(){
   if(!state.avKey) return;
   const owned = new Set([...myHoldings().map(h => h.symbol), ...state.watchlist]);
-  const due = (avLS("want") || []).filter(s => owned.has(s)).filter(s => { const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e || Date.now() - (e.t || e.exp - 24*3600e3) >= AV_FRESH.EARNINGS_ESTIMATES; });
+  const due = (avLS("want") || []).filter(s => owned.has(s)).filter(s => { fcHydrate(s); const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e || Date.now() - (e.t || e.exp - 24*3600e3) >= AV_FRESH.EARNINGS_ESTIMATES; });
   for(const s of due.slice(0, 4)){ if(avBlocked()) return; await safe(avApi("EARNINGS_ESTIMATES", s)); }
 }
 const avq = {
@@ -760,6 +785,9 @@ function route(){
   const app = $("#app"); document.body.classList.remove("wide");
   // Tab title follows the page (a stock page sets its own once the name is known)
   document.title = h.startsWith("stock-") ? `${normSym(decodeURIComponent(h.slice(6)))} · Stock Analysis` : (({ search: "Search", macro: "Macro", settings: "Settings" })[h] ? ({ search: "Search", macro: "Macro", settings: "Settings" })[h] + " · Stock Analysis" : "Stock Analysis");
+  // Ticker next to the app name on stock pages (7.2): stays in view while scrolling; tap = back to the top
+  const hs = $("#hdrsym"), hsym = h.startsWith("stock-") ? normSym(decodeURIComponent(h.slice(6))) : "";
+  if(hs){ hs.hidden = !hsym; hs.textContent = hsym; hs.onclick = e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }; }
   const tok = ++renderToken;
   window.scrollTo(0,0);
   if(h.startsWith("stock-")) return viewStock(app, normSym(decodeURIComponent(h.slice(6))), tok);
@@ -1088,7 +1116,7 @@ function earnAdj(sym, cal){
 // Read saved data without fetching (keeps daily request limits untouched).
 const peek = {
   td:  s => cacheGet("td:daily:" + s + ":1600"),
-  av:  s => cacheGet("av:EARNINGS_ESTIMATES:" + s),
+  av:  s => { fcHydrate(s); return cacheGet("av:EARNINGS_ESTIMATES:" + s); },
   fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual"})),
   earn:s => cacheGet("/calendar/earnings?" + new URLSearchParams({ symbol: s, from: ymd(new Date(Date.now() - 35*864e5)), to: ymd(new Date(Date.now() + 100*864e5)) })),
   finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly"})),
@@ -2209,9 +2237,11 @@ async function renderInsiders(app, sym, tok){
   const threeM = ymd(new Date(Date.now() - 91*864e5)), sells3 = sells.filter(r => (r.transactionDate || "") >= threeM);
   let bd, line;
   if(!tx.ok) { bd = ["b-inline", "n/a"]; line = `Insider data unavailable: ${esc(tx.e.message)}`; }
-  else if(buys.length){ bd = ["b-cheap", "Insiders buying"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))})${sells.length ? `, while ${people(sells)} sold (${fmtUSD(sum(sells))})` : ""}. Insiders buying with their own money is one of the more meaningful signals: they usually buy only when they think the shares are cheap.`; }
-  else if(people(sells3) >= 3){ bd = ["b-warn", "Heavy insider selling"]; line = `No open-market purchases in 6 months, and <b>${people(sells3)}</b> insiders sold in the last 3 months (${fmtUSD(sum(sells3))}). Selling is common (pay, taxes, planned sales), but several insiders selling at once is worth a look.`; }
-  else if(sells.length){ bd = ["b-inline", "Some selling"]; line = `No open-market purchases in 6 months; ${people(sells)} insider${people(sells) === 1 ? "" : "s"} sold (${fmtUSD(sum(sells))}). Usually routine: executives are paid in shares and sell to diversify or pay tax, often on pre-set plans.`; }
+  // A purchase only counts as "Insiders buying" when it outweighs the selling (7.2, after NBIS: 1 buyer for $330K vs 8 sellers for $197.5M was labelled buying)
+  else if(buys.length && sum(buys) >= sum(sells)){ bd = ["b-cheap", "Insiders buying"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))})${sells.length ? `, while ${people(sells)} sold (${fmtUSD(sum(sells))})` : ""}. Insiders buying with their own money is one of the more meaningful signals: they usually buy only when they think the shares are cheap.`; }
+  else if(buys.length && sum(buys) >= sum(sells) / 4){ bd = ["b-inline", "Mixed"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))}), and ${people(sells)} sold more (${fmtUSD(sum(sells))}). Buying and selling of a similar size: no clear signal.`; }
+  else if(people(sells3) >= 3){ bd = ["b-warn", "Heavy insider selling"]; line = `${buys.length ? `Only a small purchase in 6 months (${people(buys)} insider${people(buys) === 1 ? "" : "s"}, ${fmtUSD(sum(buys))}), against <b>${people(sells)}</b> insiders selling ${fmtUSD(sum(sells))}; ` : "No open-market purchases in 6 months, and "}<b>${people(sells3)}</b> insiders sold in the last 3 months (${fmtUSD(sum(sells3))}). Selling is common (pay, taxes, planned sales), but several insiders selling at once is worth a look.`; }
+  else if(sells.length){ bd = ["b-inline", "Some selling"]; line = `${buys.length ? `Only a small purchase in 6 months (${people(buys)} insider${people(buys) === 1 ? "" : "s"}, ${fmtUSD(sum(buys))}), much less than the selling; ` : "No open-market purchases in 6 months; "}${people(sells)} insider${people(sells) === 1 ? "" : "s"} sold (${fmtUSD(sum(sells))}). Usually routine: executives are paid in shares and sell to diversify or pay tax, often on pre-set plans.`; }
   else { bd = ["b-inline", "Quiet"]; line = "No open-market buying or selling by insiders in the last 6 months."; }
   const sd = sent.ok && Array.isArray(sent.v.data) ? sent.v.data.slice().sort((a, b) => (a.year - b.year) || (a.month - b.month)) : [];
   const mspr3 = sd.slice(-3).map(x => x.mspr).filter(isNum), msprAvg = mspr3.length ? mspr3.reduce((a, b) => a + b, 0) / mspr3.length : NaN;
@@ -2233,7 +2263,7 @@ async function renderInsiders(app, sym, tok){
     <h3>Biggest institutional owners</h3>
     ${ownData.length ? `<table style="max-width:620px"><tbody>${ownData.map(o => `<tr><td>${esc(o.name)}</td><td class="num">${fmt(o.share, 0)} shares</td></tr>`).join("")}</tbody></table>` : `<p class="small muted" style="margin:0">${paid(own) ? "Not included in Finnhub's free plan." : own.ok ? "No data." : esc(own.e.message)}</p>`}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): any open-market purchase in 6 months = Insiders buying (green); 3+ insiders selling in 3 months with no purchases = Heavy insider selling (amber); otherwise Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
+      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): open-market purchases in 6 months at least as large (in $) as the sales = Insiders buying (green); purchases at least a quarter of the sales = Mixed (grey); otherwise 3+ insiders selling in 3 months = Heavy insider selling (amber), else Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
     </details>`;
   glance("g-ins", `<span class="badge ${bd[0]}">${bd[1]}</span>`);
 }
@@ -3657,7 +3687,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
-      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day for this key (Mac and iPhone share them). Each stock uses 1 a week (forecasts are kept 7 days; month-end prices for valuation history, only when needed, 30 days). Requests sent from this device today: <b>${avUsedToday()}</b>${avBlocked() ? " · daily limit reached, pausing for a couple of hours" : ""}. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
+      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day for this key (Mac and iPhone share them, and share the forecasts they fetch through your GitHub file when saving to GitHub is on). Each stock uses 1 a week (forecasts are kept 7 days; month-end prices for valuation history, only when needed, 30 days). Requests sent from this device today: <b>${avUsedToday()}</b>${avBlocked() ? " · daily limit reached, pausing for a couple of hours" : ""}. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="avform" class="row">
         <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -3831,7 +3861,7 @@ function viewSettings(app){
 // and loaded on any other browser or device that has the GitHub token. The token itself is never uploaded.
 const GH_API = "https://api.github.com", GH_FILE = "portfolio.json";
 const ghOn = () => !!(state.gh && state.gh.repo && state.gh.token);
-const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey"];
+const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey", "fc"];
 const syncData = () => { const d = {}; SYNCED.forEach(k => d[k] = state[k]); return d; };
 const b64enc = str => btoa(unescape(encodeURIComponent(str)));
 const b64dec = b64 => decodeURIComponent(escape(atob(String(b64).replace(/\s/g, ""))));
@@ -3857,19 +3887,21 @@ const hhmm = iso => new Date(iso).toLocaleString(undefined, { day: "numeric", mo
 let applyingRemote = false, pushTimer = null, pushing = null;
 function onSaved(){
   if(applyingRemote || !ghOn()) return;
+  state.gh.fcOnly = (state.gh.dirty ? !!state.gh.fcOnly : true) && fcSaving; // only new forecasts to save: no need to ask on a clash
   state.gh.dirty = true; try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
   clearTimeout(pushTimer); pushTimer = setTimeout(() => { if(state.gh && state.gh.dirty) ghPush(); }, 1500);
   setSync("Saving to GitHub…");
 }
 function applyRemote(file, sha){
   applyingRemote = true;
-  SYNCED.forEach(k => { if(file.data && k in file.data && file.data[k] !== undefined) state[k] = file.data[k]; });
+  SYNCED.forEach(k => { if(file.data && k in file.data && file.data[k] !== undefined) state[k] = k === "fc" ? fcMerge(file.data[k]) : file.data[k]; });
   state.gh.sha = sha; state.gh.saved = file.saved; state.gh.dirty = false; save();
   applyingRemote = false;
 }
 async function ghPush(){
   if(!ghOn()) return;
   if(pushing) return pushing.then(() => state.gh.dirty && ghPush());
+  let again = false; // a clash was sorted out and the file must be saved once more (after this save has finished)
   pushing = (async () => {
     const file = { app: "stock-analysis", format: 1, saved: new Date().toISOString(), data: syncData() };
     try{
@@ -3877,20 +3909,24 @@ async function ghPush(){
       state.gh.sha = j.content.sha; state.gh.saved = file.saved; state.gh.dirty = false; applyingRemote = true; save(); applyingRemote = false;
       setSync("Saved to GitHub " + hhmm(file.saved));
     }catch(e){
-      if(e.code === "conflict") await ghConflict();
+      if(e.code === "conflict") again = await ghConflict();
       else setSync("Not saved to GitHub: " + e.message, true);
     }
   })();
   try{ await pushing; } finally{ pushing = null; }
+  if(again) return ghPush();
 }
 // The file on GitHub changed since this browser last saw it (another device), and this browser has changes too.
+// Returns true when this browser's version must be saved again (the caller does it: saving from inside a save hung, fixed 7.2).
 async function ghConflict(){
   const r = await ghRead().catch(e => { setSync("Not saved to GitHub: " + e.message, true); return undefined; });
   if(r === undefined) return;
-  if(!r){ state.gh.sha = null; return ghPush(); }
+  if(!r){ state.gh.sha = null; return true; }
+  // This browser only added forecasts: take the other device's file, keep the newer forecasts of both, save again.
+  if(state.gh.fcOnly){ applyRemote(r.file, r.sha); state.gh.dirty = true; return true; }
   const keepMine = confirm(`Your data on GitHub was changed from another device (${hhmm(r.file.saved)}) after this browser last loaded it.\n\nOK = keep THIS browser's version (replaces GitHub's)\nCancel = load GitHub's version (replaces this browser's changes)`);
-  if(keepMine){ state.gh.sha = r.sha; return ghPush(); }
-  applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); route();
+  if(keepMine){ state.gh.sha = r.sha; return true; }
+  applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); route(); return false;
 }
 // At start-up: load newer data saved from another device.
 async function ghPull(){
@@ -3899,7 +3935,7 @@ async function ghPull(){
   let r; try{ r = await ghRead(); }catch(e){ setSync("GitHub not reachable: " + e.message, true); return; }
   if(!r){ state.gh.sha = null; return ghPush(); }
   if(r.sha === state.gh.sha){ if(state.gh.dirty) return ghPush(); setSync("Saved to GitHub " + hhmm(r.file.saved)); return; }
-  if(state.gh.dirty){ state.gh.sha = state.gh.sha || null; return ghConflict(); }
+  if(state.gh.dirty){ state.gh.sha = state.gh.sha || null; if(await ghConflict()) return ghPush(); return; }
   applyRemote(r.file, r.sha); setSync("Loaded from GitHub " + hhmm(r.file.saved)); route();
 }
 // Settings: connect a repository (checks it's private), then load or create the file.
