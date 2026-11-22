@@ -276,7 +276,11 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 .pj-line{padding:8px 10px;border:1px solid var(--line);border-radius:10px;line-height:1.6}
 .pj-hit{color:var(--good)} .pj-miss{color:var(--muted)} .pj-loss{color:var(--bad)}
 .pj-years{margin-top:12px} .pj-years>summary{cursor:pointer;padding:6px 0}
-.pj-h{margin:14px 0 4px}
+.pj-h{margin:18px 0 0;padding:8px 12px;border-radius:8px 8px 0 0;border-left:5px solid;font-size:16px}
+.pj-h-bear{--pjc:var(--bad)} .pj-h-base{--pjc:var(--accent)} .pj-h-bull{--pjc:var(--good)}
+.pj-h{color:var(--pjc);border-color:var(--pjc);background:color-mix(in srgb,var(--pjc) 14%,transparent)}
+.pj-h+.pj-t{border-left:5px solid var(--pjc2,var(--line))}
+.pj-h-bear+.pj-t{--pjc2:var(--bad)} .pj-h-base+.pj-t{--pjc2:var(--accent)} .pj-h-bull+.pj-t{--pjc2:var(--good)}
 .pj-t{width:100%} .pj-t th{text-transform:none;letter-spacing:0}
 .pj-t input.pj-in{width:70px;padding:4px 6px;font-size:14px;text-align:right;-moz-appearance:textfield}
 .pj-t input.pj-in::-webkit-outer-spin-button,.pj-t input.pj-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
@@ -312,7 +316,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.4</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.5</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1961,7 +1965,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
   const subLine = r => { const rc = resCells(r); return `Sales ${rc[0]} · profit ${rc[1]} · ${rc[2]} shares · EPS ${rc[3]}<br>Price ${rc[4]} · ${rc[5] === "—" ? "return —" : rc[5] + " a year"}`; };
   const caseTable = (c, label, v) => {
     const rows = projRows(S, v[c], price);
-    return `<h3 class="pj-h">${label} case</h3><table class="pj-t" data-case="${c}"><thead><tr><th>Year</th><th>Sales growth %</th><th>Profit margin %</th><th>P/E low</th><th>P/E high</th>
+    return `<h3 class="pj-h pj-h-${c}">${label} case</h3><table class="pj-t" data-case="${c}"><thead><tr><th>Year</th><th>Sales growth %</th><th>Profit margin %</th><th>P/E low</th><th>P/E high</th>
         <th class="pj-d num">Sales</th><th class="pj-d num">Profit</th><th class="pj-d num">Shares</th><th class="pj-d num">EPS</th><th class="pj-d num">Share price</th><th class="pj-d num">Return a year</th></tr></thead><tbody>
       <tr class="pj-now"><td><b>Now</b></td><td colspan="4" class="small muted">Today: price ${pjMoney(price)}, P/E ${S.eps0 > 0 ? fmtX(price / S.eps0) : "n/a"}</td>
         <td class="pj-d num">${pjBig(S.sales)}</td><td class="pj-d num">${pjBig(S.profit)}</td><td class="pj-d num">${pjShares(S.shares)}</td><td class="pj-d num">${pjMoney(S.eps0)}</td><td class="pj-d num">${pjMoney(price)}</td><td class="pj-d num"></td></tr>
