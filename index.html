@@ -392,7 +392,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.16</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.17</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -3135,8 +3135,13 @@ function renderAiCard(app, sym){
 // results Claude actually got (so a figure can't be made up), and that are within 10× of today's price either way (catches
 // pre-split figures left unconverted). Saved in state.ov (synced, so Mac and iPhone share it) for 30 days.
 // Cost: Haiku tokens + $10 per 1,000 searches (at most 4 searches: ~1–4p a check). Shown after each check.
+// Anthropic's web search can't reach some sites (owner's first real check, 22 Nov: "domains are not accessible to our user
+// agent: barrons.com, ft.com, re…"): those are left out, and any other site the API names is dropped, remembered on this
+// device (sa.ov.blocked) and the check retried once without it.
 const OV_SITES = ["morningstar.com", "morningstar.co.uk", "morningstar.com.au", "stockanalysis.com", "marketbeat.com", "tipranks.com", "finance.yahoo.com",
-  "nasdaq.com", "zacks.com", "simplywall.st", "reuters.com", "cnbc.com", "investing.com", "barrons.com", "benzinga.com", "fool.com", "seekingalpha.com", "wsj.com", "ft.com", "kiplinger.com"];
+  "nasdaq.com", "zacks.com", "simplywall.st", "cnbc.com", "investing.com", "benzinga.com", "fool.com", "seekingalpha.com", "kiplinger.com"];
+const ovBlocked = () => { try{ return JSON.parse(localStorage.getItem("sa.ov.blocked") || "[]"); }catch(e){ return []; } };
+const ovSites = () => { const b = new Set(ovBlocked()); return OV_SITES.filter(d => !b.has(d)); };
 const OV_KEEP = 30 * 864e5, OV_SEARCHES = 4, OV_SEARCH_USD = 0.01;
 let fvNow = null, fvRedraw = null;
 const ovTarget = sym => { const o = state.ov && state.ov[sym]; return o && Date.now() - o.t < OV_KEEP && o.r && o.r.target && isNum(o.r.target.avg) ? o.r.target : null; }; // the stock page's latest fair value range, for the comparison
@@ -3206,7 +3211,7 @@ function renderOutside(app, sym){
       ${r.dropped.length ? `<p class="small muted" style="margin:6px 0 0">Left out: ${r.dropped.map(esc).join("; ")}.</p>` : ""}
       <p class="small muted" style="margin:6px 0 0">Looked up ${ovAge(o.t)} by ${esc(o.by || "Claude Haiku 5.5")}${o.cost ? `, cost ${/^under/.test(o.cost) ? "" : "about "}${o.cost}` : ""}. Figures come from the linked pages; open them to check. AI can misread a page.</p>`;
   }
-  const what = `<p class="small muted" style="margin:0 0 6px">A second opinion on our range: Claude (Haiku, the cheapest model) searches reputable finance sites (Morningstar, StockAnalysis, MarketBeat, Yahoo Finance and others) for <b>published fair value estimates</b> of this stock and the <b>analysts' average price target</b>. The app keeps only figures from pages Claude actually found, links each one, and compares them with our range. About 1–4p a check from your Anthropic account; kept 30 days on both your devices.</p>`;
+  const what = `<p class="small muted" style="margin:0 0 6px">A second opinion on our range: Claude (Haiku, the cheapest model) searches reputable finance sites (Morningstar, StockAnalysis, MarketBeat, Yahoo Finance and others it can reach) for <b>published fair value estimates</b> of this stock and the <b>analysts' average price target</b>. The app keeps only figures from pages Claude actually found, links each one, and compares them with our range. About 1–4p a check from your Anthropic account; kept 30 days on both your devices.</p>`;
   el.innerHTML = `<div class="ov"><h3>Outside views</h3>${o ? "" : what}${body}
     <div class="row" style="margin-top:8px"><button data-ov class="${o ? "" : "primary"}">${o ? "Check again" : "Check outside views"}</button>
     <span id="ov-msg" class="small muted">${o ? "" : "Usually 20–60 seconds."}</span></div>${o ? `<details class="more"><summary>What is this?</summary>${what}</details>` : ""}</div>`;
@@ -3224,10 +3229,17 @@ async function ovLookup(app, sym){
       (split > 1 ? ` The company recently split its shares ${split}-for-1: figures published before the split must be divided by ${split}.` : "");
     const messages = [{ role: "user", content: ask }];
     const req = { model: AI_MODELS.quick.id, max_tokens: 8000, output_config: { effort: "low" }, system: ovSystem(),
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: OV_SEARCHES, allowed_domains: OV_SITES }] };
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: OV_SEARCHES, allowed_domains: ovSites() }] };
     let r, usage = { in: 0, out: 0, searches: 0 }; const content = [];
     for(let i = 0; i < 3; i++){ // server tools can pause a long turn: send it back to continue (at most twice)
-      r = await c.client.messages.create({ ...req, messages });
+      try{ const { _retried, ...body } = req; r = await c.client.messages.create({ ...body, messages }); }
+      catch(e){ // a site the search can't reach: drop it (remembered) and try again once
+        const m = String(e && e.message || "").match(/not accessible[^\[]*\[([^\]]*)\]/);
+        if(!(e instanceof Anthropic.BadRequestError) || !m || req._retried) throw e;
+        const bad = [...m[1].matchAll(/['"\\]*([a-z0-9-]+(?:\.[a-z0-9-]+)+)['"\\]*/gi)].map(x => x[1].toLowerCase());
+        try{ localStorage.setItem("sa.ov.blocked", JSON.stringify([...new Set([...ovBlocked(), ...bad])])); }catch(e2){}
+        req._retried = true; req.tools = [{ ...req.tools[0], allowed_domains: ovSites() }]; i--; continue;
+      }
       usage.in += r.usage.input_tokens || 0; usage.out += r.usage.output_tokens || 0;
       usage.searches += (r.usage.server_tool_use && r.usage.server_tool_use.web_search_requests) || 0;
       content.push(...r.content);
