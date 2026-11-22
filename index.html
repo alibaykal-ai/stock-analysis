@@ -270,6 +270,28 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   header .hdrsym[hidden]{display:none}
   nav.tabbar a{min-height:54px}
 }
+/* ===== 5-year projections (7.4) ===== */
+.pj-top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.pj-sum{margin-top:10px;display:grid;gap:8px}
+.pj-line{padding:8px 10px;border:1px solid var(--line);border-radius:10px;line-height:1.6}
+.pj-hit{color:var(--good)} .pj-miss{color:var(--muted)} .pj-loss{color:var(--bad)}
+.pj-years{margin-top:12px} .pj-years>summary{cursor:pointer;padding:6px 0}
+.pj-h{margin:14px 0 4px}
+.pj-t{width:100%} .pj-t th{text-transform:none;letter-spacing:0}
+.pj-t input.pj-in{width:70px;padding:4px 6px;font-size:14px;text-align:right;-moz-appearance:textfield}
+.pj-t input.pj-in::-webkit-outer-spin-button,.pj-t input.pj-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pj-sub{display:none}
+@media (max-width:700px){
+  .pj-d{display:none}
+  .pj-sub{display:table-row}
+  .pj-yr td{border-bottom:0;padding-bottom:2px}
+  .pj-sub td{padding-top:2px;line-height:1.5}
+  .pj-t th,.pj-t td{padding-left:3px;padding-right:3px}
+  .pj-t th{font-size:12px;line-height:1.3}
+  .pj-t td:first-child{width:52px}
+  .pj-t input.pj-in{width:100%;min-width:0;font-size:16px;min-height:44px;padding:4px}
+  #pj-reset{min-height:44px}
+}
 </style>
 </head>
 <body>
@@ -290,7 +312,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.3</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
+  <b id="appver">Version 7.4</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -303,7 +325,7 @@ const STORE_KEY = "stockAnalysis.v1";
 function dedupeWatch(){ try{ if(!Array.isArray(state.watchlist)) return;
   const own = new Set(myHoldings().map(h => h.symbol)); // fully sold stocks aren't in this list, so they can go back on the watchlist
   if(state.watchlist.some(s => own.has(s))) state.watchlist = state.watchlist.filter(s => !own.has(s)); }catch(e){} }
-const DEFAULTS = { fc: {}, apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
+const DEFAULTS = { fc: {}, apiKey: "", avKey: "", tdKey: "", aiKey: "", gh: null, alerts: null, trades: null, buys: [], lastAcct: "Robinhood", holdings: [], watchlist: [], nameMap: {}, fv: {}, proj: {}, settings: { band: 10, years: 5, fvR: 10, fvBuy: 30, fvRich: 20 } };
 let state = load();
 function load(){
   try{ const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -1283,12 +1305,13 @@ async function viewStock(app, sym, tok){
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
     </div>
     <nav class="jump" id="jump">
-      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a><a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
+      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-proj">Projections</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a><a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
     </nav>
     <div class="card glance" id="c-glance">
       <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
       ${isFund ? "" : `<div class="gl" data-go="c-val"><span>Valuation</span><div id="g-val" class="small muted">…</div></div>
       <div class="gl" data-go="c-fv"><span>Fair value</span><div id="g-fv" class="small muted">…</div></div>
+      <div class="gl" data-go="c-proj"><span>Projections</span><div id="g-proj" class="small muted">…</div></div>
       <div class="gl" data-go="c-health"><span>Health</span><div id="g-health" class="small muted">…</div></div>
       <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>
       <div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
@@ -1298,6 +1321,7 @@ async function viewStock(app, sym, tok){
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div></div>
+    <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
     <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div></div>
     <div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
@@ -1314,7 +1338,7 @@ async function viewStock(app, sym, tok){
   const jb = $("#jump", app); if(jb) jb.style.top = ($("header").offsetHeight) + "px";
   if(!state.tdKey) glance("g-tech", `<a href="#settings">Add Twelve Data key</a>`);
   renderChartCard(app, sym, tok);
-  if(!state.apiKey){ ["#val","#health","#rec","#ins","#news"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
+  if(!state.apiKey){ ["#val","#health","#rec","#ins","#news","#proj"].forEach(s=>{ const el=$(s,app); if(el) el.innerHTML='<p class="muted">Needs an API key.</p>'; }); return; }
 
   const [q, m, p, splitF] = await liveData(sym, { withTd: !!state.tdKey });
   if(!live(tok)) return;
@@ -1345,8 +1369,8 @@ async function viewStock(app, sym, tok){
   { const sg = $("#s-stats",app); if(sg.querySelector(".stat.x:not(.web)")){ sg.insertAdjacentHTML("beforeend", `<button type="button" class="statmore">More numbers</button>`);
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
-    if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); }
+    if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; }
+    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; renderFairValue(app, sym, met, prof, price, peerP, avP, tok); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); }
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -1838,6 +1862,168 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok){
   if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); fx.avState = "done"; inp = fvInputs(met, prof, price, fx.av); avWant(sym, !!inp.cy); const ve = $("#val", app); if(ve && ve._peg) ve._peg(fx.av); setSliders(); draw(); });
 }
 
+/* ================= 5-year projections (7.4) ================= */
+// Idea from 1000xstocks.com's Projections page. Per year: sales = last year × (1 + growth); profit = sales × margin;
+// EPS = profit ÷ shares (shares change by the yearly share change the Health score measures); price = EPS × P/E low / high;
+// yearly return = (price ÷ today's price)^(1 ÷ years) − 1. Three cases, pre-filled by the app from saved data only (no new
+// requests), editable, saved per stock in state.proj (synced to GitHub like the fair value sliders).
+// Base: growth = analysts' expected earnings growth next year (else past growth), the excess over 2.5% halving each year
+// (Fair value's rule), limited to −20…+60% like Fair value's slider; margin = last 12 months (boom-and-bust companies fade to
+// their usual margin over Fair value's "years until normal"); P/E = its usual range (middle half), else peer median ±15%.
+// Bear / Bull (owner confirmed 2026-11-22): growth a third lower / higher (at least 3 points); margin 15% lower / higher;
+// P/E: Bear 80% of the usual low → usual low, Bull usual middle → usual high (never above its usual high).
+const PJ_CASES = [["bear", "Bear"], ["base", "Base"], ["bull", "Bull"]], PJ_KEYS = ["g", "m", "lo", "hi"];
+const pjR1 = v => Math.round(v * 10) / 10, pjPE = v => v >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+const pjBig = v => { if(!isNum(v)) return "—"; const a = Math.abs(v), [d, u] = a >= 1e12 ? [1e12, "T"] : a >= 1e9 ? [1e9, "B"] : a >= 1e6 ? [1e6, "M"] : [1e3, "K"]; const n = v / d, k = Math.abs(n);
+  return (v < 0 ? "−" : "") + "$" + Math.abs(n).toFixed(k >= 100 ? 0 : k >= 10 ? 1 : 2) + u; };
+const pjShares = v => pjBig(v).replace("$", "");
+const pjMoney = v => !isNum(v) ? "—" : (v < 0 ? "−$" : "$") + fmt(Math.abs(v), Math.abs(v) >= 100 ? 0 : 2);
+const pjRet = v => isNum(v) ? (v < -0.005 ? "−" : "") + Math.abs(v * 100).toFixed(0) + "%" : "—";
+const pjSep = lo => isNum(lo) && lo < -0.005 ? " to " : "–"; // "−6% to −2%", not "−6%–−2%"
+// Colour against the required return: at or above = green, below = grey, a loss = red
+const pjCls = (ret, eps, R) => !(eps > 0) || (isNum(ret) && ret < 0) ? "pj-loss" : isNum(ret) && ret * 100 >= R ? "pj-hit" : "pj-miss";
+function projStart(met, prof, price, fin, finQ, av, peerInfo, cyYears){
+  const mm = met && met.metric || {};
+  const y0 = fin && fin.years && fin.years[0], T = fin ? ttmFrom(fin, finQ) : null;
+  const cur = String(prof.currency || "USD").toUpperCase();
+  let shares = isNum(prof.shareOutstanding) && prof.shareOutstanding > 0 ? prof.shareOutstanding * 1e6 : NaN;
+  const rep = T && isNum(T.revenue) && isNum(T.net) ? T : y0 && isNum(y0.revenue) && isNum(y0.net) ? y0 : null;
+  const unitOk = !(y0 && y0.unit) || y0.unit === cur;
+  let sales, profit, end, from;
+  if(rep && unitOk && rep.revenue > 0 && isNum(shares)){ sales = rep.revenue; profit = rep.net; end = rep.end; from = rep === T ? `last 12 months to ${fmtDay(end)}, from the company's reports` : `latest annual report (year to ${fmtDay(end)})`; }
+  else {
+    const rps = mm.revenuePerShareTTM, nm = mm.netProfitMarginTTM;
+    if(!isNum(shares) && rep && isNum(rep.shares) && unitOk){ shares = rep.shares; }
+    if(!(isNum(rps) && rps > 0 && isNum(nm) && isNum(shares))) return null;
+    sales = rps * shares; profit = sales * nm / 100; end = ymd(new Date()); from = "last 12 months (Finnhub's figures)";
+  }
+  if(!(sales > 0) || !isNum(profit) || !(shares > 0)) return null;
+  const m0 = profit / sales * 100;
+  const inp = fvInputs(met, prof, price, av || {});
+  const g0raw = inp.exp ? inp.exp.g : inp.pastMid, g0 = isNum(g0raw) ? Math.max(-20, Math.min(60, g0raw)) : 5;
+  const gHow = inp.exp ? `analysts expect earnings to grow ${fmtPct(inp.exp.g, 1)} next year` : isNum(inp.pastMid) ? `no analysts' forecasts, so the middle of its past 5-year growth (${fmtPct(inp.pastMid, 1)})` : "no growth data, so a cautious 5%";
+  const g = [1, 2, 3, 4, 5].map(t => pjR1(2.5 + (g0 - 2.5) * Math.pow(0.5, t - 1)));
+  const cy = inp.cy, N = cyYears || 5;
+  const m = [1, 2, 3, 4, 5].map(t => pjR1(cy ? m0 + (cy.usual * 100 - m0) * Math.min(1, t / N) : m0));
+  const mHow = cy ? `today's ${m0.toFixed(1)}%, fading to its usual ${(cy.usual * 100).toFixed(1)}% over ${N} years (boom-and-bust company at a high; Fair value's "years until normal")` : `today's ${m0.toFixed(1)}% (last 12 months), kept the same`;
+  const h = history(met, RATIOS[0]), pm = peerInfo && peerInfo.medians && peerInfo.medians.pe;
+  let pe = null;
+  if(h && h.lo > 0) pe = { lo: h.lo, mid: h.median, hi: h.hi, how: `its usual P/E range (middle half of the last ${state.settings.years} years): ${fmtX(h.lo)}–${fmtX(h.hi)}, middle ${fmtX(h.median)}` };
+  else if(pm > 0) pe = { lo: pm * 0.85, mid: pm, hi: pm * 1.15, how: `no usual P/E for this stock, so the peer median P/E (${fmtX(pm)}) ±15%` };
+  // Shares: the yearly change the Health score measures (dilution or buybacks)
+  let dil = NaN, dilHow = "";
+  if(fin && fin.years && fin.years.length > 1){ const H = healthScore(mm, prof, fin, finQ), it = H.pillars.find(p => p.id === "dilution").items[0]; if(it && isNum(it.v)){ dil = it.v; dilHow = `${fmtPct(dil, 1)} a year (Health score: ${it.rule.split(" · ")[0]})`; } }
+  if(!isNum(dil)){ dil = 0; dilHow = "kept the same (no share-count history)"; }
+  const base = { g, m, lo: Array(5).fill(pe ? pjPE(pe.lo) : NaN), hi: Array(5).fill(pe ? pjPE(pe.hi) : NaN) };
+  const step = v => Math.max(3, Math.abs(v) / 3);
+  const cases = {
+    bear: { g: g.map(v => pjR1(v - step(v))), m: m.map(v => pjR1(v - 0.15 * Math.abs(v))), lo: Array(5).fill(pe ? pjPE(pe.lo * 0.8) : NaN), hi: Array(5).fill(pe ? pjPE(pe.lo) : NaN) },
+    base,
+    bull: { g: g.map(v => pjR1(v + step(v))), m: m.map(v => pjR1(v + 0.15 * Math.abs(v))), lo: Array(5).fill(pe ? pjPE(pe.mid) : NaN), hi: Array(5).fill(pe ? pjPE(pe.hi) : NaN) },
+  };
+  return { sales, profit, shares, m0, end, from, dil, dilHow, gHow, mHow, pe, cases, y1: +String(end).slice(0, 4) + 1, eps0: profit / shares };
+}
+function projRows(S, v, price){
+  let sales = S.sales; const out = [];
+  for(let i = 0; i < 5; i++){
+    const t = i + 1, g = v.g[i], m = v.m[i], lo = v.lo[i], hi = v.hi[i];
+    sales = isNum(sales) && isNum(g) ? sales * (1 + g / 100) : NaN;
+    const profit = isNum(sales) && isNum(m) ? sales * m / 100 : NaN, sh = S.shares * Math.pow(1 + S.dil / 100, t), eps = profit / sh;
+    const pA = eps > 0 && lo > 0 ? eps * lo : NaN, pB = eps > 0 && hi > 0 ? eps * hi : NaN; // a high typed below the low: still shown low → high
+    const pLo = isNum(pA) && isNum(pB) ? Math.min(pA, pB) : pA, pHi = isNum(pA) && isNum(pB) ? Math.max(pA, pB) : pB;
+    const ret = p => isNum(p) && price > 0 ? Math.pow(p / price, 1 / t) - 1 : NaN;
+    out.push({ t, year: S.y1 + i, sales, profit, sh, eps, pLo, pHi, rLo: ret(pLo), rHi: ret(pHi) });
+  }
+  return out;
+}
+const pjNum = x => x === null || x === undefined || x === "" ? NaN : +x;
+function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
+  const el = $("#proj", app); if(!el) return;
+  if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so returns can't be worked out.</p>`; glance("g-proj", "No price"); return; }
+  const fx = { fin: undefined, finQ: null, peer: null, av: (() => { const v = peek.av(sym); return v ? parseAV(null, { ok: true, v }) : {}; })() };
+  let S = null, cur = null, pending = false;
+  const R = () => { const s = state.fv[sym]; return s && isNum(s.r) ? s.r : state.settings.fvR; };
+  const saved = () => { const s = state.proj && state.proj[sym]; return s && s.v ? s : null; };
+  const values = () => { const s = saved(); if(!s) return JSON.parse(JSON.stringify(S.cases));
+    const o = {}; for(const [c] of PJ_CASES){ o[c] = {}; for(const k of PJ_KEYS) o[c][k] = [0, 1, 2, 3, 4].map(i => { const x = s.v[c] && s.v[c][k] ? pjNum(s.v[c][k][i]) : NaN; return x; }); } return o; };
+  const sumLine = (c, label, rows, v) => {
+    const r = rows[4], k = pjCls(r.rLo, r.eps, R()), kh = pjCls(r.rHi, r.eps, R());
+    const what = !isNum(r.eps) ? `<span class="muted">fill in every box to see ${r.year}'s result</span>` : !(r.eps > 0) ? `<b class="pj-loss">still losing money in ${r.year}</b> (EPS ${pjMoney(r.eps)})`
+      : !isNum(r.pLo) || !isNum(r.pHi) ? `EPS ${pjMoney(r.eps)} in ${r.year}; <span class="muted">type a P/E to see a price</span>`
+      : `<b class="${k}">${pjMoney(r.pLo)}</b>–<b class="${kh}">${pjMoney(r.pHi)}</b> in ${r.year}, <b class="${k}">${pjRet(r.rLo)}</b>${pjSep(r.rLo)}<b class="${kh}">${pjRet(r.rHi)}</b> a year`;
+    return `<div class="pj-line" data-case="${c}"><span class="badge ${c === "bear" ? "b-rich" : c === "bull" ? "b-cheap" : "b-inline"}">${label}</span> <span>${what}</span>
+      <div class="small muted">${r.year}: sales growth ${isNum(v.g[4]) ? v.g[4] + "%" : "—"}, profit margin ${isNum(v.m[4]) ? v.m[4] + "%" : "—"}, P/E ${isNum(v.lo[4]) ? v.lo[4] : "—"}–${isNum(v.hi[4]) ? v.hi[4] : "—"}×, EPS ${pjMoney(r.eps)}</div></div>`;
+  };
+  const cell = (c, k, i, v) => `<input type="number" step="any" class="pj-in" data-c="${c}" data-k="${k}" data-i="${i}" value="${isNum(v) ? v : ""}" aria-label="${c} ${k} year ${i + 1}">`;
+  const resCells = r => [pjBig(r.sales), pjBig(r.profit), pjShares(r.sh), pjMoney(r.eps),
+    isNum(r.pLo) && isNum(r.pHi) ? `<span class="${pjCls(r.rLo, r.eps, R())}">${pjMoney(r.pLo)}</span>–<span class="${pjCls(r.rHi, r.eps, R())}">${pjMoney(r.pHi)}</span>` : "—",
+    isNum(r.rLo) && isNum(r.rHi) ? `<span class="${pjCls(r.rLo, r.eps, R())}">${pjRet(r.rLo)}</span>${pjSep(r.rLo)}<span class="${pjCls(r.rHi, r.eps, R())}">${pjRet(r.rHi)}</span>` : r.eps <= 0 ? `<span class="pj-loss">loss</span>` : "—"];
+  const subLine = r => { const rc = resCells(r); return `Sales ${rc[0]} · profit ${rc[1]} · ${rc[2]} shares · EPS ${rc[3]}<br>Price ${rc[4]} · ${rc[5] === "—" ? "return —" : rc[5] + " a year"}`; };
+  const caseTable = (c, label, v) => {
+    const rows = projRows(S, v[c], price);
+    return `<h3 class="pj-h">${label} case</h3><table class="pj-t" data-case="${c}"><thead><tr><th>Year</th><th>Sales growth %</th><th>Profit margin %</th><th>P/E low</th><th>P/E high</th>
+        <th class="pj-d num">Sales</th><th class="pj-d num">Profit</th><th class="pj-d num">Shares</th><th class="pj-d num">EPS</th><th class="pj-d num">Share price</th><th class="pj-d num">Return a year</th></tr></thead><tbody>
+      <tr class="pj-now"><td><b>Now</b></td><td colspan="4" class="small muted">Today: price ${pjMoney(price)}, P/E ${S.eps0 > 0 ? fmtX(price / S.eps0) : "n/a"}</td>
+        <td class="pj-d num">${pjBig(S.sales)}</td><td class="pj-d num">${pjBig(S.profit)}</td><td class="pj-d num">${pjShares(S.shares)}</td><td class="pj-d num">${pjMoney(S.eps0)}</td><td class="pj-d num">${pjMoney(price)}</td><td class="pj-d num"></td></tr>
+      ${rows.map((r, i) => `<tr class="pj-yr"><td><b>${r.year}</b></td>${PJ_KEYS.map(k => `<td>${cell(c, k, i, v[c][k][i])}</td>`).join("")}
+        ${resCells(r).map((x, j) => `<td class="pj-d num" data-r="${j}">${x}</td>`).join("")}</tr>
+        <tr class="pj-sub"><td colspan="5" class="small">${subLine(r)}</td></tr>`).join("")}
+      </tbody></table>`;
+  };
+  const status = () => { const s = saved(); return s ? `<span class="badge b-inline">Your saved values</span> <span class="small muted">last changed ${fmtDay(s.at)}</span>` : `<span class="badge b-warn">First look: pre-filled by the app</span> <span class="small muted">change any box to save your own</span>`; };
+  const glanceSet = () => { const r = projRows(S, cur.base, price)[4];
+    glance("g-proj", !isNum(r.eps) ? "Base: a box is empty" : !(r.eps > 0) ? `<span class="pj-loss">Base: loss in ${r.year}</span>` : isNum(r.rLo) && isNum(r.rHi) ? `Base ${r.year}: <b class="${pjCls(r.rLo, r.eps, R())}">${pjRet(r.rLo)}</b>${pjSep(r.rLo)}<b class="${pjCls(r.rHi, r.eps, R())}">${pjRet(r.rHi)}</b> a year` : "Base: no P/E"); };
+  const refresh = c => { // results only (boxes untouched while typing)
+    const rows = projRows(S, cur[c], price), tb = $(`table.pj-t[data-case="${c}"]`, el);
+    if(tb) [...tb.querySelectorAll("tr.pj-yr")].forEach((tr, i) => { const rc = resCells(rows[i]); tr.querySelectorAll("td[data-r]").forEach(td => td.innerHTML = rc[+td.dataset.r]); tr.nextElementSibling.firstElementChild.innerHTML = subLine(rows[i]); });
+    const ln = $(`.pj-line[data-case="${c}"]`, el); if(ln) ln.outerHTML = sumLine(c, PJ_CASES.find(x => x[0] === c)[1], rows, cur[c]);
+    if(c === "base") glanceSet();
+  };
+  const draw = () => {
+    if(el.contains(document.activeElement) && document.activeElement.classList.contains("pj-in")){ pending = true; return; }
+    pending = false;
+    if(fx.fin === undefined){ el.innerHTML = `<span class="spin"></span> Loading the company's reports…`; return; }
+    S = projStart(met, prof, price, fx.fin, fx.finQ, fx.av, fx.peer, (() => { const s = state.fv[sym]; return s && isNum(s.cy) ? s.cy : 5; })());
+    if(!S){ el.innerHTML = `<p class="muted">Not enough data (sales, profit and share count) to project this company.</p>`; glance("g-proj", "Not enough data"); return; }
+    cur = values();
+    const yrs = window.matchMedia("(max-width:700px)").matches ? "" : " open";
+    const pr = S.pe ? `its usual P/E ${fmtX(S.pe.lo)}–${fmtX(S.pe.hi)} (middle ${fmtX(S.pe.mid)})` : "no usual P/E (type your own)";
+    el.innerHTML = `<div class="pj-top"><div id="pj-status">${status()}</div>${saved() ? `<button type="button" id="pj-reset">Reset to the app's values</button>` : ""}</div>
+      <div class="pj-sum">${PJ_CASES.map(([c, l]) => sumLine(c, l, projRows(S, cur[c], price), cur[c])).join("")}</div>
+      <p class="small muted" style="margin:6px 0 0">Today's price <b>${pjMoney(price)}</b> · ${pr} · colours vs your <b>${R()}%</b> required return: <span class="pj-hit">green</span> at or above, <span class="pj-miss">grey</span> below, <span class="pj-loss">red</span> a loss.
+        The P/E assumed in the last year drives most of the answer. These are scenarios built on your assumptions, not forecasts.</p>
+      <details class="pj-years"${yrs}><summary><b>Show the years</b> <span class="small muted">(change any box: growth, margin, P/E)</span></summary>
+        ${PJ_CASES.map(([c, l]) => caseTable(c, l, cur)).join("")}
+      </details>
+      <details class="more"><summary>Where the app's numbers come from</summary>
+        <p class="small">Starting point: sales ${pjBig(S.sales)}, profit ${pjBig(S.profit)} (margin ${S.m0.toFixed(1)}%), ${pjShares(S.shares)} shares, so earnings of ${pjMoney(S.eps0)} per share: ${esc(S.from)}. Each year below is 12 months after that.</p>
+        <ul class="small">
+          <li><b>Base sales growth:</b> ${esc(S.gHow)}, with the growth above 2.5% halving each year after that (same rule as Fair value); limited to −20%…+60%.</li>
+          <li><b>Base profit margin:</b> ${esc(S.mHow)}.</li>
+          <li><b>Base P/E:</b> ${S.pe ? esc(S.pe.how) : "no usual P/E and no peer P/E, so the boxes are empty: type your own"}.</li>
+          <li><b>Shares:</b> change ${esc(S.dilHow)}, the same in all three cases.</li>
+          <li><b>Bear:</b> growth a third lower (at least 3 points), profit margin 15% lower, P/E from 20% below its usual low up to its usual low.</li>
+          <li><b>Bull:</b> growth a third higher (at least 3 points), profit margin 15% higher, P/E from its usual middle to its usual high (never above it: higher growth and a record P/E would count the good news twice).</li>
+        </ul>
+        <p class="small muted" style="margin-bottom:0">How it works: sales = last year × (1 + growth); profit = sales × margin; EPS = profit ÷ shares; price = EPS × P/E; return a year = (price ÷ today's price) to the power of (1 ÷ years), minus 1.
+          Your values are saved for this stock and shared between your devices through your GitHub file. No extra data requests: everything comes from figures the app already has.</p>
+      </details>`;
+    glanceSet();
+    el.querySelectorAll(".pj-in").forEach(inp => {
+      inp.oninput = () => { cur[inp.dataset.c][inp.dataset.k][+inp.dataset.i] = inp.value.trim() === "" ? NaN : parseFloat(inp.value); refresh(inp.dataset.c); };
+      inp.onchange = () => { state.proj = state.proj || {}; state.proj[sym] = { at: ymd(new Date()), v: JSON.parse(JSON.stringify(cur, (k, x) => typeof x === "number" && !isFinite(x) ? null : x)) }; save();
+        $("#pj-status", el).innerHTML = status(); if(!$("#pj-reset", el)){ $(".pj-top", el).insertAdjacentHTML("beforeend", `<button type="button" id="pj-reset">Reset to the app's values</button>`); bindReset(); } };
+      inp.onblur = () => setTimeout(() => { if(pending) draw(); }, 0);
+    });
+    bindReset();
+  };
+  const bindReset = () => { const b = $("#pj-reset", el); if(b) b.onclick = () => { if(!confirm(`Reset all three cases for ${sym} to the app's values? Your saved values for this stock will be removed.`)) return; delete state.proj[sym]; save(); draw(); }; };
+  draw();
+  Promise.resolve(finP).then(([f, fq]) => { if(!live(tok)) return; fx.fin = f && f.ok ? f.v : null; fx.finQ = fq && fq.ok ? fq.v : null; draw(); });
+  Promise.resolve(peerP).then(pi => { if(!live(tok)) return; fx.peer = pi || null; if(fx.fin !== undefined) draw(); });
+  if(avP) avP.then(([o, e]) => { if(!live(tok)) return; fx.av = parseAV(o, e); if(fx.fin !== undefined) draw(); });
+}
+
 /* ================= At a glance strip ================= */
 function glance(id, html){ const el = document.getElementById(id); if(el){ el.innerHTML = html; el.classList.remove("muted"); } }
 // Highlight the section in view in the jump bar.
@@ -2303,7 +2489,7 @@ Format, in Markdown, under 260 words:
 - 2 or 3 specific, checkable things the reader can watch in the app (for example the next results date, analysts raising or cutting estimates, the price moving outside the fair value range, the trend or a death cross, a health score change), saying which case each would strengthen
 Give the bull and bear cases equal care; the reader decides which is more convincing. Explain any jargon in a few words. Don't tell the reader to buy, sell or hold, don't give a verdict on which case wins, and don't predict the price: this informs their own decision.`;
 async function stockFacts(app, sym){
-  const parts = ["#c-glance", "#val", "#fv", "#health", "#rec", "#ins", "#chart"];
+  const parts = ["#c-glance", "#val", "#fv", "#proj", "#health", "#rec", "#ins", "#chart"];
   for(let i = 0; i < 30 && parts.some(s => { const e = $(s, app); return e && e.querySelector(".spin"); }); i++) await new Promise(r => setTimeout(r, 500)); // let the sections finish loading
   const txt = (s, n) => { const e = $(s, app); return e ? e.innerText.replace(/\n{2,}/g, "\n").trim().slice(0, n) : ""; };
   const h = myHoldings().find(x => x.symbol === sym);
@@ -2311,7 +2497,7 @@ async function stockFacts(app, sym){
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
     (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
-    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
 const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
@@ -3767,7 +3953,7 @@ function viewSettings(app){
     <div class="card">
       <h2>Backup &amp; move to another device</h2>
       <p class="small muted" style="margin-top:0">${ghOn() ? "Your lists are saved to GitHub automatically (see the top of this page), so you don't need this. It's here as an extra copy you can keep anywhere." : "Your lists are stored only in this browser. To keep a backup or move them, copy this text and paste it into \"Restore\" on the other device, or connect GitHub at the top of this page to do it automatically."} (API keys are not included in this text.)</p>
-      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, buys:state.buys||[], watchlist:state.watchlist, settings:state.settings, fv:state.fv}))}</textarea>
+      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, buys:state.buys||[], watchlist:state.watchlist, settings:state.settings, fv:state.fv, proj:state.proj||{}}))}</textarea>
       <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span id="cmsg" class="small muted"></span></div>
       <h2 style="margin-top:16px">Restore</h2>
       <textarea id="rest" rows="3" style="width:100%" placeholder="Paste backup text here"></textarea>
@@ -3863,6 +4049,7 @@ function viewSettings(app){
       state.watchlist = d.watchlist.map(normSym).filter(Boolean);
       if(d.settings) state.settings = { ...state.settings, ...d.settings };
       if(d.fv && typeof d.fv === "object") state.fv = d.fv;
+      if(d.proj && typeof d.proj === "object") state.proj = d.proj;
       if(Array.isArray(d.buys)) state.buys = d.buys.filter(b => b && b.sym && b.q > 0 && b.px > 0 && b.d);
       save(); msg("#rmsg", `Restored ${state.holdings.length} stocks and ${state.watchlist.length} watchlist items.`);
     }catch(e){ msg("#rmsg","That doesn't look like a backup from this app.", true); }
@@ -3874,7 +4061,7 @@ function viewSettings(app){
 // and loaded on any other browser or device that has the GitHub token. The token itself is never uploaded.
 const GH_API = "https://api.github.com", GH_FILE = "portfolio.json";
 const ghOn = () => !!(state.gh && state.gh.repo && state.gh.token);
-const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey", "fc"];
+const SYNCED = ["holdings", "buys", "alerts", "watchlist", "trades", "nameMap", "settings", "fv", "proj", "lastAcct", "apiKey", "avKey", "tdKey", "aiKey", "fc"];
 const syncData = () => { const d = {}; SYNCED.forEach(k => d[k] = state[k]); return d; };
 const b64enc = str => btoa(unescape(encodeURIComponent(str)));
 const b64dec = b64 => decodeURIComponent(escape(atob(String(b64).replace(/\s/g, ""))));
