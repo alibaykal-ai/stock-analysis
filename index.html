@@ -369,6 +369,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .pj-t input.pj-in{width:100%;min-width:0;font-size:16px;min-height:44px;padding:4px}
   #pj-reset{min-height:44px}
 }
+#ov{overflow-wrap:anywhere} /* 7.18: a long web address in a note can't push the page wider than the phone */
 </style>
 </head>
 <body>
@@ -2026,8 +2027,10 @@ function fvInputs(met, prof, price, av, rep){
   // annual reports, at least 3), the DCF starts halfway between today's figure and the usual one. Not for boom-and-bust
   // companies (their own model) or banks and insurers (no DCF).
   const fcfRaw = fcf; let fcfHow = "", convU = NaN, convN = 0;
-  { const ys = ((rep.fin && rep.fin.years) || []).slice(1, 6).filter(y => isNum(y.fcf) && y.net > 0);
-    if(ys.length >= 3){ convU = median(ys.map(y => y.fcf / y.net)); convN = ys.length; } }
+  // Usual cash conversion for the forecast DCF: total free cash flow ÷ total profit over the latest (up to 6) profitable annual
+  // reports, at least 3. Totals, not a median of yearly ratios: years of tiny profits give wild ratios (CELH 2021: 4M profit).
+  { const ys = ((rep.fin && rep.fin.years) || []).slice(0, 6).filter(y => isNum(y.fcf) && y.net > 0);
+    if(ys.length >= 3){ convU = ys.reduce((t, y) => t + y.fcf, 0) / ys.reduce((t, y) => t + y.net, 0); convN = ys.length; } }
   if(!fin && !cy && isNum(fcf) && fcf > 0 && isNum(eps) && eps > 0){
     const ys = ((rep.fin && rep.fin.years) || []).slice(1, 6).filter(y => isNum(y.fcf) && y.net > 0);
     if(ys.length >= 3){ const conv = median(ys.map(y => y.fcf / y.net)), now = fcf / eps;
@@ -2035,13 +2038,14 @@ function fvInputs(met, prof, price, av, rep){
         fcfHow = ` Today's free cash flow (${fmt(fcfRaw)} per share) is only ${(now * 100).toFixed(0)}% of earnings, against a usual ${(conv * 100).toFixed(0)}% (median of ${ys.length} earlier years), e.g. because of heavy investment, so the model starts halfway between today's figure and the usual one.`; } }
   }
   // Forecast DCF inputs (7.18): both fiscal years' earnings forecasts positive, and a usual cash conversion from the reports
-  // (else today's, if positive), limited to 120% so one-off cash inflows don't count twice.
+  // (else today's, if positive), limited to 100%: analysts' EPS usually leaves out one-off costs and often share-based pay, so
+  // turning it into more cash than that would count the same add-backs twice.
   let fcd = null;
   const fy1 = av.fy1, fy2 = av.fy2;
   if(!fin && !cy && fy1 && fy2 && fy1.eps > 0 && fy2.eps > 0){
-    const c = isNum(convU) && convU > 0 ? { v: convU, how: `its usual ${(Math.min(convU, 1.2) * 100).toFixed(0)}% of earnings (median of ${convN} earlier years${convU > 1.2 ? `, ${(convU * 100).toFixed(0)}% limited to 120%` : ""})` }
-      : isNum(fcfRaw) && fcfRaw > 0 && eps > 0 ? { v: fcfRaw / eps, how: `today's ${(Math.min(fcfRaw / eps, 1.2) * 100).toFixed(0)}% of earnings (too few earlier reports for its usual share)` } : null;
-    if(c){ const k = Math.min(c.v, 1.2); fcd = { f1: fy1.eps * k, f2: fy2.eps * k, e1: fy1.eps, e2: fy2.eps, d1: fy1.date, d2: fy2.date, n: fy2.n, conv: k, how: c.how }; }
+    const c = isNum(convU) && convU > 0 ? { v: convU, how: `its usual ${(Math.min(convU, 1) * 100).toFixed(0)}% of earnings (free cash flow ÷ profit over its last ${convN} profitable years${convU > 1 ? `: ${(convU * 100).toFixed(0)}%, limited to 100% because analysts' earnings usually leave out one-off costs` : ""})` }
+      : isNum(fcfRaw) && fcfRaw > 0 && eps > 0 ? { v: fcfRaw / eps, how: `today's ${(Math.min(fcfRaw / eps, 1) * 100).toFixed(0)}% of earnings (too few profitable years in its reports for a usual share)` } : null;
+    if(c){ const k = Math.min(c.v, 1); fcd = { f1: fy1.eps * k, f2: fy2.eps * k, e1: fy1.eps, e2: fy2.eps, d1: fy1.date, d2: fy2.date, n: fy2.n, conv: k, how: c.how }; }
   }
   return { fin, eps, bvps, fcf, fcfRaw, fcfHow, fcd, past, pastMid, exp, startG, startHow, g1, gSrc, avRev, cal, ttm, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
 }
@@ -3202,7 +3206,24 @@ Rules:
 - Figures are per share in US dollars, on the stock's current share basis. If the company split its shares recently and a figure is from before the split, divide it by the split ratio and say so in its note.
 Answer with only this JSON object, nothing before or after it:
 {"fairValues":[{"source":"Morningstar","value":0,"date":"","url":"","note":""}],"analystTarget":{"source":"","average":0,"low":0,"high":0,"analysts":0,"date":"","url":"","note":""},"remarks":""}
-Use "analystTarget": null if not found. "remarks": one short sentence on anything important (e.g. figures disagree, a recent cut, a split).`;
+Use "analystTarget": null if not found.
+Each "note": at most one short sentence (under 15 words), only when something matters (a recent cut or raise, a split adjustment, a different kind of estimate); otherwise "". Don't say a date is missing (the app shows that). No web addresses in notes or remarks.
+"remarks": one short sentence (under 25 words) on anything important (e.g. figures disagree, a recent cut, a split), or "".`;
+// Notes as shown (7.18, owner after PLTR: wordy, repeated "date not given", cut mid-word; a bare web address made the NVDA page
+// wider than the iPhone screen): web addresses and sentences about missing dates removed, then cut at a whole word.
+function ovTidy(t, max){
+  let s = String(t || "").trim();
+  // Saved before 7.18, notes were cut at 160 characters, often mid-word ("No stock sp"): drop the unfinished last part.
+  if(s.length >= 159 && !/[.!?)]$/.test(s)){ const k = Math.max(s.lastIndexOf(". "), s.lastIndexOf("; ")); s = k > 20 ? s.slice(0, k + 1) : s.replace(/\s+\S*$/, "") + "…"; }
+  s = s.replace(/\(?\bhttps?:\/\/[^\s)]+\)?/g, "").replace(/\(\s*\)/g, "");
+  const noDate = x => /\b(no|not|n't|without|only an?|relative)\s+(?:[\w-]+\s+){0,3}(date|dated|age)\b|\bundated\b|\bpage is dated by\b/i.test(x);
+  s = s.split(/(?<=[.!?])\s+/).map(x => x.split(/;\s+/).filter(c => !noDate(c)).join("; ")).filter(x => x && !noDate(x)).join(" ");
+  s = s.replace(/\s{2,}/g, " ").replace(/\s+([,.;])/g, "$1").replace(/;\s*$/, ".").trim();
+  if(s && !/[.!?…]$/.test(s)) s += ".";
+  if(s.length <= max) return s;
+  const cut = s.slice(0, max + 1), sp = cut.lastIndexOf(" ");
+  return (sp > max * 0.6 ? cut.slice(0, sp) : cut.slice(0, max)).replace(/[\s,;:–-]+$/, "") + "…";
+}
 const ovUrlKey = u => { try{ const x = new URL(String(u)); return (x.hostname.replace(/^www\./, "") + x.pathname.replace(/\/+$/, "")).toLowerCase(); }catch(e){ return ""; } };
 // Parse Claude's answer and keep only figures it really found. Exported shape: { fair: [...], target, remarks, dropped: [...] }.
 function ovCheck(text, found, price){
@@ -3217,16 +3238,16 @@ function ovCheck(text, found, price){
     if(!src || !isNum(v)) continue;
     if(!onPage(f.url)){ dropped.push(`${src} ${fmt(v)} (its page wasn't among the search results)`); continue; }
     if(!sane(v)){ dropped.push(`${src} ${fmt(v)} (too far from today's price to be on the same basis)`); continue; }
-    fair.push({ src, v, date: String(f.date || "").slice(0, 10), url: String(f.url), note: String(f.note || "").slice(0, 160) });
+    fair.push({ src, v, date: String(f.date || "").slice(0, 10), url: String(f.url), note: String(f.note || "").slice(0, 400) });
   }
   let target = null; const t = j.analystTarget;
   if(t && isNum(parseFloat(t.average))){
     const avg = parseFloat(t.average), src = String(t.source || "Analysts").slice(0, 40);
     if(!onPage(t.url)) dropped.push(`${src} target ${fmt(avg)} (its page wasn't among the search results)`);
     else if(!sane(avg)) dropped.push(`${src} target ${fmt(avg)} (too far from today's price to be on the same basis)`);
-    else target = { src, avg, lo: parseFloat(t.low), hi: parseFloat(t.high), n: parseInt(t.analysts, 10), date: String(t.date || "").slice(0, 10), url: String(t.url), note: String(t.note || "").slice(0, 160) };
+    else target = { src, avg, lo: parseFloat(t.low), hi: parseFloat(t.high), n: parseInt(t.analysts, 10), date: String(t.date || "").slice(0, 10), url: String(t.url), note: String(t.note || "").slice(0, 400) };
   }
-  return { fair, target, remarks: String(j.remarks || "").slice(0, 240), dropped };
+  return { fair, target, remarks: String(j.remarks || "").slice(0, 400), dropped };
 }
 function ovAge(t){ const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`; }
 function renderOutside(app, sym){
@@ -3239,8 +3260,8 @@ function renderOutside(app, sym){
   let body = "";
   if(o){
     const r = o.r, vals = r.fair.map(f => f.v), med = vals.length ? median(vals) : NaN;
-    const rows = r.fair.map(f => `<li><b>${fmt(f.v)}</b> ${link(f.url, f.src)} fair value estimate <span class="muted">· ${dt(f.date)}${f.note ? " · " + esc(f.note) : ""}</span></li>`).join("");
-    const tg = r.target ? `<li><b>${fmt(r.target.avg)}</b> ${link(r.target.url, r.target.src)} analysts' average 12-month target${isNum(r.target.lo) && isNum(r.target.hi) ? ` (range ${fmt(r.target.lo)}–${fmt(r.target.hi)}` + (isNum(r.target.n) ? `, ${r.target.n} analysts)` : ")") : ""} <span class="muted">· ${dt(r.target.date)}${r.target.note ? " · " + esc(r.target.note) : ""}</span>
+    const rows = r.fair.map(f => `<li><b>${fmt(f.v)}</b> ${link(f.url, f.src)} fair value estimate <span class="muted">· ${dt(f.date)}${ovTidy(f.note, 110) ? " · " + esc(ovTidy(f.note, 110)) : ""}</span></li>`).join("");
+    const tg = r.target ? `<li><b>${fmt(r.target.avg)}</b> ${link(r.target.url, r.target.src)} analysts' average 12-month target${isNum(r.target.lo) && isNum(r.target.hi) ? ` (range ${fmt(r.target.lo)}–${fmt(r.target.hi)}` + (isNum(r.target.n) ? `, ${r.target.n} analysts)` : ")") : ""} <span class="muted">· ${dt(r.target.date)}${ovTidy(r.target.note, 110) ? " · " + esc(ovTidy(r.target.note, 110)) : ""}</span>
       <div class="small muted">A price target is a 12-month price prediction, usually above fair value estimates; it isn't a fair value.</div></li>` : "";
     let cmp = "";
     if(F && isNum(med) && isNum(F.mid) && !F.future){
@@ -3254,7 +3275,7 @@ function renderOutside(app, sym){
     } else if(F && F.future && isNum(med)) cmp = `<p class="small" style="margin:8px 0 0">Our methods value today's earnings only (this stock is priced for future growth); outside estimates (${fmt(med)}) include their growth forecasts.</p>`;
     else if(!vals.length) cmp = `<p class="small muted" style="margin:8px 0 0">No published fair value estimate was found on the sites searched, so there's nothing to compare our range with.</p>`;
     body = `${rows || tg ? `<ul class="ov-list">${rows}${tg}</ul>` : ""}${cmp}
-      ${r.remarks ? `<p class="small muted" style="margin:6px 0 0">Claude's note: ${esc(r.remarks)}</p>` : ""}
+      ${ovTidy(r.remarks, 200) ? `<p class="small muted" style="margin:6px 0 0;overflow-wrap:anywhere">Claude's note: ${esc(ovTidy(r.remarks, 200))}</p>` : ""}
       ${r.dropped.length ? `<p class="small muted" style="margin:6px 0 0">Left out: ${r.dropped.map(esc).join("; ")}.</p>` : ""}
       <p class="small muted" style="margin:6px 0 0">Looked up ${ovAge(o.t)} by ${esc(o.by || "Claude Haiku 5.5")}${o.cost ? `, cost ${/^under/.test(o.cost) ? "" : "about "}${o.cost}` : ""}. Figures come from the linked pages; open them to check. AI can misread a page.</p>`;
   }
