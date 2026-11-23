@@ -381,6 +381,47 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   #pj-reset{min-height:44px}
 }
 #ov{overflow-wrap:anywhere} /* 7.18: a long web address in a note can't push the page wider than the phone */
+/* ===== Compare (7.22) ===== */
+.shadow-stock{display:none}
+.btnlink{display:inline-block;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px}
+.cmp-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
+.cmp-chip{border-radius:999px;padding:6px 14px;font-weight:600;min-height:36px}
+.cmp-chip.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.cmp-grp{margin-top:10px}
+.cmp-res{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.cmp-r{text-align:left}
+#cmp-add{margin-top:10px}
+#cmp-add summary{cursor:pointer;padding:6px 0}
+.cmp-wrap{overflow-x:auto}
+.cmp-t{table-layout:fixed}
+.cmp-t th,.cmp-t td{vertical-align:top}
+.cmp-t thead th{vertical-align:bottom}
+.cmp-t th[scope=row]{font-weight:400;width:24%;text-transform:none;letter-spacing:normal;font-size:14px;color:var(--ink)}
+.cmp-t thead th{text-transform:none;letter-spacing:normal;font-size:15px;color:var(--ink)}
+.cmp-t thead th a{font-size:16px}
+.cmp-t tr.cmp-g th{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding-top:16px}
+.cmp-t td.cmp-best{background:var(--infobg)}
+.cmp-star{color:var(--info);font-weight:700}
+.cmp-v{font-weight:600}
+.cmp-v .small{font-weight:400}
+.cmp-s{margin-top:2px;line-height:1.6}
+.cmp-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmp-rule{font-style:italic}
+@media (max-width:700px){
+  .cmp-t{min-width:0}
+  .cmp-t th,.cmp-t td{padding:8px 5px;font-size:14px}
+  .cmp-t th[scope=row]{width:30%;position:sticky;left:0;background:var(--card);z-index:1}
+  .cmp-t th[scope=row] .small{font-size:12px}
+  .cmp-t.cmp-n3 th[scope=row]{width:26%}
+  .cmp-t td .small,.cmp-s{font-size:12px}
+  .cmp-t .badge{white-space:normal}
+  .cmp-chip{min-height:44px}
+  #b-cmp{min-height:44px;display:inline-flex;align-items:center}
+  #cmp-add summary{min-height:44px;display:flex;align-items:center;gap:6px}
+  #cmp-more,#cmp-clear{min-height:44px}
+  .cmp-last{display:inline-flex;align-items:center;min-height:44px}
+  .cmp-t thead th a{display:inline-flex;align-items:center;min-height:44px;min-width:44px}
+}
 </style>
 </head>
 <body>
@@ -389,6 +430,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <nav>
     <a href="#home" data-nav="home">My Stocks</a>
     <a href="#search" data-nav="search">Search</a>
+    <a href="#compare" data-nav="compare">Compare</a>
     <a href="#macro" data-nav="macro">Macro</a>
     <a href="#settings" data-nav="settings">Settings</a>
   </nav>
@@ -402,11 +444,12 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 <nav class="tabbar" aria-label="Main">
   <a href="#home" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>My Stocks</a>
   <a href="#search" data-nav="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Search</a>
+  <a href="#compare" data-nav="compare"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="7" height="15" rx="1.5"/><rect x="13.5" y="4.5" width="7" height="15" rx="1.5"/><path d="M6 9h2M6 12h2M16 9h2M16 12h2"/></svg>Compare</a>
   <a href="#macro" data-nav="macro"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.8 2.6 14.2 0 17M12 3.5c-2.6 2.8-2.6 14.2 0 17"/></svg>Macro</a>
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.21</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.22</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -951,6 +994,8 @@ async function avApi(fn, sym, ttl, shape, force){
   const at = ent ? (ent.t || ent.exp - 24*3600e3) : 0; // copies saved before 7.0 were kept for a day
   const withAt = (v, stale) => v && typeof v === "object" ? { ...v, _at: at, _stale: !!stale } : v;
   if(has && !force && Date.now() - at < fresh) return withAt(ent.v);
+  // Compare page (7.22): saved copies only, however old, so comparing never spends the 25 a day
+  if(!force && avHold === renderToken){ if(has) return withAt(ent.v, true); throw new ApiError("Not loaded on the compare page, to save your Alpha Vantage requests: open the stock's own page to load it.", "cmp"); }
   if(has && !force && avBlocked()) return withAt(ent.v, true);
   if(!force && avBlocked()) throw new ApiError("Alpha Vantage's 25 free requests are used up. Each frees up 24 hours after it was sent.", "avlimit");
   if(inflight.has(ck)) return inflight.get(ck);
@@ -1191,10 +1236,10 @@ const routes = { home: viewHome, search: viewSearch, macro: viewMacro, settings:
 let renderToken = 0;
 function route(){
   const h = (location.hash || "#home").slice(1);
-  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", h === a.dataset.nav || a.dataset.nav === "home" && h.startsWith("stock-") && a.closest(".tabbar")));
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", h === a.dataset.nav || a.dataset.nav === "compare" && h.startsWith("compare-") || a.dataset.nav === "home" && h.startsWith("stock-") && a.closest(".tabbar")));
   const app = $("#app"); document.body.classList.remove("wide");
   // Tab title follows the page (a stock page sets its own once the name is known)
-  document.title = h.startsWith("stock-") ? `${normSym(decodeURIComponent(h.slice(6)))} · Stock Analysis` : (({ search: "Search", macro: "Macro", settings: "Settings" })[h] ? ({ search: "Search", macro: "Macro", settings: "Settings" })[h] + " · Stock Analysis" : "Stock Analysis");
+  document.title = h.startsWith("stock-") ? `${normSym(decodeURIComponent(h.slice(6)))} · Stock Analysis` : (({ search: "Search", macro: "Macro", settings: "Settings" })[h] ? ({ search: "Search", macro: "Macro", settings: "Settings" })[h] + " · Stock Analysis" : h.startsWith("compare") ? ["Compare", ...cmpParse(h)].join(" · ") + " · Stock Analysis" : "Stock Analysis");
   // Ticker next to the app name on stock pages (7.2): stays in view while scrolling; tap = back to the top
   const hs = $("#hdrsym"), hsym = h.startsWith("stock-") ? normSym(decodeURIComponent(h.slice(6))) : "";
   if(hs){ hs.hidden = !hsym; hs.textContent = hsym; hs.onclick = e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }; }
@@ -1202,6 +1247,7 @@ function route(){
   window.scrollTo(0,0);
   rqShow();
   if(h.startsWith("stock-")) return viewStock(app, normSym(decodeURIComponent(h.slice(6))), tok);
+  if(h === "compare" || h.startsWith("compare-")) return viewCompare(app, cmpParse(h), tok);
   (routes[h] || viewHome)(app, tok);
 }
 window.addEventListener("hashchange", route);
@@ -1703,6 +1749,221 @@ function viewSearch(app, tok){
   if(lastQuery) run(); else setTimeout(()=>$("#sq", app)?.focus(), 50);
 }
 
+/* ================= Compare (7.22) ================= */
+// 2–3 stocks side by side (owner 2026-11-23). Start from the Compare menu item (empty, with a "Last compared" shortcut) or from
+// a stock page's "Compare with…" button. The address holds the stocks (#compare-NVDA,AMD) so a comparison can be bookmarked.
+// Every figure comes from a hidden copy of that stock's own page (.shadow-stock): the same functions on the same data, so the
+// numbers always match the stock page. It loads what a stock page loads (Finnhub, Twelve Data), except Alpha Vantage:
+// saved forecasts and month-end prices only, however old (avHold), never a new request.
+const CMP_MAX = 3;
+let avHold = -1, cmpMore = false;
+const cmpLast = v => { try{ if(v === undefined) return JSON.parse(localStorage.getItem("sa.cmpLast") || "null"); localStorage.setItem("sa.cmpLast", JSON.stringify(v)); }catch(e){ return null; } };
+const cmpHref = syms => "#compare" + (syms.length ? "-" + syms.map(encodeURIComponent).join(",") : "");
+const cmpParse = h => [...new Set(h.replace(/^compare-?/, "").split(",").map(x => normSym(decodeURIComponent(x))).filter(Boolean))].slice(0, CMP_MAX);
+
+function cmpLoad(sym, tok, onUpd){
+  const D = { sym, g: {}, done: false, prof: {}, mm: {} };
+  const box = document.createElement("div"); box.className = "shadow-stock";
+  box.innerHTML = ["val", "fv", "proj", "health", "rec", "rec-tgt", "g-val", "g-fv", "g-proj", "g-health", "g-rec"].map(id => `<div id="${id}"></div>`).join("");
+  box._onGlance = (id, html) => { D.g[id] = html; onUpd(); };
+  D.box = box;
+  const finish = () => { D.done = true; onUpd(); };
+  (async () => {
+    const holding = myHoldings().find(h => h.symbol === sym);
+    if(holding && holding.type && holding.type !== "stock"){ D.fund = holding.type; D.name = holding.name || sym; return finish(); }
+    if(!state.apiKey){ D.err = "Needs a Finnhub key (Settings)."; return finish(); }
+    const [q, m, p] = await liveData(sym, { withTd: !!state.tdKey });
+    if(!live(tok)) return;
+    const prof = D.prof = p.ok ? p.v : {}, met = D.met = m.ok ? m.v : null, mm = D.mm = met && met.metric || {};
+    D.name = prof.name || (holding && holding.name) || "";
+    const price = D.price = q.ok && isNum(q.v.c) && q.v.c > 0 ? q.v.c : (holding && isNum(holding.manualPrice) ? holding.manualPrice : NaN);
+    D.dp = q.ok ? q.v.dp : NaN;
+    if(!m.ok){ D.err = m.e.message; return finish(); }
+    if(!Object.keys(mm).length && !isNum(price)){ D.err = "No data for this ticker on the free plan."; return finish(); }
+    onUpd();
+    // The stock page's own calls (viewStock), into the hidden copy
+    renderHealth(box, mm, price, prof); D.H = healthScore(mm, prof, null, null);
+    const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]);
+    finP.then(([f, fq]) => { if(!live(tok)) return; const fin = f.ok ? f.v : null, finQ = fq.ok ? fq.v : null; renderHealth(box, mm, price, prof, fin, finQ);
+      D.H = healthScore(mm, prof, fin && fin.years && fin.years.length ? fin : null, finQ); onUpd(); });
+    const peerP = renderValuation(box, sym, met, prof, tok, price);
+    peerP.then(pi => { if(live(tok)){ D.peer = pi || null; onUpd(); } });
+    D.av = (() => { const v = peek.av(sym); return v ? parseAV(null, { ok: true, v }) : {}; })();
+    D.rep = { cal: peek.earn(sym), fin: peek.fin(sym), finQ: peek.finQ(sym) };
+    const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null;
+    if(avP) avP.then(([o, e]) => { if(live(tok)){ D.av = parseAV(o, e); onUpd(); } });
+    const repP = Promise.all([finP, safe(fh.earnings(sym))]).then(([[f, fq], e]) => ({ fin: f.ok ? f.v : null, finQ: fq.ok ? fq.v : null, cal: e.ok ? e.v : null }));
+    repP.then(r => { if(live(tok)){ D.rep = r; onUpd(); } });
+    renderFairValue(box, sym, met, prof, price, peerP, avP, tok, repP);
+    renderProjection(box, sym, met, prof, price, finP, peerP, avP, tok);
+    const recP = fh.rec(sym).then(r => { if(!live(tok)) return; renderRec(box, r); D.rec = r; onUpd(); }, e => { D.recErr = e.message; });
+    const tdP = state.tdKey ? tdDaily(sym).then(h => { if(live(tok) && h && h.c && h.c.length){ D.tech = techGlance(h); onUpd(); } }, e => { D.techErr = e.message; }) : null;
+    await Promise.allSettled([finP, peerP, avP, repP, recP, tdP].filter(Boolean));
+    if(live(tok)) setTimeout(finish, 50); // after the fair value and projections redraws that follow the same answers
+  })().catch(e => { D.err = e.message || String(e); finish(); });
+  return D;
+}
+
+// Figures for one cell: h = main line (HTML), s = second line, v = number used for "best" (NaN = not compared)
+const cmpItem = (D, pid, name) => { const P = D.H && D.H.pillars.find(p => p.id === pid); return P && P.items.find(i => i.name.startsWith(name)); };
+const cmpSpin = D => D.done ? `<span class="muted">—</span>` : `<span class="spin"></span>`;
+const cmpNum = (v, show, D, s) => isNum(v) ? { h: show(v), v, s } : { h: cmpSpin(D), v: NaN };
+function cmpRatio(r){
+  return D => {
+    const now = nowValue(D.met, r); if(!isNum(now)) return { h: cmpSpin(D), v: NaN };
+    if(now <= 0) return { h: "neg.", v: NaN, s: `<span class="muted">not meaningful</span>` };
+    const hist = history(D.met, r), pm = D.peer && D.peer.medians[r.id];
+    const vs = [hist ? `${badge(verdict(now, hist.median), "its usual level")} <span class="muted">usual ${fmtX(hist.median)}</span>` : `<span class="muted">no history</span>`,
+      D.peer ? (isNum(pm) ? `${badge(verdict(now, pm), "the peer median")} <span class="muted">peers ${fmtX(pm)}</span>` : "") : `<span class="spin"></span>`].filter(Boolean);
+    if((r.id === "pe") && cmpCy(D)) return { h: fmtX(now), v: NaN, s: vs.join("<br>") + `<br>${CMP_CY}` };
+    return { h: fmtX(now), v: now, s: vs.join("<br>") };
+  };
+}
+// Boom-and-bust company at a cyclical high (fair value's test, e.g. MU): a low P/E there is the classic cycle-top trap, so P/E
+// and forward P/E get no ★ (PEG already says n/a for the same reason)
+const cmpCy = D => { const F = D.box && $("#fv", D.box)._fv; return !!(F && F.inp && F.inp.cy); };
+const CMP_CY = `<span class="muted">profits at a cyclical high: a low P/E can mislead (no ★)</span>`;
+const cmpPeg = D => { if(!D.met || !isNum(nowValue(D.met, RATIOS[0]))) return null; return pegInfo(D.met, D.prof, D.price, D.av, D.rep); };
+const CMP_ROWS = [
+  { g: "Price", id: "price", label: "Price", f: D => isNum(D.price) ? { h: `${fmt(D.price)} <span class="small muted hide-sm">${esc(D.prof.currency || "")}</span>`, v: NaN, s: isNum(D.dp) ? `<span class="${cls(D.dp)}">${fmtPct(D.dp, 2)} today</span>` : "" } : { h: cmpSpin(D), v: NaN } },
+  { g: "Price", id: "cap", label: "Market cap", more: true, f: D => { const v = D.prof.marketCapitalization ?? D.mm.marketCapitalization; return isNum(v) ? { h: fmtCap(v), v: NaN } : { h: cmpSpin(D), v: NaN }; } },
+  { g: "Price", id: "r52", label: "52-week range", more: true, f: D => { const lo = D.mm["52WeekLow"], hi = D.mm["52WeekHigh"];
+    return isNum(lo) && isNum(hi) ? { h: `${fmt(lo)}–${fmt(hi)}`, v: NaN, s: isNum(D.price) && hi > 0 ? `${fmtPct((D.price / hi - 1) * 100, 0)} from the high` : "" } : { h: cmpSpin(D), v: NaN }; } },
+  { g: "Value", id: "fv", label: "Fair value", best: "low", rule: "furthest below its fair value", f: D => {
+    const F = D.box && $("#fv", D.box)._fv, gl = D.g["g-fv"];
+    if(!gl || gl === "…") return { h: D.done && !gl ? `<span class="muted">—</span>` : `<span class="spin"></span>`, v: NaN };
+    if(!F || !isNum(F.mid)) return { h: `<span class="small">${gl}</span>`, v: NaN };
+    return { h: `<span class="small">${gl}</span>`, v: F.noFc || F.loading ? NaN : D.price / F.mid - 1, s: `range ${fmt(F.lo)}–${fmt(F.hi)}` }; } },
+  { g: "Value", id: "val", label: "Valuation overall", sub: "vs its past and peers", f: D => D.g["g-val"] ? { h: `<span class="small">${D.g["g-val"]}</span>`, v: NaN } : { h: cmpSpin(D), v: NaN } },
+  { g: "Value", id: "pe", label: "P/E", sub: "price ÷ earnings", best: "low", rule: "lowest", f: cmpRatio(RATIOS[0]) },
+  { g: "Value", id: "fpe", label: "Forward P/E", sub: "price ÷ expected earnings", best: "low", rule: "lowest", f: D => {
+    const v = D.mm.forwardPE, pm = D.peer && D.peer.medians.fwdPE;
+    if(!isNum(v)) return { h: cmpSpin(D), v: NaN };
+    if(v <= 0) return { h: "neg.", v: NaN, s: `<span class="muted">expected loss</span>` };
+    const ps = isNum(pm) ? `<span class="muted">peers ${fmtX(pm)}</span>` : "";
+    return cmpCy(D) ? { h: fmtX(v), v: NaN, s: ps + (ps ? "<br>" : "") + CMP_CY } : { h: fmtX(v), v, s: ps }; } },
+  { g: "Value", id: "peg", label: "PEG", sub: "P/E ÷ 5-year average growth", best: "low", rule: "lowest", f: D => { const P = cmpPeg(D);
+    if(!P) return { h: cmpSpin(D), v: NaN };
+    if(P.na) return { h: "n/a", v: NaN, s: `<span class="muted">${esc(P.na)}</span>` };
+    return { h: P.peg.toFixed(2), v: P.peg, s: `<span class="badge ${P.k[0]}">${P.k[1]}</span> <span class="muted">growth ${fmtPct(P.g, 1)}/yr</span>` }; } },
+  { g: "Value", id: "peg1", label: "PEG at next year's pace", sub: "P/E ÷ next year's growth", more: true, best: "low", rule: "lowest", f: D => { const P = cmpPeg(D);
+    if(!P) return { h: cmpSpin(D), v: NaN };
+    if(P.na) return { h: "n/a", v: NaN };
+    const v = isNum(P.peg1) ? P.peg1 : P.peg; // shown only when the two growth figures differ by a point or more; else the same as PEG
+    return { h: v.toFixed(2), v, s: `<span class="muted">growth ${fmtPct(isNum(P.peg1) ? P.g1 : P.g, 1)} next year</span>` }; } },
+  { g: "Value", id: "ps", label: "P/S", sub: "price ÷ sales", best: "low", rule: "lowest", f: cmpRatio(RATIOS[1]) },
+  { g: "Value", id: "evebitda", label: "EV/EBITDA", more: true, best: "low", rule: "lowest", f: cmpRatio(RATIOS[3]) },
+  { g: "Value", id: "pfcf", label: "P/FCF", sub: "price ÷ free cash flow", more: true, best: "low", rule: "lowest", f: cmpRatio(RATIOS[4]) },
+  { g: "Value", id: "pb", label: "P/B", sub: "price ÷ book value", more: true, best: "low", rule: "lowest", f: cmpRatio(RATIOS[2]) },
+  { g: "Growth", id: "gr", label: "Growth used", sub: "next year, as in Fair value", best: "high", rule: "highest", f: D => {
+    const F = D.box && $("#fv", D.box)._fv, inp = F && F.inp, a = F && F.a;
+    if(!inp) return { h: cmpSpin(D), v: NaN };
+    if(a && a.custom) return { h: `${fmtPct(a.g, 1)}<span class="small muted">/yr</span>`, v: a.g, s: `<span class="muted">your Fair value setting</span>` };
+    if(!isNum(inp.g1)) return { h: `<span class="muted">no growth data</span>`, v: NaN };
+    const src = inp.gSrc === "analysts" ? "analysts" : inp.gSrc === "reports" ? "its reports" : "past 5 years";
+    return { h: fmtPct(inp.g1, 0), v: inp.g1, s: `<span class="muted">${src}; about ${inp.startG}%/yr over 5 years</span>` }; } },
+  { g: "Growth", id: "rg", label: "Sales growth, last year", best: "high", rule: "highest", f: D => { const i = cmpItem(D, "growth", "Revenue growth, last year"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
+  { g: "Growth", id: "rg5", label: "Sales growth, 5 years", sub: "per year", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "growth", "Revenue growth, 5 years"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
+  { g: "Growth", id: "eg5", label: "EPS growth, 5 years", sub: "per year", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "growth", "EPS growth, 5 years"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
+  { g: "Quality", id: "nm", label: "Net profit margin", best: "high", rule: "highest", f: D => { const i = cmpItem(D, "profit", "Net profit margin"); return cmpNum(i && i.v, v => v.toFixed(1) + "%", D); } },
+  { g: "Quality", id: "om", label: "Operating margin", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "profit", "Operating margin") || cmpItem(D, "profit", "Pre-tax margin"); return cmpNum(i && i.v, v => v.toFixed(1) + "%", D, i && i.name !== "Operating margin" ? `<span class="muted">pre-tax (financial company)</span>` : ""); } },
+  { g: "Quality", id: "roe", label: "Return on equity", best: "high", rule: "highest", f: D => { const i = cmpItem(D, "profit", "Return on equity"); return cmpNum(i && i.v, v => v.toFixed(1) + "%", D); } },
+  { g: "Quality", id: "fcfm", label: "Free cash flow margin", sub: "last year", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "cash", "Free cash flow margin"); return cmpNum(i && i.v, v => v.toFixed(1) + "%", D); } },
+  { g: "Quality", id: "dil", label: "Share count change", sub: "per year (dilution +, buybacks −)", more: true, best: "low", rule: "lowest", f: D => { const i = cmpItem(D, "dilution", "Change in share count"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
+  { g: "Quality", id: "health", label: "Health score", best: "high", rule: "highest", f: D => D.g["g-health"] ? { h: `<span class="small">${D.g["g-health"]}</span>`, v: D.H && isNum(D.H.total) ? D.H.total : NaN } : { h: cmpSpin(D), v: NaN } },
+  { g: "Outlook", id: "rec", label: "Analysts", sub: "buy / hold / sell ratings", best: "high", rule: "largest share rating it a buy", f: D => {
+    const gl = D.g["g-rec"]; if(!gl) return { h: D.recErr ? `<span class="muted">${esc(D.recErr)}</span>` : cmpSpin(D), v: NaN };
+    const c = Array.isArray(D.rec) && D.rec[0], tot = c ? ["strongBuy", "buy", "hold", "sell", "strongSell"].reduce((a, k) => a + (c[k] || 0), 0) : 0;
+    const v = tot ? ((c.strongBuy || 0) + (c.buy || 0)) / tot : NaN;
+    return { h: `<span class="small">${gl}</span>`, v, s: isNum(v) ? `<span class="muted">${Math.round(v * 100)}% buy, ${tot} analysts</span>` : "" }; } },
+  { g: "Outlook", id: "trend", label: "Trend", sub: "50/200-day averages, RSI", f: D => D.tech ? { h: `<span class="small">${D.tech}</span>`, v: NaN }
+    : { h: !state.tdKey ? `<span class="small muted">needs a Twelve Data key</span>` : D.techErr ? `<span class="small muted">${esc(D.techErr)}</span>` : cmpSpin(D), v: NaN } },
+  { g: "Outlook", id: "proj", label: "Projections", sub: "Base case, 5 years ahead", best: "high", rule: "highest yearly return", f: D => {
+    const gl = D.g["g-proj"], B = D.box && $("#proj", D.box)._base; if(!gl) return { h: cmpSpin(D), v: NaN };
+    const r = B && B.r, v = r && r.eps > 0 && isNum(r.rLo) && isNum(r.rHi) ? (r.rLo + r.rHi) / 2 : NaN;
+    return { h: `<span class="small">${gl}</span>`, v, s: B ? `<span class="muted">${B.saved ? "your saved values" : "app's values"} · vs your ${B.R}% required return</span>` : "" }; } },
+  { g: "Outlook", id: "div", label: "Dividend yield", more: true, f: D => { const v = D.mm.dividendYieldIndicatedAnnual; return isNum(v) ? { h: v.toFixed(2) + "%", v: NaN } : { h: D.met ? `<span class="muted">none</span>` : cmpSpin(D), v: NaN }; } },
+  { g: "Outlook", id: "beta", label: "Beta", sub: "swings vs the market (1 = same)", more: true, f: D => cmpNum(D.mm.beta, v => fmt(v), D) },
+];
+const cmpRows = () => CMP_ROWS.filter(r => cmpMore || !r.more);
+
+function viewCompare(app, syms, tok){
+  avHold = tok;
+  const owned = myHoldings().filter(h => !h.type || h.type === "stock").map(h => h.symbol);
+  const watch = state.watchlist.filter(s => !owned.includes(s));
+  const last = cmpLast();
+  if(syms.length >= 2) cmpLast(syms);
+  const chip = (s, add) => `<button type="button" class="cmp-chip${add ? "" : " on"}" data-${add ? "add" : "rm"}="${esc(s)}"${add ? "" : ` aria-label="Remove ${esc(s)}"`}>${add ? "+ " : ""}${esc(s)}${add ? "" : " <span aria-hidden=\"true\">×</span>"}</button>`;
+  const pickList = (title, list) => { const l = list.filter(s => !syms.includes(s)); return l.length ? `<div class="cmp-grp"><div class="small muted">${title}</div><div class="cmp-chips">${l.map(s => chip(s, true)).join("")}</div></div>` : ""; };
+  const full = syms.length >= CMP_MAX;
+  app.innerHTML = `${keyNotice()}
+    <div class="card" id="cmp-pick">
+      <h2 style="margin-bottom:6px">Compare stocks</h2>
+      ${syms.length ? `<div class="cmp-chips" id="cmp-sel">${syms.map(s => chip(s, false)).join("")}${syms.length > 1 ? `<button type="button" class="link" id="cmp-clear">Start again</button>` : ""}</div>`
+        : `<p class="small muted" style="margin:0 0 8px">Pick 2 or 3 stocks to see them side by side.</p>
+           ${last && last.length >= 2 ? `<p style="margin:0 0 8px"><a class="cmp-last" href="${cmpHref(last)}">Last compared: <b>${last.map(esc).join(" · ")}</b></a></p>` : ""}`}
+      ${full ? `<p class="small muted" style="margin:8px 0 0">Up to ${CMP_MAX} stocks: remove one (×) to pick another.</p>` : `
+      <details id="cmp-add" ${syms.length < 2 ? "open" : ""}><summary><b>+ Add a stock</b>${syms.length === 1 ? ` <span class="small muted">to compare with ${esc(syms[0])}</span>` : ""}</summary>
+        ${pickList("Your stocks", owned)}${pickList("Watchlist", watch)}
+        <form id="cmp-sform" class="row" style="margin-top:10px"><input id="cmp-sq" placeholder="Any ticker or company, e.g. Microsoft" autocomplete="off" style="flex:1;min-width:180px"><button class="primary">Find</button></form>
+        <div id="cmp-sres"></div>
+      </details>`}
+    </div>
+    <div class="card" id="cmp-out">${syms.length >= 2 ? `<span class="spin"></span> Loading…` : syms.length === 1 ? `<p class="muted" style="margin:0">Add one or two more stocks to compare with <b>${esc(syms[0])}</b>.</p>` : `<p class="muted" style="margin:0">Nothing to compare yet.</p>`}</div>`;
+  if(syms.length < 2) $("#cmp-out", app).hidden = !syms.length;
+  const goList = l => go(cmpHref(l).slice(1));
+  app.querySelectorAll("[data-add]").forEach(b => b.onclick = () => goList([...syms, b.dataset.add].slice(0, CMP_MAX)));
+  app.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => goList(syms.filter(s => s !== b.dataset.rm)));
+  const clr = $("#cmp-clear", app); if(clr) clr.onclick = () => goList([]);
+  const sf = $("#cmp-sform", app);
+  if(sf) sf.onsubmit = async e => { e.preventDefault();
+    const q = $("#cmp-sq", app).value.trim(), out = $("#cmp-sres", app); if(!q) return;
+    out.innerHTML = `<p class="small"><span class="spin"></span> Searching…</p>`;
+    const r = await safe(fh.search(q)); if(!live(tok)) return;
+    if(!r.ok){ out.innerHTML = `<p class="err small">${esc(r.e.message)}</p>`; return; }
+    const items = (r.v.result || []).filter(x => x.symbol && !x.symbol.includes(".") && !syms.includes(normSym(x.symbol))).slice(0, 8);
+    out.innerHTML = items.length ? `<div class="cmp-res">${items.map(x => `<button type="button" class="cmp-r" data-add="${esc(normSym(x.symbol))}"><b>${esc(x.displaySymbol || x.symbol)}</b> <span class="small muted">${esc(x.description || "")}</span></button>`).join("")}</div>`
+      : `<p class="small muted">No US-listed matches. Try a shorter name or the ticker.</p>`;
+    out.querySelectorAll("[data-add]").forEach(b => b.onclick = () => goList([...syms, b.dataset.add].slice(0, CMP_MAX)));
+  };
+  if(syms.length < 2) return;
+  let t = 0;
+  const upd = () => { if(t) return; t = setTimeout(() => { t = 0; if(live(tok)) cmpDraw(app, list); }, 80); };
+  const list = syms.map(s => cmpLoad(s, tok, upd));
+  cmpDraw(app, list);
+}
+
+function cmpDraw(app, list){
+  const out = $("#cmp-out", app); if(!out) return;
+  const rows = cmpRows(), n = list.length;
+  const cells = rows.map(r => list.map(D => D.fund ? { h: `<span class="small muted">${r.id === "price" ? "fund" : "—"}</span>`, v: NaN } : D.err ? { h: r.id === "price" ? `<span class="small err">${esc(D.err)}</span>` : "", v: NaN } : r.f(D) || { h: "—", v: NaN }));
+  // Best per row: lowest or highest of the numbers that mean something (2+ stocks with one, and not all equal)
+  const best = rows.map((r, i) => { if(!r.best) return -1; const vs = cells[i].map(c => c.v), ok = vs.filter(isNum); if(ok.length < 2) return -1;
+    const b = r.best === "low" ? Math.min(...ok) : Math.max(...ok); if(ok.every(v => Math.abs(v - b) < 1e-9)) return -1; return vs.findIndex(v => isNum(v) && Math.abs(v - b) < 1e-9); });
+  const stars = list.map((_, j) => best.filter(b => b === j).length), compared = best.filter(b => b >= 0).length;
+  const loading = list.some(D => !D.done);
+  const top = Math.max(...stars), leaders = list.filter((_, j) => stars[j] === top && top > 0).map(D => D.sym);
+  let groups = "";
+  rows.forEach((r, i) => {
+    if(i === 0 || rows[i - 1].g !== r.g) groups += `<tr class="cmp-g"><th colspan="${n + 1}">${r.g}</th></tr>`;
+    groups += `<tr data-row="${r.id}"><th scope="row"><b>${r.label}</b>${r.sub ? `<div class="small muted">${r.sub}</div>` : ""}${r.best ? `<div class="small muted cmp-rule">★ ${r.rule}</div>` : ""}</th>${cells[i].map((c, j) =>
+      `<td class="${best[i] === j ? "cmp-best" : ""}"><div class="cmp-v">${best[i] === j ? `<span class="cmp-star" title="Best of these on this row: ${esc(r.rule || "")}">★</span> ` : ""}${c.h}</div>${c.s ? `<div class="small cmp-s">${c.s}</div>` : ""}</td>`).join("")}</tr>`;
+  });
+  const nMore = CMP_ROWS.filter(r => r.more).length;
+  out.innerHTML = `
+    <p style="margin-top:0">${loading ? `<span class="spin"></span> Loading… ` : ""}${compared ? `<b>★ most often:</b> ${leaders.map(esc).join(" and ")} (${top} of ${compared} rows) <span class="small muted">· ${list.map((D, j) => `${esc(D.sym)} ${stars[j]}`).join(" · ")}. A count, not a verdict: the rows don't all matter equally.</span>` : loading ? "" : `<span class="muted">Not enough figures to compare.</span>`}</p>
+    <div class="cmp-wrap"><table class="cmp-t cmp-n${n}">
+      <thead><tr><th></th>${list.map(D => `<th><a href="${stockHref(D.sym)}"><b>${esc(D.sym)}</b></a>${D.name ? `<div class="small muted cmp-name">${esc(D.name)}</div>` : ""}</th>`).join("")}</tr></thead>
+      <tbody>${groups}</tbody></table></div>
+    <div class="row" style="margin-top:10px"><button type="button" id="cmp-more">${cmpMore ? "Fewer rows" : `${nMore} more rows`}</button></div>
+    <details class="more"><summary>How to read this</summary><p class="small muted" style="margin-bottom:0">
+      Each column has the same figures as that stock's own page (tap the ticker to open it), so the details and the reasons behind each verdict are there.
+      ★ marks the best of these stocks on a row, by the rule under the row's name; rows without a rule have no "best" (a trend or a dividend isn't better or worse on its own).
+      Figures that aren't meaningful (a negative P/E, a fair value that needs forecasts) don't get a ★, nor does a low P/E or forward P/E when profits are at a cyclical high (boom-and-bust companies such as MU: the low P/E comes from peak profits that won't last).
+      This page doesn't use Alpha Vantage requests: analysts' forecasts and worked-out ratio history are used only when already saved, so a stock that hasn't had them loaded may show less here than on its own page.</p></details>`;
+  $("#cmp-more", out).onclick = () => { cmpMore = !cmpMore; cmpDraw(app, list); };
+}
+
 /* ================= Stock page ================= */
 async function viewStock(app, sym, tok){
   const inMine = state.holdings.some(h=>h.symbol===sym);
@@ -1720,6 +1981,7 @@ async function viewStock(app, sym, tok){
         <div class="row">
           ${inMine ? "" : `<button id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
           ${inMine ? `<span class="badge b-tag">In My Stocks</span>` : `<button id="b-mine">+ My Stocks</button>`}
+          ${isFund ? "" : `<a class="btnlink" id="b-cmp" href="${cmpHref([sym])}">⇄ Compare with…</a>`}
         </div>
       </div>
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
@@ -1878,7 +2140,7 @@ async function renderValuation(app, sym, met, prof, tok, price){
       else if(cheap/counted >= 0.6) summary = `<span class="badge b-cheap">Looks cheap</span> on most measures, compared with its own past and its peers.`;
       else summary = `<span class="badge b-inline">Mixed / fairly valued</span>: no clear signal across the measures.`;
     }
-    glance("g-val", gv || (rich/counted >= 0.6 ? `<span class="badge b-rich">Looks expensive</span>` : cheap/counted >= 0.6 ? `<span class="badge b-cheap">Looks cheap</span>` : `<span class="badge b-inline">Mixed</span>`) + (gv ? "" : ` <span class="muted">${cheap} cheaper · ${rich} pricier</span>`));
+    glance("g-val", gv || (rich/counted >= 0.6 ? `<span class="badge b-rich">Looks expensive</span>` : cheap/counted >= 0.6 ? `<span class="badge b-cheap">Looks cheap</span>` : `<span class="badge b-inline">Mixed</span>`) + (gv ? "" : ` <span class="muted">${cheap} cheaper · ${rich} pricier</span>`), el);
     el.innerHTML = `
       ${summary ? `<p style="margin-top:0">${summary}</p>` : ""}
       <div style="overflow-x:auto"><table class="val-table">
@@ -2353,9 +2615,9 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
     }
     let top;
     const loadingAny = methods.some(m => m.loading);
-    fvNow = { sym, price, mid: NaN, future: false, fc: inp.gSrc === "analysts" || !!(inp.av && inp.av.fy1), cyc: !!cy, split: (met && met.metric && met.metric._split) || 1 };
+    fvNow = { sym, price, mid: NaN, future: false, fc: inp.gSrc === "analysts" || !!(inp.av && inp.av.fy1), cyc: !!cy, split: (met && met.metric && met.metric._split) || 1, n: vals.length, loading: loadingAny, inp, a }; el._fv = fvNow;
     if(!vals.length){
-      glance("g-fv", loadingAny ? "…" : "No range (methods don't fit)");
+      glance("g-fv", loadingAny ? "…" : "No range (methods don't fit)", el);
       top = `<p class="muted">${loadingAny ? '<span class="spin"></span> Working it out…' : "None of the methods fit this company, so there's no fair value range. That's common for young or loss-making companies."}</p>`;
     } else {
       const lo = Math.min(...vals), hi = Math.max(...vals), mid = median(vals);
@@ -2366,9 +2628,9 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
       // Price far above every method: the stock is priced on growth or new businesses that today's
       // numbers don't show. "Expensive, 1234% above" isn't useful; lead with what the price assumes.
       const future = price > 3 * hi;
-      Object.assign(fvNow, { lo, hi, mid, future });
-      if(future) glance("g-fv", `<span class="badge b-warn">Priced for future growth</span> ${(price/hi).toFixed(0)}× the top of the range`);
-      else glance("g-fv", `${vb} ${pct}% ${diff < 0 ? "below" : "above"} middle (${fmt(mid)})`);
+      Object.assign(fvNow, { lo, hi, mid, future, noFc });
+      if(future) glance("g-fv", `<span class="badge b-warn">Priced for future growth</span> ${(price/hi).toFixed(0)}× the top of the range`, el);
+      else glance("g-fv", `${vb} ${pct}% ${diff < 0 ? "below" : "above"} middle (${fmt(mid)})`, el);
       const notes = [];
       if(vals.length === 1) notes.push("Only one method fits this company, so treat the range with extra caution.");
       if(hi / lo > 2) notes.push("The methods disagree a lot. Look at which ones make sense for this business.");
@@ -2693,7 +2955,7 @@ function drawSales(el, S, F, unit, avRaw){
 let slHide = null; document.addEventListener("pointerdown", ev => { if(slHide) slHide(ev); }, true);
 function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
   const el = $("#proj", app); if(!el) return;
-  if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so returns can't be worked out.</p>`; glance("g-proj", "No price"); return; }
+  if(!isNum(price)){ el.innerHTML = `<p class="muted">No price available, so returns can't be worked out.</p>`; glance("g-proj", "No price", el); return; }
   const fx = { fin: undefined, finQ: null, peer: null, av: (() => { const v = peek.av(sym); return v ? parseAV(null, { ok: true, v }) : {}; })() };
   let S = null, cur = null, pending = false;
   const R = () => { const s = state.fv[sym]; return s && isNum(s.r) ? s.r : state.settings.fvR; };
@@ -2725,8 +2987,8 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
       </tbody></table>`;
   };
   const status = () => { const s = saved(); return s ? `<span class="badge b-tag">Your saved values</span> <span class="small muted">last changed ${fmtDay(s.at)}</span>` : `<span class="badge b-warn">First look: pre-filled by the app</span> <span class="small muted">change any box to save your own</span>`; };
-  const glanceSet = () => { const r = projRows(S, cur.base, price)[4];
-    glance("g-proj", !isNum(r.eps) ? "Base: a box is empty" : !(r.eps > 0) ? `<span class="pj-loss">Base: loss in ${r.year}</span>` : isNum(r.rLo) && isNum(r.rHi) ? `Base ${r.year}: <b class="${pjCls(r.rLo, r.eps, R())}">${pjRet(r.rLo)}</b>${pjSep(r.rLo)}<b class="${pjCls(r.rHi, r.eps, R())}">${pjRet(r.rHi)}</b> a year` : "Base: no P/E"); };
+  const glanceSet = () => { const r = projRows(S, cur.base, price)[4]; el._base = { r, R: R(), saved: !!saved() };
+    glance("g-proj", !isNum(r.eps) ? "Base: a box is empty" : !(r.eps > 0) ? `<span class="pj-loss">Base: loss in ${r.year}</span>` : isNum(r.rLo) && isNum(r.rHi) ? `Base ${r.year}: <b class="${pjCls(r.rLo, r.eps, R())}">${pjRet(r.rLo)}</b>${pjSep(r.rLo)}<b class="${pjCls(r.rHi, r.eps, R())}">${pjRet(r.rHi)}</b> a year` : "Base: no P/E", el); };
   const refresh = c => { // results only (boxes untouched while typing)
     const rows = projRows(S, cur[c], price), tb = $(`table.pj-t[data-case="${c}"]`, el);
     if(tb) [...tb.querySelectorAll("tr.pj-yr")].forEach((tr, i) => { const rc = resCells(rows[i]); tr.querySelectorAll("td[data-r]").forEach(td => td.innerHTML = rc[+td.dataset.r]); tr.nextElementSibling.firstElementChild.innerHTML = subLine(rows[i]); });
@@ -2738,7 +3000,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     pending = false;
     if(fx.fin === undefined){ el.innerHTML = `<span class="spin"></span> Loading the company's reports…`; return; }
     S = projStart(met, prof, price, fx.fin, fx.finQ, fx.av, fx.peer, (() => { const s = state.fv[sym]; return s && isNum(s.cy) ? s.cy : 5; })(), peek.earn(sym));
-    if(!S){ el.innerHTML = `<p class="muted">Not enough data (sales, profit and share count) to project this company.</p>`; glance("g-proj", "Not enough data"); return; }
+    if(!S){ el.innerHTML = `<p class="muted">Not enough data (sales, profit and share count) to project this company.</p>`; glance("g-proj", "Not enough data", el); return; }
     cur = values();
     const yrs = window.matchMedia("(max-width:700px)").matches ? "" : " open";
     const pr = S.pe ? `its usual P/E ${fmtX(S.pe.lo)}–${fmtX(S.pe.hi)} (middle ${fmtX(S.pe.mid)})` : "no usual P/E (type your own)";
@@ -2779,7 +3041,11 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
 }
 
 /* ================= At a glance strip ================= */
-function glance(id, html){ const el = document.getElementById(id); if(el){ el.innerHTML = html; el.classList.remove("muted"); } }
+// near: an element of the page section calling it. Inside the compare page's hidden copy of a stock page (7.22, .shadow-stock)
+// the tile is that copy's own, and the compare page is told (box._onGlance); on a stock page nothing changes.
+function glance(id, html, near){ const box = near && near.closest && near.closest(".shadow-stock");
+  const el = box ? box.querySelector("#" + id) : document.getElementById(id); if(el){ el.innerHTML = html; el.classList.remove("muted"); }
+  if(box && box._onGlance) box._onGlance(id, html); }
 // Highlight the section in view in the jump bar.
 window.addEventListener("scroll", () => {
   const jb = document.getElementById("jump"); if(!jb) return;
@@ -2798,6 +3064,12 @@ function renderChartCard(app, sym, tok){
   el.innerHTML = `<span class="spin"></span> Loading price history…`;
   tdDaily(sym).then(h => { if(live(tok)) drawChart(el, h); }, e => { if(live(tok)){ el.innerHTML = `<p class="small muted" style="margin:0">${esc(e.message)}</p>`; glance("g-tech", "No price history"); } });
 }
+// At a glance "Trend" tile: trend label, price vs its 200-day average, RSI, death-cross warning (shared with the compare page)
+function techGlance(h, tx){ tx = tx || technicals(h); const last = h.c.length - 1, px = h.c[last], m200 = sma(h.c, 200);
+  const tl = trendLabel(px, tx.m50, tx.m200);
+  return (tl ? `<span class="badge ${tl.k}" title="${esc(tl.why)}">${tl.word}</span> ` : "") +
+    (isNum(m200[last]) ? `${fmtPct((px/m200[last]-1)*100,0)} vs 200-day` : "") + (isNum(tx.rsiNow) ? ` · RSI ${tx.rsiNow.toFixed(0)}${tx.rsiNow >= 70 ? " overbought" : tx.rsiNow <= 30 ? " oversold" : ""}` : "") +
+    (tx.approach ? ` <span class="badge b-warn" title="${esc(approachWhy(tx))}">Death cross ${wksShort(tx.approach.weeks)}</span>` : ""); }
 function drawChart(el, h){
   const m50 = sma(h.c, 50), m200 = sma(h.c, 200), n = h.c.length, last = n - 1, tx = technicals(h);
   const months = (CHART_RANGES.find(r => r[0] === chartRange) || CHART_RANGES[2])[1];
@@ -2807,10 +3079,7 @@ function drawChart(el, h){
   const px = h.c[last];
   const vs = (ma, name) => isNum(ma) ? `<b>${px >= ma ? "above" : "below"}</b> its ${name} (${fmt(ma)}, ${fmtPct((px/ma-1)*100,1)})` : `n/a vs its ${name} (needs more history)`;
   const summary = `Last close ${fmt(px)} is ${vs(m50[last], "50-day average")} and ${vs(m200[last], "200-day average")}.`;
-  const tl = trendLabel(px, tx.m50, tx.m200);
-  glance("g-tech", (tl ? `<span class="badge ${tl.k}" title="${esc(tl.why)}">${tl.word}</span> ` : "") +
-    (isNum(m200[last]) ? `${fmtPct((px/m200[last]-1)*100,0)} vs 200-day` : "") + (isNum(tx.rsiNow) ? ` · RSI ${tx.rsiNow.toFixed(0)}${tx.rsiNow >= 70 ? " overbought" : tx.rsiNow <= 30 ? " oversold" : ""}` : "") +
-    (tx.approach ? ` <span class="badge b-warn" title="${esc(approachWhy(tx))}">Death cross ${wksShort(tx.approach.weeks)}</span>` : ""));
+  glance("g-tech", techGlance(h, tx), el);
   const first = h.c[i0], chg = (px/first - 1)*100;
   // geometry (viewBox units; scales to the card width)
   const W = 1000, PH = 260, VH = 70, GAP = 14, RH = 70, L = 8, R = 64, T = 10, B = 22;
@@ -3114,7 +3383,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
       <div class="hp-v">${isNum(p.s) ? Math.round(p.s*20) + "<span class='muted'>/20</span>" : '<span class="muted small">n/a</span>'}</div>
     </div>`;
   const total = H.total;
-  if(finState !== "loading" || isNum(total)) glance("g-health", isNum(total) ? `<span class="badge ${scoreClass(total)}">${total}/100 ${scoreWord(total)}</span>${flags.some(f => f[0] === "b-rich") ? ` <span class="muted">${flags.filter(f => f[0] === "b-rich").length} red flag${flags.filter(f => f[0] === "b-rich").length > 1 ? "s" : ""}</span>` : ""}` : "Not enough data");
+  if(finState !== "loading" || isNum(total)) glance("g-health", isNum(total) ? `<span class="badge ${scoreClass(total)}">${total}/100 ${scoreWord(total)}</span>${flags.some(f => f[0] === "b-rich") ? ` <span class="muted">${flags.filter(f => f[0] === "b-rich").length} red flag${flags.filter(f => f[0] === "b-rich").length > 1 ? "s" : ""}</span>` : ""}` : "Not enough data", el);
   el.innerHTML = `
     <div class="hs">
       <div class="hs-ring" style="--p:${isNum(total)?total:0};--c:${scoreColor(total)}"><div><b>${isNum(total)?total:"—"}</b><span>of 100</span></div></div>
@@ -3450,17 +3719,17 @@ function recTarget(app, sym){
 }
 function renderRec(app, r){
   const el = $("#rec", app);
-  if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings"); return; }
+  if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings", el); return; }
   const cur = r[0], old = r.find(x => x.period <= ymd(new Date(new Date(cur.period).getTime() - 85*864e5))) || r[r.length-1];
   const parts = [["strongBuy","Strong buy","#15803d"],["buy","Buy","#4ade80"],["hold","Hold","#cbd5e1"],["sell","Sell","#f87171"],["strongSell","Strong sell","#b91c1c"]];
   const tot = parts.reduce((a,[k])=>a+(cur[k]||0),0);
-  if(!tot){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings"); return; }
+  if(!tot){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings", el); return; }
   const score = x => { const t = parts.reduce((a,[k])=>a+(x[k]||0),0); return t ? ((x.strongBuy||0)*2+(x.buy||0)-(x.sell||0)-(x.strongSell||0)*2)/t : NaN; };
   const sNow = score(cur), sOld = old && old!==cur ? score(old) : NaN;
   const buyish = (cur.strongBuy||0)+(cur.buy||0), sellish=(cur.sell||0)+(cur.strongSell||0);
   let trend = "";
   if(isNum(sOld)){ const d = sNow - sOld; trend = Math.abs(d) < 0.1 ? "Roughly unchanged vs ~3 months ago." : d > 0 ? "<span class='up'>More positive</span> than ~3 months ago." : "<span class='down'>Less positive</span> than ~3 months ago."; }
-  glance("g-rec", `<b class="up">${buyish} buy</b> · ${cur.hold||0} hold · <b class="down">${sellish} sell</b>${trend.includes("Less") ? ' <span class="muted">· less positive</span>' : trend.includes("More") ? ' <span class="muted">· more positive</span>' : ""}`);
+  glance("g-rec", `<b class="up">${buyish} buy</b> · ${cur.hold||0} hold · <b class="down">${sellish} sell</b>${trend.includes("Less") ? ' <span class="muted">· less positive</span>' : trend.includes("More") ? ' <span class="muted">· more positive</span>' : ""}`, el);
   el.innerHTML = `
     <p style="margin-top:0"><b>${tot}</b> analysts: <b class="up">${buyish} buy</b> · <b>${cur.hold||0} hold</b> · <b class="down">${sellish} sell</b> <span class="small muted">(${esc(cur.period)})</span></p>
     <div class="recbar">${parts.map(([k,,c])=>cur[k]?`<div style="width:${cur[k]/tot*100}%;background:${c}" title="${k}: ${cur[k]}"></div>`:"").join("")}</div>
