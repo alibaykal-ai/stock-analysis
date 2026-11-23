@@ -392,7 +392,9 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 .cmp-r{text-align:left}
 #cmp-add{margin-top:10px}
 #cmp-add summary{cursor:pointer;padding:6px 0}
-.cmp-wrap{overflow-x:auto}
+.cmp-wrap{overflow:visible} /* no overflow here: it would stop the sticky ticker row below */
+/* Ticker row stays under the app's top bar while scrolling (owner 23 Nov: "when I scroll down I lose the stock ticker") */
+.cmp-t thead th{position:sticky;top:var(--cmp-top,0px);z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)}
 .cmp-t{table-layout:fixed}
 .cmp-t th,.cmp-t td{vertical-align:top}
 .cmp-t thead th{vertical-align:bottom}
@@ -410,7 +412,9 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 @media (max-width:700px){
   .cmp-t{min-width:0}
   .cmp-t th,.cmp-t td{padding:8px 5px;font-size:14px}
-  .cmp-t th[scope=row]{width:30%;position:sticky;left:0;background:var(--card);z-index:1}
+  .cmp-t th[scope=row]{width:30%}
+  .cmp-t thead th{padding-top:4px;padding-bottom:4px}
+  .cmp-name{display:none}
   .cmp-t th[scope=row] .small{font-size:12px}
   .cmp-t.cmp-n3 th[scope=row]{width:26%}
   .cmp-t td .small,.cmp-s{font-size:12px}
@@ -449,7 +453,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.22</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.23</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1950,6 +1954,7 @@ function cmpDraw(app, list){
       `<td class="${best[i] === j ? "cmp-best" : ""}"><div class="cmp-v">${best[i] === j ? `<span class="cmp-star" title="Best of these on this row: ${esc(r.rule || "")}">★</span> ` : ""}${c.h}</div>${c.s ? `<div class="small cmp-s">${c.s}</div>` : ""}</td>`).join("")}</tr>`;
   });
   const nMore = CMP_ROWS.filter(r => r.more).length;
+  const hdr = $("header");
   out.innerHTML = `
     <p style="margin-top:0">${loading ? `<span class="spin"></span> Loading… ` : ""}${compared ? `<b>★ most often:</b> ${leaders.map(esc).join(" and ")} (${top} of ${compared} rows) <span class="small muted">· ${list.map((D, j) => `${esc(D.sym)} ${stars[j]}`).join(" · ")}. A count, not a verdict: the rows don't all matter equally.</span>` : loading ? "" : `<span class="muted">Not enough figures to compare.</span>`}</p>
     <div class="cmp-wrap"><table class="cmp-t cmp-n${n}">
@@ -1962,6 +1967,7 @@ function cmpDraw(app, list){
       Figures that aren't meaningful (a negative P/E, a fair value that needs forecasts) don't get a ★, nor does a low P/E or forward P/E when profits are at a cyclical high (boom-and-bust companies such as MU: the low P/E comes from peak profits that won't last).
       This page doesn't use Alpha Vantage requests: analysts' forecasts and worked-out ratio history are used only when already saved, so a stock that hasn't had them loaded may show less here than on its own page.</p></details>`;
   $("#cmp-more", out).onclick = () => { cmpMore = !cmpMore; cmpDraw(app, list); };
+  if(hdr) out.style.setProperty("--cmp-top", hdr.offsetHeight + "px"); // the ticker row sticks just under the top bar
 }
 
 /* ================= Stock page ================= */
