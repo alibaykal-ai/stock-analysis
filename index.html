@@ -479,7 +479,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.26</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.27</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1929,7 +1929,7 @@ function viewCompare(app, syms, tok){
   app.innerHTML = `${keyNotice()}
     <div class="card" id="cmp-pick">
       <h2 style="margin-bottom:6px">Compare stocks</h2>
-      ${syms.length ? `<div class="cmp-chips" id="cmp-sel">${syms.map(s => chip(s, false)).join("")}${syms.length > 1 ? `<button type="button" class="link" id="cmp-clear">Start again</button><button type="button" id="cmp-share">⤴ Share PDF</button>` : ""}</div>`
+      ${syms.length ? `<div class="cmp-chips" id="cmp-sel">${syms.map(s => chip(s, false)).join("")}${syms.length > 1 ? `<button type="button" class="link" id="cmp-clear">Start again</button><button type="button" class="primary" id="cmp-share">⤴ Share PDF</button>` : ""}</div>`
         : `<p class="small muted" style="margin:0 0 8px">Pick 2 or 3 stocks to see them side by side.</p>
            ${last && last.length >= 2 ? `<p style="margin:0 0 8px"><a class="cmp-last" href="${cmpHref(last)}">Last compared: <b>${last.map(esc).join(" · ")}</b></a></p>` : ""}`}
       ${full ? `<p class="small muted" style="margin:8px 0 0">Up to ${CMP_MAX} stocks: remove one (×) to pick another.</p>` : `
@@ -2162,7 +2162,7 @@ async function viewStock(app, sym, tok){
           ${inMine ? "" : `<button id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
           ${inMine ? `<span class="badge b-tag mine">In My Stocks</span>` : `<button id="b-mine">+ My Stocks</button>`}
           ${isFund ? "" : `<a class="btnlink" id="b-cmp" href="${cmpHref([sym])}">⇄ Compare with…</a>`}
-          <button type="button" id="b-share">⤴ Share PDF</button>
+          <button type="button" class="primary" id="b-share">⤴ Share PDF</button>
         </div>
       </div>
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
