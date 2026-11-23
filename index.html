@@ -433,6 +433,12 @@ html.sharing{--bg:#f6f7f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#
   --mid:#92400e; --midbg:#fef3c7; --neutralbg:#f1f5f9; --info:#1d4ed8; --infobg:#dbeafe; color-scheme:light}
 html.sharing #c-chart,html.sharing #c-sales{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
 html.sharing:not(.sharing-mine) #app .mine{display:none!important}
+/* Short version (7.26): only the verdict part of Fair value and the three case lines of Projections */
+html.sharing-short #c-fv #fv-more,html.sharing-short #c-fv #ov,html.sharing-short #c-proj details{display:none!important}
+.shseg{display:flex;gap:6px}
+.shseg button{flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;min-height:44px}
+.shseg button span{font-size:12px;color:var(--muted)}
+.shseg button[aria-pressed="true"]{border-color:var(--accent);background:var(--infobg);color:var(--ink)}
 html.sharing #app button,html.sharing #app .btnlink,html.sharing #app .abbtn,html.sharing #app .fvctl,html.sharing #app .tabs{display:none!important}
 html.sharing .cmp-t thead th{position:static}
 html.sharing #app details:not([open]){display:none!important} /* folded sections stay out of the PDF (the picture library would draw them anyway) */
@@ -473,7 +479,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.25</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.26</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2019,17 +2025,26 @@ async function shareStart(kind, ids, title){
   pop.hidden = false; back.hidden = false; back.onclick = () => { if(!shBusy) shClose(); };
   const say = h => { pop.innerHTML = `<div class="rqp-h"><b>Share as PDF</b>${shBusy ? "" : `<button type="button" class="rqp-x" data-shx aria-label="Close">×</button>`}</div>${h}`; const x = pop.querySelector("[data-shx]"); if(x) x.onclick = shClose; };
   if(shareBlocks(kind).some(b => [...b.querySelectorAll(".spin")].some(e => e.offsetParent))){ say(`<p style="margin:0">The page is still loading. Try again in a moment, when it has finished.</p>`); return; }
-  // 7.25 (owner): ask first whether to include your own details, when the page has any (a stock you own)
-  let mine = false;
-  if(kind === "stock" && document.querySelector("#app .mine")){
-    const aiNow = !!document.querySelector("#app #ai .ai-text");
-    say(`<p style="margin:0 0 6px"><b>Include your own details?</b></p>
-      <p class="small muted" style="margin:0 0 12px">Your value and shares in ${esc(ids[0])} and "In My Stocks"${aiNow ? ", and the AI summary (it can mention what you own)" : ""}.</p>
-      <div class="row"><button type="button" class="primary" id="sh-no">Leave them out</button><button type="button" id="sh-yes">Include them</button></div>`);
-    const ans = await new Promise(res => { $("#sh-no", pop).onclick = () => res(false); $("#sh-yes", pop).onclick = () => res(true);
+  // Stock pages: one window of choices first (7.26, owner: "he won't read 17 pages"): Short (the gist, about 2–3 pages) or
+  // Full (all sections), remembered on this device; on a stock you own also your own details (7.25), left out unless chosen.
+  let mine = false, short = false;
+  if(kind === "stock"){
+    const own = !!document.querySelector("#app .mine"), aiNow = !!document.querySelector("#app #ai .ai-text");
+    short = (localStorage.getItem("sa.shareLen") || "short") === "short";
+    const seg = (id, a, b, on) => `<div class="shseg" role="group">${[a, b].map(([v, l, d], k) => `<button type="button" data-${id}="${v}" aria-pressed="${(k === 0) === on}"><b>${l}</b><span>${d}</span></button>`).join("")}</div>`;
+    say(`<p style="margin:0 0 6px"><b>How much?</b></p>
+      ${seg("len", ["short", "Short", `the gist, ${window.matchMedia("(max-width:700px)").matches ? "about 3 pages" : "1–2 pages"}`], ["full", "Full", "every section"], short)}
+      <p class="small muted" style="margin:6px 0 12px">Short: the top of the page, At a glance, the fair value verdict and the Bear / Base / Bull lines${aiNow ? " (and the AI summary if you include your own details)" : ""}.</p>
+      ${own ? `<p style="margin:0 0 6px"><b>Include your own details?</b></p>
+      ${seg("mine", ["no", "Leave them out", ""], ["yes", "Include them", ""], true)}
+      <p class="small muted" style="margin:6px 0 12px">Your value and shares in ${esc(ids[0])} and "In My Stocks"${aiNow ? ", and the AI summary (it can mention what you own)" : ""}.</p>` : ""}
+      <div class="row"><button type="button" class="primary" id="sh-make">Make PDF</button></div>`);
+    pop.querySelectorAll(".shseg button").forEach(b => b.onclick = () => b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))));
+    const ans = await new Promise(res => { $("#sh-make", pop).onclick = () => res({ short: !!pop.querySelector('[data-len="short"][aria-pressed="true"]'), mine: !!pop.querySelector('[data-mine="yes"][aria-pressed="true"]') });
       const x = pop.querySelector("[data-shx]"); if(x) x.onclick = () => { shClose(); res(null); }; back.onclick = () => { shClose(); res(null); }; });
-    if(ans === null || pop.hidden) return;
-    mine = ans; back.onclick = () => { if(!shBusy) shClose(); };
+    if(!ans || pop.hidden) return;
+    ({ short, mine } = ans); try{ localStorage.setItem("sa.shareLen", short ? "short" : "full"); }catch(e){}
+    back.onclick = () => { if(!shBusy) shClose(); };
   }
   shBusy = true; say(`<p><span class="spin"></span> Making the PDF…</p>`);
   const tok = renderToken;
@@ -2037,10 +2052,10 @@ async function shareStart(kind, ids, title){
   try{
     const L = await loadShareLibs();
     if(tok !== renderToken) throw new Error("You left the page.");
-    ({ blob, pages, phonePg } = await shareBuild(L, kind, ids, title, mine, n => say(`<p><span class="spin"></span> Making the PDF… page ${n}</p>`)));
+    ({ blob, pages, phonePg } = await shareBuild(L, kind, ids, title, mine, short, n => say(`<p><span class="spin"></span> Making the PDF… page ${n}</p>`)));
   }catch(e){ shBusy = false; say(`<p class="err">${esc(e.message || String(e))}</p>`); return; }
   shBusy = false;
-  const name = `${title.replace(/[^\w.-]+/g, " ").trim().replace(/\s+/g, "-")}${mine ? "-with-holdings" : ""}-${ymd(new Date())}.pdf`;
+  const name = `${title.replace(/[^\w.-]+/g, " ").trim().replace(/\s+/g, "-")}${short ? "-short" : ""}${mine ? "-with-holdings" : ""}-${ymd(new Date())}.pdf`;
   const file = new File([blob], name, { type: "application/pdf" });
   shUrl = URL.createObjectURL(blob);
   const canShare = !!(navigator.canShare && navigator.share && navigator.canShare({ files: [file] }));
@@ -2052,12 +2067,13 @@ async function shareStart(kind, ids, title){
   if(sb) sb.onclick = async () => { try{ await navigator.share({ files: [file], title }); }catch(e){ if(e && e.name !== "AbortError") say(`<p class="err">Couldn't open the share options (${esc(e.message || e.name)}). Use Save PDF instead.</p>`); } };
 }
 // Blocks of the page to put in the PDF, in order
-function shareBlocks(kind, mine){
+function shareBlocks(kind, mine, short){
   const app = document.getElementById("app");
   if(kind === "compare") return [document.getElementById("cmp-out")].filter(Boolean);
+  if(short) return ["c-top", "c-glance", ...(mine && app.querySelector("#ai .ai-text") ? ["c-ai"] : []), "c-fv", "c-proj"].map(id => app.querySelector("#" + id)).filter(Boolean);
   return ["c-top", "c-glance", ...(mine && app.querySelector("#ai .ai-text") ? ["c-ai"] : []), "c-chart", "c-val", "c-fv", "c-sales", "c-proj", "c-health", "c-rec", "c-ins"].map(id => app.querySelector("#" + id)).filter(Boolean);
 }
-async function shareBuild(L, kind, ids, title, mine, progress){
+async function shareBuild(L, kind, ids, title, mine, short, progress){
   const root = document.documentElement, app = document.getElementById("app");
   const stats = document.getElementById("s-stats"), statsOpen = stats && stats.classList.contains("open");
   // Title block (first page) and the note at the end
@@ -2065,14 +2081,14 @@ async function shareBuild(L, kind, ids, title, mine, progress){
   const head = document.createElement("div"); head.className = "card share-only"; head.id = "sh-head";
   head.innerHTML = `<div class="small muted">Stock Analysis · ${esc(when)}</div><h1 style="margin:4px 0 0">${esc(title)}</h1>`;
   const foot = document.createElement("div"); foot.className = "card share-only small muted"; foot.id = "sh-foot";
-  foot.textContent = "For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans, usually delayed). Fair values and forecasts are estimates.";
+  foot.textContent = (short ? "Short version: the full analysis has the valuation table, sales, health, analysts and insiders. " : "") + "For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans, usually delayed). Fair values and forecasts are estimates.";
   // Boxes you type into (projections) show their values as text: the picture library draws number boxes empty
   const vals = [...app.querySelectorAll("input.pj-in")].map(i => { const sp = document.createElement("span"); sp.className = "sh-val"; sp.textContent = i.value || "—"; i.after(sp); return sp; });
-  root.classList.add("sharing"); root.classList.toggle("sharing-mine", !!mine); if(stats) stats.classList.add("open");
+  root.classList.add("sharing"); root.classList.toggle("sharing-mine", !!mine); root.classList.toggle("sharing-short", !!short); if(stats) stats.classList.add("open");
   app.prepend(head); app.append(foot);
   try{
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const blocks = [head, ...shareBlocks(kind, mine), foot];
+    const blocks = [head, ...shareBlocks(kind, mine, short), foot];
     const W = Math.max(...blocks.map(b => b.getBoundingClientRect().width));
     const S = Math.min(3, 1650 / W), M = 16, GAP = 12, FOOT = 26; // scale, margins and gaps in page (CSS) pixels
     const phonePg = W < 600, PW = W + 2 * M, PH = Math.round(PW * (phonePg ? 2 : Math.SQRT2)), avail = PH - M - FOOT; // iPhone: phone-shaped pages (read on phones); Mac: A4
@@ -2090,7 +2106,7 @@ async function shareBuild(L, kind, ids, title, mine, progress){
       while(s < B.h - 0.5){
         const extra = cont && B.hd ? B.hd.h : 0, room = avail - y - extra, left = B.h - s;
         if(left <= room + 16){ pagesP[pagesP.length - 1].push({ B, s, e: B.h, y, rep: cont && B.hd }); y += left + extra + GAP; break; }
-        if(y > M && left + extra <= avail - M){ pagesP.push([]); y = M; continue; } // fits whole on a fresh page
+        if(y > M && left + extra <= avail - M && !(short && room > avail * 0.3)){ pagesP.push([]); y = M; continue; } // fits whole on a fresh page (Short: fill the page first, cut between rows)
         let e = 0; for(const c of B.cuts) if(c > s + 20 && c <= s + room) e = c;
         if(!e || e - s < room * 0.25){ if(y > M){ pagesP.push([]); y = M; continue; } e = s + room; } // nothing to cut at: next page, else a hard cut
         pagesP[pagesP.length - 1].push({ B, s, e, y, rep: cont && B.hd }); pagesP.push([]); y = M; s = e; cont = true;
@@ -2124,7 +2140,7 @@ async function shareBuild(L, kind, ids, title, mine, progress){
     }
     return { blob: pdf.output("blob"), pages: pagesP.length, phonePg };
   } finally {
-    head.remove(); foot.remove(); vals.forEach(v => v.remove()); root.classList.remove("sharing", "sharing-mine"); if(stats && !statsOpen) stats.classList.remove("open");
+    head.remove(); foot.remove(); vals.forEach(v => v.remove()); root.classList.remove("sharing", "sharing-mine", "sharing-short"); if(stats && !statsOpen) stats.classList.remove("open");
   }
 }
 
