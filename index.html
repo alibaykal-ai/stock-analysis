@@ -207,6 +207,15 @@ details.more>summary{cursor:pointer;color:var(--accent);font-weight:500;padding:
 .rqp-sub{font-size:13px;color:var(--muted)}
 .rqp-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:9px;font-size:13px;color:var(--muted)}
 .rqback{position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.35)}
+/* Company profile pop-up (7.21): opened from "About" in the grey line under the name; same panel / phone sheet as the request ring */
+.abbtn{border:0;background:none;color:var(--accent);font:inherit;padding:0;cursor:pointer;white-space:nowrap}
+.abbtn:hover{text-decoration:underline}
+#abpop{width:440px}
+#abpop .ab-d{color:var(--muted);margin:0 0 8px}
+#abpop p{margin:0 0 8px}
+#abpop .ab-f{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+#abpop .ab-f span{color:var(--muted)} #abpop .ab-f b{font-weight:600;overflow-wrap:anywhere}
+#abpop details summary{color:var(--accent);cursor:pointer;margin:0 0 8px}
 .coming{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:0 0 12px;background:var(--neutralbg)}
 .coming ul{margin:6px 0 0;padding-left:18px}.coming li{margin:3px 0}
 footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color:var(--muted)}
@@ -307,6 +316,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .rqpop{left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;max-height:85vh;overflow:auto;border-radius:18px 18px 0 0;border-bottom:0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));font-size:15px}
   .rqpop::before{content:"";display:block;width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
   .rqp-x{display:inline-flex;align-items:center;justify-content:center}
+  .abbtn{padding:12px 4px;margin:-12px 0} #abpop .ab-f{font-size:14px} #abpop details summary{min-height:44px;display:flex;align-items:center;margin:0}
   .rqp-sub,.rqp-foot{font-size:14px}
   .rqp-foot a{display:inline-flex;align-items:center;min-height:44px}
   #rqfoot a{display:inline-block;padding:6px 0;min-height:44px;line-height:32px}
@@ -386,6 +396,8 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 </div></header>
 <div id="rqback" class="rqback" hidden></div>
 <div id="rqpop" class="rqpop" role="dialog" aria-label="Requests" hidden></div>
+<div id="abback" class="rqback" hidden></div>
+<div id="abpop" class="rqpop" role="dialog" aria-label="About this company" hidden></div>
 <main id="app"></main>
 <nav class="tabbar" aria-label="Main">
   <a href="#home" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>My Stocks</a>
@@ -394,7 +406,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.20</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.21</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -833,6 +845,90 @@ async function tdUsage(){
     rqLoad().tdx = { t: rqNow(), n: +j.daily_usage, lim: +j.plan_daily_limit || RQ.td.day }; rqFlush(); rqShow(); }
   catch(e){ const m2 = document.getElementById("tdumsg"); if(m2){ m2.className = "err"; m2.textContent = e.message || "Couldn't reach Twelve Data."; } }
 }
+/* ================= Company profile (7.21) ================= */
+// Owner (23 Nov): "don't let it clutter this screen… show it as a popup when I click on it". "About" in the grey line under the
+// name opens a panel (Mac) or a sheet from the bottom (iPhone). What the company does: Wikipedia's article intro (free, no key,
+// no daily limit; asked only when About is tapped, kept a month). The article is found by ticker in Wikidata (a stock listed on
+// Nasdaq, NYSE or NYSE American with that ticker, checked 23 Nov: 16 of the owner's 19 US stocks and funds), else by searching
+// Wikipedia for the company's name, kept only if its description sounds like a company or fund. The facts (sector, country,
+// exchange, market cap, listed since, website) are Finnhub's, already loaded. No article: the facts alone, said so.
+const AB_KEEP = 30 * 864e5, WIKI = "https://en.wikipedia.org/w/api.php";
+const abName = n => String(n || "").replace(/[,.]/g, " ").replace(/\b(inc|incorporated|corp|corporation|co|ltd|limited|plc|class [a-c]|adr|ads|sa|nv|n v|ag|se|common stock|ordinary shares)\b/gi, " ").replace(/\s+/g, " ").trim();
+const abWords = n => abName(n).toLowerCase().split(" ").filter(w => w.length > 1 && !/^(the|and|of|group|holdings?|technologies|technology)$/.test(w));
+const abCo = d => /\b(company|corporation|conglomerate|manufacturer|maker|producer|retailer|bank|insurer|insurance|business|firm|provider|operator|developer|brand|fund|trust|etf|holding|chain|airline|utility|miner|platform|lender)\b/i.test(d || "");
+async function wikiJson(u){ const r = await fetch(u); if(!r.ok) throw new ApiError(r.status === 429 ? "Wikipedia is busy right now. Try again in a minute." : `Wikipedia error (${r.status}).`, "http"); return r.json(); }
+async function abFind(sym, name){
+  // 1) Wikidata: the item listed under this ticker on a US exchange, with an English Wikipedia article
+  try{
+    const q = `SELECT ?article ?l WHERE { ?item p:P414 ?st . ?st pq:P249 "${sym.replace(/[^A-Z0-9.\-]/gi, "")}" ; ps:P414 ?ex . VALUES ?ex { wd:Q82059 wd:Q13677 wd:Q846626 } ?article schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . OPTIONAL { ?item rdfs:label ?l FILTER(lang(?l) = "en") } }`;
+    const j = await wikiJson("https://query.wikidata.org/sparql?format=json&query=" + encodeURIComponent(q));
+    const c = [...new Map((j.results && j.results.bindings || []).map(b => [b.article.value, { title: decodeURIComponent(b.article.value.split("/wiki/")[1] || "").replace(/_/g, " "), label: b.l ? b.l.value : "" }])).values()];
+    if(c.length){ const w = abWords(name), score = x => w.filter(t => (x.title + " " + x.label).toLowerCase().includes(t)).length;
+      return c.sort((a, b) => score(b) - score(a))[0].title; }
+  }catch(e){}
+  // 2) Wikipedia search for the company's name
+  const nm = abName(name); if(!nm) return null;
+  const j = await wikiJson(`${WIKI}?action=query&generator=search&gsrsearch=${encodeURIComponent(nm)}&gsrlimit=5&prop=description&format=json&formatversion=2&origin=*`);
+  const pages = (j.query && j.query.pages || []).sort((a, b) => a.index - b.index), w = abWords(name);
+  const hit = pages.find(p => abCo(p.description) && w.length && p.title.toLowerCase().includes(w[0]));
+  return hit ? hit.title : null;
+}
+// The article's introduction as plain text; pronunciation brackets removed.
+async function abWiki(sym, name){
+  const ck = "wiki:" + sym, c = cacheGet(ck); if(c !== undefined) return c;
+  const title = await abFind(sym, name);
+  let v = { none: true };
+  if(title){
+    const j = await wikiJson(`${WIKI}?action=query&prop=extracts|description|info&exintro=1&explaintext=1&inprop=url&redirects=1&titles=${encodeURIComponent(title)}&format=json&formatversion=2&origin=*`);
+    const pg = j.query && j.query.pages && j.query.pages[0];
+    if(pg && pg.extract){
+      const txt = pg.extract.replace(/\s*\((?:\s[^()]*|[^()]*(?:ə|ˈ|ˌ|listen|pronounced|IPA)[^()]*)\)/g, "").replace(/\(\s*;?\s*\)/g, "").replace(/ {2,}/g, " ");
+      v = { title: pg.title, url: pg.fullurl || `https://en.wikipedia.org/wiki/${encodeURIComponent(pg.title.replace(/ /g, "_"))}`, desc: pg.description || "", paras: txt.split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 6), at: Date.now() };
+    }
+  }
+  cacheSet(ck, v, AB_KEEP); return v;
+}
+function abFacts(prof, holding, mm){
+  const f = [];
+  if(prof.finnhubIndustry) f.push(["Sector", esc(prof.finnhubIndustry)]);
+  if(prof.country){ let c = prof.country; try{ c = new Intl.DisplayNames(["en"], { type: "region" }).of(c) || c; }catch(e){} f.push(["Country", esc(c)]); }
+  if(prof.exchange){ const x = String(prof.exchange); f.push(["Exchange", esc(/nasdaq/i.test(x) ? "Nasdaq" : /new york stock exchange|^nyse$/i.test(x) ? "NYSE" : /nyse american|nyse mkt/i.test(x) ? "NYSE American" : x.toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase()))]); }
+  const cap = prof.marketCapitalization ?? (mm && mm.marketCapitalization); if(isNum(cap) && cap > 0) f.push(["Market cap", (String(prof.currency || "USD").toUpperCase() === "USD" ? "$" : "") + fmtCap(cap) + (prof.currency && String(prof.currency).toUpperCase() !== "USD" ? " " + esc(prof.currency) : "")]);
+  if(prof.ipo) f.push(["Listed since", fmtDay(prof.ipo)]);
+  if(prof.weburl) f.push(["Website", `<a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""))}</a>`]);
+  if(holding && holding.type && holding.type !== "stock") f.push(["Type", esc(holding.type.toUpperCase())]);
+  return f.length ? `<div class="ab-f">${f.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join("")}</div>` : "";
+}
+function abHtml(sym, name, w, facts, err){
+  const head = `<div class="rqp-h"><b>About ${esc(name || sym)}</b><button type="button" class="rqp-x" data-abx aria-label="Close">×</button></div>`;
+  if(err) return head + `<p class="err small">${esc(err)}</p>` + facts;
+  if(!w) return head + `<p class="muted"><span class="spin"></span> Looking up ${esc(name || sym)} on Wikipedia…</p>` + facts;
+  if(w.none) return head + `<p class="muted small">No Wikipedia article found for this company, so only the basic facts are shown.</p>` + facts + `<p class="small muted" style="margin:0">Facts from Finnhub.</p>`;
+  const [first, ...rest] = w.paras;
+  return head + (w.desc ? `<p class="ab-d small">${esc(w.desc.charAt(0).toUpperCase() + w.desc.slice(1))}</p>` : "") + `<p>${esc(first)}</p>`
+    + (rest.length ? `<details><summary>More from Wikipedia</summary>${rest.map(x => `<p>${esc(x)}</p>`).join("")}</details>` : "")
+    + facts + `<p class="small muted" style="margin:0">Description: <a href="${esc(w.url)}" target="_blank" rel="noopener">Wikipedia, “${esc(w.title)}”</a> (written by volunteers; saved ${fmtDay(ymd(new Date(w.at)))}, refreshed monthly). Facts: Finnhub.</p>`;
+}
+let abFrom = null;
+function abPlace(pop, trigger){
+  if(rqPhone()) return; const r = trigger.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  let top = r.bottom + 8; if(top + h > innerHeight - 8) top = Math.max(8, innerHeight - h - 8);
+  pop.style.left = Math.min(Math.max(12, r.left), innerWidth - w - 12) + "px"; pop.style.top = top + "px"; }
+async function abOpen(trigger, sym, prof, holding, mm){
+  const pop = document.getElementById("abpop"); if(!pop) return;
+  if(!pop.hidden && abFrom === trigger){ abClose(); return; }
+  rqClose(); abFrom = trigger;
+  const name = prof.name || (holding && holding.name) || sym, facts = abFacts(prof, holding, mm);
+  const show = (w, err) => { if(abFrom !== trigger) return; pop.innerHTML = abHtml(sym, name, w, facts, err); pop.hidden = false; document.getElementById("abback").hidden = !rqPhone(); trigger.setAttribute("aria-expanded", "true"); abPlace(pop, trigger); };
+  const c = cacheGet("wiki:" + sym); show(c);
+  if(c === undefined){ try{ show(await abWiki(sym, name)); }catch(e){ show(null, e.message || "Couldn't reach Wikipedia."); } }
+}
+function abClose(){ const pop = document.getElementById("abpop"); if(!pop || pop.hidden) return; pop.hidden = true; document.getElementById("abback").hidden = true; if(abFrom) abFrom.setAttribute("aria-expanded", "false"); abFrom = null; }
+document.addEventListener("click", e => { if(!e.target.closest) return;
+  if(e.target.closest("[data-abx]")){ abClose(); return; }
+  if(!e.target.closest("#abpop") && !e.target.closest("#b-about")) abClose(); });
+document.addEventListener("keydown", e => { if(e.key === "Escape") abClose(); });
+window.addEventListener("hashchange", abClose);
 /* ================= Alpha Vantage client (second free source) ================= */
 // Free key: 25 requests/day, per key (so Mac and iPhone share them). Saving requests (7.0):
 //  * analysts' forecasts are kept 7 days and month-end prices 30 days (they change slowly);
@@ -1673,6 +1769,8 @@ async function viewStock(app, sym, tok){
   const nm = prof.name || (holding && holding.name); if(nm){ $("#s-name",app).textContent = nm; document.title = `${sym} · Stock Analysis`; }
   $("#s-ex",app).textContent = [prof.exchange, prof.finnhubIndustry, prof.country].filter(Boolean).join(" · ");
   if(prof.weburl) $("#s-ex",app).insertAdjacentHTML("beforeend", `<span class="ph-lbl"> · <a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></span>`);
+  { const ex = $("#s-ex",app); ex.insertAdjacentHTML("beforeend", `${ex.textContent.trim() ? " · " : ""}<button type="button" class="abbtn" id="b-about" aria-haspopup="dialog">ⓘ About</button>`);
+    $("#b-about",app).onclick = e => { e.stopPropagation(); abOpen(e.currentTarget, sym, prof, holding, mm); }; }
   let price = q.ok && isNum(q.v.c) && q.v.c>0 ? q.v.c : (holding && isNum(holding.manualPrice) ? holding.manualPrice : undefined);
   $("#s-price",app).textContent = isNum(price) ? `${fmt(price)} ${prof.currency||""}` : "No price data";
   if(q.ok && isNum(q.v.dp)) $("#s-chg",app).innerHTML = `<span class="${cls(q.v.dp)}">${fmtPct(q.v.dp,2)} today</span>`;
