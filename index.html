@@ -11,12 +11,12 @@
 :root{
   --bg:#f6f7f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e5e7eb;
   --accent:#2563eb; --good:#15803d; --goodbg:#dcfce7; --bad:#b91c1c; --badbg:#fee2e2;
-  --mid:#92400e; --midbg:#fef3c7; --neutralbg:#f1f5f9;
+  --mid:#92400e; --midbg:#fef3c7; --neutralbg:#f1f5f9; --info:#1d4ed8; --infobg:#dbeafe;
 }
 @media (prefers-color-scheme:dark){
   :root{ --bg:#0b1120; --card:#111827; --ink:#e5e7eb; --muted:#94a3b8; --line:#1f2937;
     --accent:#60a5fa; --good:#4ade80; --goodbg:#052e16; --bad:#f87171; --badbg:#450a0a;
-    --mid:#fbbf24; --midbg:#422006; --neutralbg:#1e293b; }
+    --mid:#fbbf24; --midbg:#422006; --neutralbg:#1e293b; --info:#93c5fd; --infobg:#172554; }
 }
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -66,7 +66,8 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .sig .badge{white-space:normal;max-width:100%}
 .b-cheap{background:var(--goodbg);color:var(--good)}
 .b-rich{background:var(--badbg);color:var(--bad)}
-.b-inline{background:var(--neutralbg);color:var(--muted)}
+.b-inline{background:var(--infobg);color:var(--info)} /* 7.20 (owner): neutral verdicts blue, like the Base case */
+.b-tag{background:var(--neutralbg);color:var(--muted)} /* plain tags, not a verdict: n/a, ETF, account, "In My Stocks"… */
 .b-warn{background:var(--midbg);color:var(--mid)}
 .range{position:relative;height:6px;background:var(--neutralbg);border-radius:3px;min-width:80px}
 .range i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
@@ -146,7 +147,7 @@ tr.sl-fcrow td{font-style:italic}
 .chartwrap svg{display:block;width:100%;height:420px}
 .chartwrap .rsiband{fill:var(--neutralbg)}
 .chartwrap .rsiln{stroke:var(--ink);stroke-width:1.5;opacity:.85}
-.stat .b-inline{background:var(--card)}
+.stat .b-tag{background:var(--card)}
 .sig .stat b{font-size:16px;margin:2px 0}
 .sig .stat p{margin:4px 0 0;font-size:12px;color:var(--muted)}
 .chartwrap .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
@@ -393,7 +394,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.19</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.20</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1077,7 +1078,7 @@ function verdict(now, ref){
   return { k:"inline", diff };
 }
 function badge(v, what){
-  if(!v) return `<span class="badge b-inline">n/a</span>`;
+  if(!v) return `<span class="badge b-tag">n/a</span>`;
   const pct = Math.round(Math.abs(v.diff)*100);
   if(v.k==="rich") return `<span class="badge b-rich" title="${pct}% above ${what}">Pricier · +${pct}%</span>`;
   if(v.k==="cheap") return `<span class="badge b-cheap" title="${pct}% below ${what}">Cheaper · −${pct}%</span>`;
@@ -1300,7 +1301,7 @@ function alertInline(app, msg){
 }
 function rowSkeleton(h){
   const mine = homeTab==="mine";
-  const typeTag = h.type && h.type!=="stock" ? ` <span class="badge b-inline">${h.type.toUpperCase()}</span>` : "";
+  const typeTag = h.type && h.type!=="stock" ? ` <span class="badge b-tag">${h.type.toUpperCase()}</span>` : "";
   return `<tr class="click" data-sym="${esc(h.symbol)}">
     <td class="sym c-sym"><b>${esc(h.symbol)}</b>${typeTag} <small class="muted" data-f="name">${esc(h.name||"")}</small></td>
     <td class="num c-price" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
@@ -1515,7 +1516,7 @@ function flagsCell(f, checked){
   if(!f.length) return `<span class="small muted">${checked ? "None" : "None so far"}</span>`;
   const b = x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(x.why)}">${esc(x.text)}</span>`;
   const more = f.slice(3);
-  return `<div class="flags">${f.slice(0,3).map(b).join("")}${more.length ? `<span class="badge b-inline" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more</span>` : ""}</div>`;
+  return `<div class="flags">${f.slice(0,3).map(b).join("")}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more</span>` : ""}</div>`;
 }
 const rowCtx = new Map(); // symbol -> data used for its flags, so a full check can redraw them
 function drawRowFlags(app, h){
@@ -1622,7 +1623,7 @@ async function viewStock(app, sym, tok){
         </div>
         <div class="row">
           ${inMine ? "" : `<button id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
-          ${inMine ? `<span class="badge b-inline">In My Stocks</span>` : `<button id="b-mine">+ My Stocks</button>`}
+          ${inMine ? `<span class="badge b-tag">In My Stocks</span>` : `<button id="b-mine">+ My Stocks</button>`}
         </div>
       </div>
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
@@ -1656,7 +1657,7 @@ async function viewStock(app, sym, tok){
   };
   const bm = $("#b-mine", app); if(bm) bm.onclick = () => {
     state.holdings.push({symbol:sym, shares:null, type:"stock"}); save();
-    bm.outerHTML = `<span class="badge b-inline">In My Stocks</span>`; const bw = $("#b-watch", app); if(bw) bw.remove();
+    bm.outerHTML = `<span class="badge b-tag">In My Stocks</span>`; const bw = $("#b-watch", app); if(bw) bw.remove();
   };
   app.querySelectorAll("[data-go]").forEach(a => a.onclick = () => { const t = document.getElementById(a.dataset.go); if(t) t.scrollIntoView({behavior:"smooth", block:"start"}); });
   const jb = $("#jump", app); if(jb) jb.style.top = ($("header").offsetHeight) + "px";
@@ -2263,7 +2264,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
       const buyAt = mid * (1 - state.settings.fvBuy/100), richAt = mid * (1 + state.settings.fvRich/100);
       const diff = price / mid - 1, pct = Math.abs(diff*100).toFixed(0);
       const noFc = cy && !cy.fcst.length;
-      const vb = noFc ? `<span class="badge b-inline">Needs forecasts</span>` : price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
+      const vb = noFc ? `<span class="badge b-tag">Needs forecasts</span>` : price <= buyAt ? `<span class="badge b-cheap">Attractive</span>` : price >= richAt ? `<span class="badge b-rich">Expensive</span>` : `<span class="badge b-inline">Fairly valued</span>`;
       // Price far above every method: the stock is priced on growth or new businesses that today's
       // numbers don't show. "Expensive, 1234% above" isn't useful; lead with what the price assumes.
       const future = price > 3 * hi;
@@ -2295,7 +2296,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
       <h3>${cy ? "How long does the price assume the high profits last?" : "What growth is the price assuming?"} <span class="small muted">(reverse DCF)</span></h3>${rev}
       <h3>How each method values it</h3>
       <table class="fvm"><tbody>${methods.map(m => `<tr class="${m.counted && isNum(m.v) ? "" : "muted"}">
-        <td><b>${m.name}</b>${m.ref ? ' <span class="badge b-inline">reference</span>' : ""}<div class="small muted">${esc(m.note)}</div></td>
+        <td><b>${m.name}</b>${m.ref ? ' <span class="badge b-tag">reference</span>' : ""}<div class="small muted">${esc(m.note)}</div></td>
         <td class="num"><b>${isNum(m.v) ? fmt(m.v) : m.loading ? '<span class="spin"></span>' : "—"}</b>${isNum(m.v) ? `<div class="small ${cls(m.v/price-1)}">${fmtPct((m.v/price-1)*100,0)} vs price</div>` : ""}</td>
       </tr>`).join("")}</tbody></table>
       <p class="small muted" style="margin-bottom:0"><b>How to read this:</b> each method is a different way of estimating what one share is worth.
@@ -2625,7 +2626,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
         <tr class="pj-sub"><td colspan="5" class="small">${subLine(r)}</td></tr>`).join("")}
       </tbody></table>`;
   };
-  const status = () => { const s = saved(); return s ? `<span class="badge b-inline">Your saved values</span> <span class="small muted">last changed ${fmtDay(s.at)}</span>` : `<span class="badge b-warn">First look: pre-filled by the app</span> <span class="small muted">change any box to save your own</span>`; };
+  const status = () => { const s = saved(); return s ? `<span class="badge b-tag">Your saved values</span> <span class="small muted">last changed ${fmtDay(s.at)}</span>` : `<span class="badge b-warn">First look: pre-filled by the app</span> <span class="small muted">change any box to save your own</span>`; };
   const glanceSet = () => { const r = projRows(S, cur.base, price)[4];
     glance("g-proj", !isNum(r.eps) ? "Base: a box is empty" : !(r.eps > 0) ? `<span class="pj-loss">Base: loss in ${r.year}</span>` : isNum(r.rLo) && isNum(r.rHi) ? `Base ${r.year}: <b class="${pjCls(r.rLo, r.eps, R())}">${pjRet(r.rLo)}</b>${pjSep(r.rLo)}<b class="${pjCls(r.rHi, r.eps, R())}">${pjRet(r.rHi)}</b> a year` : "Base: no P/E"); };
   const refresh = c => { // results only (boxes untouched while typing)
@@ -2980,7 +2981,7 @@ function healthScore(mm, prof, fin, finQ){
   return { fhStale, fhNm, total, pillars, f: fc ? null : piotroski(ysS[0], ysS[1]), az, fc, year: y0 && y0.end };
 }
 
-const scoreClass = v => !isNum(v) ? "b-inline" : v >= 70 ? "b-cheap" : v >= 40 ? "b-warn" : "b-rich";
+const scoreClass = v => !isNum(v) ? "b-tag" : v >= 70 ? "b-cheap" : v >= 40 ? "b-warn" : "b-rich";
 const scoreWord = v => !isNum(v) ? "Not enough data" : v >= 70 ? "Strong" : v >= 40 ? "Average" : "Weak";
 const scoreColor = v => !isNum(v) ? "var(--line)" : v >= 70 ? "var(--good)" : v >= 40 ? "var(--mid)" : "var(--bad)";
 
@@ -3021,7 +3022,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
       <div class="hs-ring" style="--p:${isNum(total)?total:0};--c:${scoreColor(total)}"><div><b>${isNum(total)?total:"—"}</b><span>of 100</span></div></div>
       <div style="flex:1;min-width:0">
         <div style="margin-bottom:8px"><span class="badge ${scoreClass(total)}">${scoreWord(total)}</span>
-          ${H.f ? `<span class="badge b-inline" title="Piotroski F-Score">Piotroski ${H.f.score}/${H.f.of}</span>` : ""}
+          ${H.f ? `<span class="badge b-tag" title="Piotroski F-Score">Piotroski ${H.f.score}/${H.f.of}</span>` : ""}
           ${H.az ? `<span class="badge ${H.az.zone==="safe"?"b-cheap":H.az.zone==="grey"?"b-warn":"b-rich"}" title="Altman Z-Score">Altman Z ${H.az.z.toFixed(1)}</span>` : ""}
         </div>
         ${H.pillars.map(pBar).join("")}
@@ -3077,7 +3078,7 @@ async function renderInsiders(app, sym, tok){
   const people = a => new Set(a.map(r => r.name)).size, sum = a => a.reduce((x, r) => x + val(r), 0);
   const threeM = ymd(new Date(Date.now() - 91*864e5)), sells3 = sells.filter(r => (r.transactionDate || "") >= threeM);
   let bd, line;
-  if(!tx.ok) { bd = ["b-inline", "n/a"]; line = `Insider data unavailable: ${esc(tx.e.message)}`; }
+  if(!tx.ok) { bd = ["b-tag", "n/a"]; line = `Insider data unavailable: ${esc(tx.e.message)}`; }
   // A purchase only counts as "Insiders buying" when it outweighs the selling (7.2, after NBIS: 1 buyer for $330K vs 8 sellers for $197.5M was labelled buying)
   else if(buys.length && sum(buys) >= sum(sells)){ bd = ["b-cheap", "Insiders buying"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))})${sells.length ? `, while ${people(sells)} sold (${fmtUSD(sum(sells))})` : ""}. Insiders buying with their own money is one of the more meaningful signals: they usually buy only when they think the shares are cheap.`; }
   else if(buys.length && sum(buys) >= sum(sells) / 4){ bd = ["b-inline", "Mixed"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))}), and ${people(sells)} sold more (${fmtUSD(sum(sells))}). Buying and selling of a similar size: no clear signal.`; }
@@ -3104,7 +3105,7 @@ async function renderInsiders(app, sym, tok){
     <h3>Biggest institutional owners</h3>
     ${ownData.length ? `<table style="max-width:620px"><tbody>${ownData.map(o => `<tr><td>${esc(o.name)}</td><td class="num">${fmt(o.share, 0)} shares</td></tr>`).join("")}</tbody></table>` : `<p class="small muted" style="margin:0">${paid(own) ? "Not included in Finnhub's free plan." : own.ok ? "No data." : esc(own.e.message)}</p>`}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): open-market purchases in 6 months at least as large (in $) as the sales = Insiders buying (green); purchases at least a quarter of the sales = Mixed (grey); otherwise 3+ insiders selling in 3 months = Heavy insider selling (amber), else Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
+      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): open-market purchases in 6 months at least as large (in $) as the sales = Insiders buying (green); purchases at least a quarter of the sales = Mixed (blue); otherwise 3+ insiders selling in 3 months = Heavy insider selling (amber), else Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
     </details>`;
   glance("g-ins", `<span class="badge ${bd[0]}">${bd[1]}</span>`);
 }
@@ -3602,7 +3603,7 @@ function sectorRows(data, spy){
     return { etf, name, grp, r1, r3, r6, rel1: r1 - s1, rel3: r3 - s3, rel6: r6 - s6, above: isNum(m200) ? lastOf(h.c) >= m200 : null, rel: relLine(h, spy, 126) };
   });
 }
-const relBadge = v => !isNum(v) ? `<span class="badge b-inline">n/a</span>`
+const relBadge = v => !isNum(v) ? `<span class="badge b-tag">n/a</span>`
   : v >= 2 ? `<span class="badge b-cheap" title="${fmtPct(v,1)} points better than the S&P 500 over 3 months">Leading</span>`
   : v <= -2 ? `<span class="badge b-rich" title="${fmtPct(v,1)} points worse than the S&P 500 over 3 months">Lagging</span>`
   : `<span class="badge b-inline" title="Within 2 points of the S&P 500 over 3 months">In line</span>`;
@@ -3910,7 +3911,7 @@ function renderEcon(app, j){
       ${h ? `Headwinds: ${names("head").join(", ")}.` : ""} ${t ? `Tailwinds: ${names("tail").join(", ")}.` : ""}</p></div>
     ${group("rates", "Rates &amp; credit")}${group("jobs", "Jobs &amp; growth")}${group("mkt", "Markets")}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted"><b>Tailwind</b> (green) = usually helps stocks, <b>Headwind</b> (red) = usually weighs on them, <b>Neutral</b> (grey) = in between or mixed. Rules: 10-year yield headwind at 4.75%+ or up 0.4+ points in 3 months, tailwind at 3.5% or below or down 0.4+. Yield curve: below 0 headwind, under 0.5 or recently inverted neutral. Credit spreads: above 5.5 or up 1+ point in 3 months headwind; up 0.5+ or above 4 neutral. Unemployment: Sahm rule (3-month average 0.5+ above its 12-month low) headwind; up 0.3+ neutral. Jobs: 150k+/month tailwind, 50–150k neutral, below 50k headwind. Wage growth (12 months): 2.5–3.5% tailwind, 3.5–4.5% or below 2.5% neutral, above 4.5% headwind. Job openings: down 20%+ in a year headwind, down 10–20% neutral. GDP: 2%+ tailwind, 0–2% neutral, below 0 headwind. VIX: below 20 tailwind, 20–30 neutral, above 30 headwind. Dollar: ±3% in 3 months. Oil: $100+ or up 20%+ in 3 months headwind, down 20%+ tailwind.
+      <p class="small muted"><b>Tailwind</b> (green) = usually helps stocks, <b>Headwind</b> (red) = usually weighs on them, <b>Neutral</b> (blue) = in between or mixed. Rules: 10-year yield headwind at 4.75%+ or up 0.4+ points in 3 months, tailwind at 3.5% or below or down 0.4+. Yield curve: below 0 headwind, under 0.5 or recently inverted neutral. Credit spreads: above 5.5 or up 1+ point in 3 months headwind; up 0.5+ or above 4 neutral. Unemployment: Sahm rule (3-month average 0.5+ above its 12-month low) headwind; up 0.3+ neutral. Jobs: 150k+/month tailwind, 50–150k neutral, below 50k headwind. Wage growth (12 months): 2.5–3.5% tailwind, 3.5–4.5% or below 2.5% neutral, above 4.5% headwind. Job openings: down 20%+ in a year headwind, down 10–20% neutral. GDP: 2%+ tailwind, 0–2% neutral, below 0 headwind. VIX: below 20 tailwind, 20–30 neutral, above 30 headwind. Dollar: ±3% in 3 months. Oil: $100+ or up 20%+ in 3 months headwind, down 20%+ tailwind.
       Small lines show the last 2 years (jobs: monthly jobs added; dotted line = zero). Economic data describes the backdrop, not when to buy or sell: markets often move before the economy does. Data: FRED (St. Louis Fed).</p>
     </details>`;
 }
@@ -4290,7 +4291,7 @@ function perfLines(res, spy, qqq){
   return { days, port: days.map(d => units.reduce((s, x) => s + x.u * (closeOn(x.td, d) || 0), 0) / W * 100), spy: line(spy), qqq: qqq ? line(qqq) : null };
 }
 function perfBadge(gap){
-  if(!isNum(gap)) return ["b-inline", "n/a"];
+  if(!isNum(gap)) return ["b-tag", "n/a"];
   return gap >= PERF_GAP ? ["b-cheap", "Ahead of the market"] : gap > -PERF_GAP ? ["b-inline", "In line with the market"] : gap > -10 ? ["b-warn", "Behind the market"] : ["b-rich", "Well behind the market"];
 }
 // ---- Your actual results (dated orders from the bank file) vs the same money in the index ----
@@ -4486,7 +4487,7 @@ function tradesHtml(R){
   const sG = r => r.spy + r.spyOut - r.bought; // what the index would have gained with this investment's money
   const list = out.slice().sort((a, b) => (b.gain - sG(b)) - (a.gain - sG(a)));
   const row = r => { const sGain = sG(r), d = r.gain - sGain;
-    return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.acct ? ` <small class="badge b-inline">${esc(r.acct)}</small>` : ""}${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
+    return `<tr><td><b>${esc(r.sym || r.name)}</b>${r.acct ? ` <small class="badge b-tag">${esc(r.acct)}</small>` : ""}${r.held ? "" : ' <small class="muted">sold</small>'}<div class="small muted">from ${fmtDay(r.first)}</div></td>
       <td class="num" data-l="Put in">${fmtGBP(r.bought)}</td><td class="num" data-l="Taken out">${r.sold ? fmtGBP(r.sold) : "—"}</td><td class="num" data-l="Worth now">${r.held ? fmtGBP(r.value) : "—"}</td>
       <td class="num st-key" data-l="Your gain">${sg(r.gain)}<div class="small">${pc(r.gain / r.bought * 100)}</div></td>
       <td class="num" data-l="On shares still held">${r.held && r.book > 0 ? pc((r.value / r.book - 1) * 100) : "—"}</td>
@@ -4537,7 +4538,7 @@ function renderPeriods(el, actual, R, spy){
       </div>
       <details class="more" id="perf-all"><summary>All ${p.rows.length} investments, ${p.label.toLowerCase()}</summary>
         <div style="overflow-x:auto"><table class="perf-all stack"><thead><tr><th>Investment</th><th class="num">Worth at the start</th><th class="num">Bought</th><th class="num">Sold</th><th class="num">Worth now</th><th class="num">Gain</th></tr></thead><tbody>
-        ${p.rows.slice().sort((a, b) => a.gain - b.gain).map(x => `<tr><td><b>${esc(x.g.sym)}</b>${x.g.r.acct ? ` <small class="badge b-inline">${esc(x.g.r.acct)}</small>` : ""}${x.inP.length ? `<div class="small muted">${x.inP.map(t => `${t.s === "B" ? "bought" : "sold"} ${fmtDay(t.d)}`).slice(0, 3).join(", ")}${x.inP.length > 3 ? ` +${x.inP.length - 3} more` : ""}</div>` : ""}</td>
+        ${p.rows.slice().sort((a, b) => a.gain - b.gain).map(x => `<tr><td><b>${esc(x.g.sym)}</b>${x.g.r.acct ? ` <small class="badge b-tag">${esc(x.g.r.acct)}</small>` : ""}${x.inP.length ? `<div class="small muted">${x.inP.map(t => `${t.s === "B" ? "bought" : "sold"} ${fmtDay(t.d)}`).slice(0, 3).join(", ")}${x.inP.length > 3 ? ` +${x.inP.length - 3} more` : ""}</div>` : ""}</td>
           <td class="num" data-l="Worth at the start">${x.v0 ? fmtGBP(x.v0) : "—"}</td><td class="num" data-l="Bought">${x.buys ? fmtGBP(x.buys) : "—"}</td><td class="num" data-l="Sold">${x.sells ? fmtGBP(x.sells) : "—"}</td><td class="num" data-l="Worth now">${x.now ? fmtGBP(x.now) : "—"}</td>
           <td class="num st-key" data-l="Gain">${sg(x.gain)}<div class="small">${pc(x.ret)}</div></td></tr>`).join("")}
         <tr class="st-tot"><td><b>Total</b></td><td class="num" data-l="Worth at the start"><b>${fmtGBP(p.tot.v0)}</b></td><td class="num" data-l="Bought"><b>${fmtGBP(p.tot.buys)}</b></td><td class="num" data-l="Sold"><b>${fmtGBP(p.tot.sells)}</b></td><td class="num" data-l="Worth now"><b>${fmtGBP(p.tot.now)}</b></td><td class="num st-key" data-l="Gain"><b>${sg(p.tot.gain)}</b><div class="small">${pc(p.tot.ret)}</div></td></tr>
@@ -4602,7 +4603,7 @@ async function renderPerf(app, tok){
   };
   el.classList.remove("muted", "small");
   el.innerHTML = actual + `
-    <div class="mood" style="margin-bottom:10px"><div><span class="badge big b-inline">${bd[1]}</span></div>
+    <div class="mood" style="margin-bottom:10px"><div><span class="badge big b-tag">${bd[1]}</span></div>
       <p style="margin:0;flex:1;min-width:260px;max-width:760px">Over <b>${head.label.toLowerCase()}</b>, the stocks you own today ${head.port >= 0 ? "rose" : "fell"} <b>${Math.abs(head.port).toFixed(1)}%</b>: ${vsTxt(gap, "S&amp;P 500")} (${fmtPct(head.spy, 1)})${isNum(gapQ) ? ` and ${vsTxt(gapQ, "Nasdaq-100")} (${fmtPct(head.qqq, 1)})` : ""}.
       <span class="small muted">As if you had held today's shares for the whole period: describes your current stocks, not your own buying and selling${head.cover < total * 0.995 ? `; based on ${head.used.length} holdings, ${(head.cover / total * 100).toFixed(0)}% of your money (funds without price history left out)` : ""}.</span></p></div>
     <div style="overflow-x:auto"><table style="max-width:760px"><thead><tr><th></th>${all.map(p => `<th class="num">${p.label}</th>`).join("")}</tr></thead><tbody>
