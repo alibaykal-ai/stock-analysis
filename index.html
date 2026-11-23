@@ -393,7 +393,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.18</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.19</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -773,7 +773,7 @@ function rqRing(){ const b = document.getElementById("rqring"); if(!b) return;
 function rqStatus(d){
   if(!d.length) return "Add an Alpha Vantage or Twelve Data key in Settings to count their requests.";
   const t = d.slice().sort((x, y) => y.f - x.f)[0], at = t.reset ? `${rqClock(t.reset)} (in ${rqIn(t.reset)})` : "";
-  if(t.f >= 1) return t.roll ? `<b>${t.name} is used up.</b> ${t.n >= t.lim && at ? `The next request frees up at ${at}.` : "It said its limit is reached; the app waits 2 hours before trying again."} Saved forecasts are shown meanwhile.`
+  if(t.f >= 1) return t.roll ? `<b>${t.name} is used up.</b> ${t.n >= t.lim && at ? `The next request frees up at ${at}.` : `It said its limit is reached; the app tries again at ${rqClock(avRetryAt())} (in ${rqIn(avRetryAt())}).`} Saved forecasts are shown meanwhile.`
     : `<b>${t.name} is used up</b> until ${at}. Saved prices are shown meanwhile.`;
   const w = t.f >= 0.8 ? "Getting close." : t.f >= 0.5 ? "On track." : "Plenty left.";
   if(t.roll) return `<b>${w}</b> ${t.left} of ${t.lim} ${t.name} requests left in the last 24 hours${at ? `; the next one used frees up at ${at}` : ""}.`;
@@ -783,7 +783,7 @@ function rqPanel(){
   for(const x of d){ const sp = rqSplit(rqToday(x.svc));
     rows.push(`<div class="rqp-row"><div class="rqp-top"><span>${x.name}</span><span>${x.n} / ${x.lim}</span></div>
       <div class="rqp-bar"><span style="width:${Math.round(x.f * 100)}%;background:${rqColour(x.f)}"></span></div>
-      <div class="rqp-sub">${x.stop && x.n < x.lim ? "Alpha Vantage said its limit is reached" : `${x.left} left`} · ${x.roll ? (x.reset ? `last 24 hours, next frees up at ${rqClock(x.reset)} (in ${rqIn(x.reset)})` : "none used in the last 24 hours") : `resets at ${rqClock(x.reset)} (in ${rqIn(x.reset)})`}${sp ? "<br>" + sp.slice(2, -1) : ""}</div></div>`); }
+      <div class="rqp-sub">${x.stop && x.n < x.lim ? `Alpha Vantage said its limit is reached, though only ${x.n} were counted here (Alpha Vantage counts some the app couldn't time: requests before 7.7, or other tools using the key). The app tries again at ${rqClock(avRetryAt())} (in ${rqIn(avRetryAt())})` : `${x.left} left`}${x.stop && x.n < x.lim ? "" : " · " + (x.roll ? (x.reset ? `last 24 hours, next frees up at ${rqClock(x.reset)} (in ${rqIn(x.reset)})` : "none used in the last 24 hours") : `resets at ${rqClock(x.reset)} (in ${rqIn(x.reset)})`)}${sp ? "<br>" + sp.slice(2, -1) : ""}</div></div>`); }
   const s = rqDayStart("fh"), fh = L.fh.map(Number), pk = rqPeak(fh, s);
   rows.push(`<div class="rqp-row"><div class="rqp-top"><span>Finnhub, busiest minute</span><span>${pk} / ${RQ.fh.min}</span></div>
     <div class="rqp-bar"><span style="width:${Math.round(Math.min(1, pk / RQ.fh.min) * 100)}%;background:${rqColour(pk / RQ.fh.min)}"></span></div>
@@ -844,6 +844,7 @@ let avLast = 0;
 const avLS = (k, v) => { try{ if(v === undefined) return JSON.parse(localStorage.getItem("sa.av." + k) || "null"); localStorage.setItem("sa.av." + k, JSON.stringify(v)); }catch(e){ return null; } };
 function avUsedToday(){ return rqToday("av").n; } // both devices since 7.7 (was this device only)
 function avCount(){ rqNote("av"); }
+const avRetryAt = () => Math.round(((avLS("limitAt") || 0) + 2*3600e3) / 1000); // seconds, like the request log
 function avBlocked(){ const b = avLS("limitAt"); return b && Date.now() - b < 2*3600e3; }
 async function avApi(fn, sym, ttl, shape, force){
   if(!state.avKey) throw new ApiError("No Alpha Vantage key yet.", "nokey");
@@ -1369,7 +1370,7 @@ async function fillRow(app, h, tok){
 // 2) Finnhub's ratios (P/E, P/S, P/B, P/FCF, EV/…) are worked out at an earlier price (TSLA P/E 447× while today's price gave 380×),
 //    so they are rescaled to today's price.
 const PER_SHARE = k => /PerShare|^eps(?!Growth)|^52Week(High|Low)$/.test(k);
-const PRICE_RATIO = k => /^(pe|ps|pb|pfcf|pcf|ptbv)(TTM|Annual|Quarterly|BasicExclExtraTTM|ExclExtraTTM|InclExtraTTM|NormalizedAnnual|ShareTTM|ShareAnnual)?$/.test(k);
+const PRICE_RATIO = k => /^(pe|ps|pb|pfcf|pcf|ptbv)(TTM|Annual|Quarterly|BasicExclExtraTTM|ExclExtraTTM|InclExtraTTM|NormalizedAnnual|ShareTTM|ShareAnnual)?$|^forwardPE$/.test(k);
 const EV_RATIO = k => /^(evEbitda|evRevenue|currentEv\/|enterpriseValueEbitda|evToEbitda)/.test(k);
 function splitFactor(mm, td){
   if(!mm || !td || !Array.isArray(td.d) || td.d.length < 30) return 1;
@@ -1824,6 +1825,10 @@ async function renderValuation(app, sym, met, prof, tok, price){
     const vals = results.filter(x=>x.ok).map(x => nowValue(x.v, r)).filter(v => isNum(v) && v > 0);
     medians[r.id] = vals.length >= 2 ? median(vals) : NaN;
   }
+  // Peers' forward P/E (Finnhub's free forwardPE, at today's price like the other ratios): for fair value's peer method when
+  // analysts expect a company's earnings to jump (7.18).
+  { const f = results.filter(x => x.ok && x.v && x.v.metric).map(x => x.v.metric.forwardPE).filter(v => isNum(v) && v > 0);
+    medians.fwdPE = f.length >= 3 ? median(f) : NaN; medians.fwdN = f.length; }
   const pg = results.filter(x => x.ok && x.v && x.v.metric).map(x => x.v.metric.epsGrowth5Y).filter(isNum);
   const info = { medians, used, g5: pg.length >= 2 ? median(pg) : NaN, note: pr.ok ? "same industry, chosen by Finnhub" : "peer list unavailable" };
   await histP; // so fair value's "its usual P/E" can use the worked-out history too
@@ -2047,7 +2052,13 @@ function fvInputs(met, prof, price, av, rep){
       : isNum(fcfRaw) && fcfRaw > 0 && eps > 0 ? { v: fcfRaw / eps, how: `today's ${(Math.min(fcfRaw / eps, 1) * 100).toFixed(0)}% of earnings (too few profitable years in its reports for a usual share)` } : null;
     if(c){ const k = Math.min(c.v, 1); fcd = { f1: fy1.eps * k, f2: fy2.eps * k, e1: fy1.eps, e2: fy2.eps, d1: fy1.date, d2: fy2.date, n: fy2.n, conv: k, how: c.how }; }
   }
-  return { fin, eps, bvps, fcf, fcfRaw, fcfHow, fcd, past, pastMid, exp, startG, startHow, g1, gSrc, avRev, cal, ttm, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
+  // Earnings expected to jump (7.18, AMD: 4.60 reported over 12 months after deal charges, 17.64 expected next year): when next
+  // fiscal year's forecast is at least 1.5× the last 12 months, peers are compared on the next 12 months' expected earnings
+  // (the rest of this fiscal year and the start of the next, by months) × their forward P/E, like with like.
+  let fwd = null;
+  if(fcd && eps > 0 && fcd.e2 >= 1.5 * eps){ const m = Math.max(0, Math.min(12, (new Date(fcd.d1) - Date.now()) / (30.44 * 864e5)));
+    fwd = { eps: (m / 12) * fcd.e1 + (1 - m / 12) * fcd.e2, m, jump: fcd.e2 / eps }; }
+  return { fin, eps, bvps, fcf, fcfRaw, fcfHow, fcd, fwd, past, pastMid, exp, startG, startHow, g1, gSrc, avRev, cal, ttm, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
 }
 function fvAssump(sym, inp){
   const s = state.fv[sym] || {};
@@ -2103,8 +2114,12 @@ function fvMethods(inp, a, met, fx){
     const ad = adjPE(peHist.median, gNow, inp.epsG5, a.r);
     out.push({ name:"Its usual P/E", v: ad.pe * inp.eps, counted:true, note: peNote(`its usual P/E (last ${state.settings.years} years)`, peHist.median, ad, inp.epsG5, "its past 5 years") });
   } else out.push({ name:"Its usual P/E", v:NaN, note: !epsOk ? "Skipped: the company isn't profitable, so P/E doesn't apply." : met && met.calcHist && met.calcHist.peThin && met.calcHist.peThin.length ? "Skipped: profits were negative or close to zero in part of the last years, so its past P/E isn't a fair benchmark." : "Skipped: not enough P/E history." });
-  const pm = peerInfo && peerInfo.medians.pe;
+  const pm = peerInfo && peerInfo.medians.pe, pf = peerInfo && peerInfo.medians.fwdPE;
   if(!peerInfo) out.push({ name:"Peer P/E", v:NaN, loading:true, note:"Loading similar companies…" });
+  else if(epsOk && inp.fwd && isNum(pf)){ const f = inp.fwd, mo = Math.round(f.m);
+    out.push({ name:"Peer forward P/E", v: f.eps * pf, counted:true,
+      note:`Analysts expect earnings to jump (${fmt(inp.fcd.e2)} per share next fiscal year, ${f.jump.toFixed(1)}× the last 12 months' ${fmt(inp.eps)}), so peers are compared on expected earnings: ${fmt(f.eps)} per share over the next 12 months (${mo > 0 ? `${mo} month${mo === 1 ? "" : "s"} of this fiscal year's ${fmt(inp.fcd.e1)}, the rest of next year's ${fmt(inp.fcd.e2)}` : `next fiscal year's ${fmt(inp.fcd.e2)}`}) × the peer median forward P/E of ${fmtX(pf)} (${peerInfo.medians.fwdN} peers; their price ÷ analysts' expected earnings). Like with like: both on analysts' expected earnings. Peer P/E on reported earnings would be ${isNum(pm) ? fmtX(pm) + " × " + fmt(inp.eps) + " = " + fmt(pm * inp.eps) : "n/a"}.` });
+  }
   else if(epsOk && isNum(pm)){
     const ad = adjPE(pm, gNow, peerInfo.g5, a.r);
     out.push({ name:"Peer P/E", v: ad.pe * inp.eps, counted:true, note: peNote("the peer median P/E", pm, ad, peerInfo.g5, "peers' past 5 years") });
