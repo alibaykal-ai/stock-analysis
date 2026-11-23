@@ -77,6 +77,9 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 input.pj-in.pj-ed{border-color:var(--accent);background:var(--infobg);font-weight:600}
 .range{position:relative;height:6px;background:var(--neutralbg);border-radius:3px;min-width:80px}
 .range i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
+.rq-more summary{cursor:pointer;color:var(--accent);font-size:13px;padding:2px 0} .rq-more p{margin:4px 0 0}
+.sgroup{margin:0 0 16px} .sgroup>summary{cursor:pointer;list-style:none;font-size:18px;font-weight:700;padding:10px 2px} .sgroup>summary::-webkit-details-marker{display:none}
+.sgroup>summary::before{content:"▸ ";color:var(--accent)} .sgroup[open]>summary::before{content:"▾ "} .sgroup>summary small{font-size:13px;font-weight:400;color:var(--muted)}
 .rangecap{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px}
 h3{font-size:14px;margin:18px 0 8px}
 .fvbar{position:relative;height:14px;margin:34px 0 14px}
@@ -266,6 +269,8 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .side small{display:inline;margin-left:6px;font-size:13px}
   /* "+ Add" folds the add form and "Record a purchase or sale" */
   .addbtn,.editbtn{display:inline-block;min-height:44px}
+  .rq-more summary{min-height:44px;display:flex;align-items:center}
+  .sgroup>summary{min-height:44px}
   .listtbl:not(.editing) td.c-del{display:none}
   .listtbl tr.grp{display:block;padding:16px 2px 6px}
   .listtbl tr.grp td{padding-top:0}
@@ -496,7 +501,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.30</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.31</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -836,27 +841,27 @@ function rqCard(){
     if(obs){ const mids = []; for(let m = Math.ceil(obs.last / 86400) * 86400; m <= obs.ok; m += 86400) mids.push(m);
       o = ` Last time the limit was reached, its message showed until ${rqWhen(obs.last)} and requests worked again at ${rqWhen(obs.ok)}${mids.length ? " (midnight UTC fell in between)" : " (midnight UTC did not fall in between)"}.`; }
     out.push(`<div class="rq-row"><div><b>Alpha Vantage</b> <span class="rq-n">${t.n} of ${RQ.av.day}</span>${rqBar(t.n, RQ.av.day)}</div>
-      <p class="small muted">${state.avKey ? "" : "No key yet. "}${t.n >= RQ.av.day ? "<b>All 25 free requests are used.</b> " : ""}In the last 24 hours${rqSplit(t)}. ${avFree()}. Alpha Vantage doesn't publish when its 25 a day reset; its limit messages on 22-23 Nov fit a rolling 24 hours (each request frees up a day after it was sent), not midnight UTC, so the app counts it that way.${o}${rqOthers(t)}</p></div>`); }
+      <details class="rq-more"><summary>Details</summary>      <p class="small muted">${state.avKey ? "" : "No key yet. "}${t.n >= RQ.av.day ? "<b>All 25 free requests are used.</b> " : ""}In the last 24 hours${rqSplit(t)}. ${avFree()}. Alpha Vantage doesn't publish when its 25 a day reset; its limit messages on 22-23 Nov fit a rolling 24 hours (each request frees up a day after it was sent), not midnight UTC, so the app counts it that way.${o}${rqOthers(t)}</p></details></div>`); }
   // Twelve Data
   { const t = rqToday("td"), pk = rqPeak(t.per.flatMap(d => d.list), rqDayStart("td")), x = L.tdx && L.tdx.t >= rqDayStart("td") ? L.tdx : null;
     out.push(`<div class="rq-row"><div><b>Twelve Data</b> <span class="rq-n">${t.n} of ${RQ.td.day}</span>${rqBar(t.n, RQ.td.day)}</div>
-      <p class="small muted">${state.tdKey ? "" : "No key yet. "}800 a day and 8 a minute${rqSplit(t)}; busiest minute today: ${pk} of 8 (the app keeps itself to 7). ${midnight("td")}, as Twelve Data's help pages say.${rqOthers(t)}</p>
+      <details class="rq-more"><summary>Details</summary>      <p class="small muted">${state.tdKey ? "" : "No key yet. "}800 a day and 8 a minute${rqSplit(t)}; busiest minute today: ${pk} of 8 (the app keeps itself to 7). ${midnight("td")}, as Twelve Data's help pages say.${rqOthers(t)}</p></details>
       ${state.tdKey ? `<p class="small" style="margin:4px 0 0">${x ? `Twelve Data's own count at ${rqClock(x.t)}: <b>${x.n} of ${x.lim}</b> (every device and tool using your key). ` : ""}<button type="button" id="tdusage">Ask Twelve Data for the exact count</button> <span class="muted">uses 1 request</span> <span id="tdumsg"></span></p>` : ""}</div>`); }
   // Finnhub
   { const fh = L.fh.map(Number), s = rqDayStart("fh"), n = fh.filter(t => t >= s).length, pk = rqPeak(fh, s);
     out.push(`<div class="rq-row"><div><b>Finnhub</b> <span class="rq-n">busiest minute ${pk} of ${RQ.fh.min}</span>${rqBar(pk, RQ.fh.min)}</div>
-      <p class="small muted">No daily limit on the free plan, only 60 a minute (the app keeps itself to 55 and waits when Finnhub says "too many"). ${n} requests from this device today.</p></div>`); }
+      <details class="rq-more"><summary>Details</summary>      <p class="small muted">No daily limit on the free plan, only 60 a minute (the app keeps itself to 55 and waits when Finnhub says "too many"). ${n} requests from this device today.</p></details></div>`); }
   // Anthropic
   { const t = rqToday("ai"), all = t.per.flatMap(d => d.list), p = all.filter(a => isNum(a[1])).reduce((s, a) => s + a[1], 0), usd = all.filter(a => !isNum(a[1])).reduce((s, a) => s + (a[2] || 0), 0);
     const cost = !all.length ? "nothing spent" : usd > 0 ? `about ${Math.round(p)}p + $${usd.toFixed(3)}` : p < 1 ? "under 1p" : `about ${Math.round(p)}p`;
     out.push(`<div class="rq-row"><div><b>Anthropic (AI summaries)</b> <span class="rq-n">${all.length} today, ${cost}</span></div>
-      <p class="small muted">No request limit: paid per use from your Anthropic account${rqSplit(t)}.</p></div>`); }
+      <details class="rq-more"><summary>Details</summary>      <p class="small muted">No request limit: paid per use from your Anthropic account${rqSplit(t)}.</p></details></div>`); }
   // GitHub: only when something went wrong (5,000 requests an hour, never close)
   { const s = rqDayStart("gh"), errs = L.ghErr.filter(e => e[0] >= s), hour = L.gh.filter(t => t >= rqNow() - 3600).length;
     if(errs.length || hour >= 1000){ const e = errs[errs.length - 1];
       out.push(`<div class="rq-row"><div><b>GitHub saving</b> <span class="rq-n">${hour} in the last hour</span>${rqBar(hour, 5000)}</div>
         <p class="small muted">Limit 5,000 an hour.${e ? ` ${errs.length} error${errs.length > 1 ? "s" : ""} today, last at ${rqClock(e[0])}: GitHub said ${esc(e[1])}${e[2] ? " " + esc(e[2]) : ""}.` : ""}</p></div>`); } }
-  return `<p class="small muted" style="margin-top:0">Requests this app sent, counted the way each service counts its limit: Alpha Vantage over the last 24 hours, the others since their day started. ${both ? "Mac and iPhone are added together (each device adds its count to your GitHub file), because the free limits are per key." : "This device only: connect GitHub saving above to add your other devices."}</p>${out.join("")}`;
+  return `<p class="small muted" style="margin-top:0">Requests this app sent, counted the way each service counts its limit: Alpha Vantage over the last 24 hours, the others since their day started. ${both ? "Mac and iPhone are added together (each device adds its count to your GitHub file), because the free limits are per key." : "This device only: connect GitHub saving (Save, import &amp; backup, below) to add your other devices."}</p>${out.join("")}`;
 }
 // The ring in the top bar (7.8, like Claude's usage ring): fills with whichever daily limit is closest to running out.
 // Hover (Mac) or tap (iPhone, a sheet from the bottom) shows the panel; the footer line opens the same panel.
@@ -5487,7 +5492,16 @@ async function renderEarnings(app, tok){
 function viewSettings(app){
   const funds = state.holdings.filter(h => h.type && h.type !== "stock");
   const g = state.gh || {}, defRepo = /\.github\.io$/.test(location.hostname) ? location.hostname.split(".")[0] + "/stock-analysis-data" : "";
+  const kOk = k => state[k] ? "✓" : "not set";
+  const keyFold = (k, form) => state[k] ? `<details class="more keyfold"><summary>✓ Key saved · Change or test</summary>${form}</details>` : form; // 7.31: a saved key shows one line
   app.innerHTML = `
+    <details class="sgroup" id="sg-pref" open><summary>Your preferences <small>· valuation, fair value${funds.length ? ", fund prices" : ""}</small></summary>
+    <div id="sg-pref-b"></div></details>
+    <details class="sgroup" id="sg-keys"${state.apiKey ? "" : " open"}><summary>Data sources &amp; keys <small>· Finnhub ${kOk("apiKey")} · Alpha Vantage ${kOk("avKey")} · Twelve Data ${kOk("tdKey")} · Anthropic ${kOk("aiKey")} · requests used</small></summary>
+    <div id="sg-keys-b"></div></details>
+    <details class="sgroup" id="sg-data"${ghOn() ? "" : " open"}><summary>Save, import &amp; backup <small>· GitHub ${ghOn() ? "connected" : "not connected"} · bank file · list · backup</small></summary>
+    <div id="sg-data-b"></div></details>
+    <div hidden id="sg-src">
     <div class="card" id="ghcard">
       <h2>Save to GitHub (use on any device)</h2>
       ${ghOn() ? `<p style="margin-top:0">Connected to <b>${esc(g.repo)}</b> (private). Your lists and API keys are saved there after every change and loaded on any browser or device you connect. <span class="small muted">${esc(g.status || "")}</span></p>
@@ -5517,41 +5531,41 @@ function viewSettings(app){
     <div class="card">
       <h2>Finnhub API key</h2>
       <p class="small muted" style="margin-top:0">Free at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>, no card needed. Your key is saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
-      <form id="kform" class="row">
+      ${keyFold("apiKey", `<form id="kform" class="row">
         <input id="key" type="password" placeholder="Paste your API key" value="${esc(state.apiKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
         <button type="button" id="ktest">Test</button>
-      </form>
+      </form>`)}
       <p id="kmsg" class="small"></p>
     </div>
     <div class="card">
       <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
       <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests in any 24 hours for this key (Mac and iPhone share them, and share the forecasts they fetch through your GitHub file when saving to GitHub is on). Each stock uses 1 a week (forecasts are kept 7 days; month-end prices for valuation history, only when needed, 30 days). Requests in the last 24 hours: <b id="avused">${avUsedToday()} of 25</b>${ghOn() ? " (both devices, see Requests above)" : ""}${avBlocked() ? " · limit reached, pausing for a couple of hours" : ""}. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
-      <form id="avform" class="row">
+      ${keyFold("avKey", `<form id="avform" class="row">
         <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
         <button type="button" id="avtest">Test</button>
-      </form>
+      </form>`)}
       <p id="avmsg" class="small"></p>
     </div>
     <div class="card">
       <h2>Twelve Data API key <span class="small muted">(optional, for the price chart)</span></h2>
       <p class="small muted" style="margin-top:0">Daily price history for the price chart. Free at <a href="https://twelvedata.com" target="_blank" rel="noopener">twelvedata.com</a>: 800 requests a day; each stock uses 1 (saved for 12 hours). Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
-      <form id="tdform" class="row">
+      ${keyFold("tdKey", `<form id="tdform" class="row">
         <input id="tdkey" type="password" placeholder="Paste your Twelve Data key" value="${esc(state.tdKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
         <button type="button" id="tdtest">Test</button>
-      </form>
+      </form>`)}
       <p id="tdmsg" class="small"></p>
     </div>
     <div class="card">
       <h2>Anthropic API key <span class="small muted">(optional, for AI summaries)</span></h2>
       <p class="small muted" style="margin-top:0">Lets Claude write a plain-English bull case, bear case and "what would change the picture" on any stock's page, only when you click the button: under 1p with Claude Haiku, or about 2–5p for a "more careful" one with Claude Opus, paid from your Anthropic account. Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → API keys; add a little credit under Billing and set a monthly spend limit there. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
-      <form id="aiform" class="row">
+      ${keyFold("aiKey", `<form id="aiform" class="row">
         <input id="aikey" type="password" placeholder="Paste your Anthropic key (starts with sk-ant-)" value="${esc(state.aiKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
         <button type="button" id="aitest">Test</button>
-      </form>
+      </form>`)}
       <p id="aimsg" class="small"></p>
     </div>
     <div class="card">
@@ -5592,13 +5606,18 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Backup &amp; move to another device</h2>
-      <p class="small muted" style="margin-top:0">${ghOn() ? "Your lists are saved to GitHub automatically (see the top of this page), so you don't need this. It's here as an extra copy you can keep anywhere." : "Your lists are stored only in this browser. To keep a backup or move them, copy this text and paste it into \"Restore\" on the other device, or connect GitHub at the top of this page to do it automatically."} (API keys are not included in this text.)</p>
-      <textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, buys:state.buys||[], watchlist:state.watchlist, settings:state.settings, fv:state.fv, proj:state.proj||{}}))}</textarea>
-      <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span id="cmsg" class="small muted"></span></div>
+      <p class="small muted" style="margin-top:0">${ghOn() ? "Your lists are saved to GitHub automatically (see Save to GitHub, above), so you don't need this. It's here as an extra copy you can keep anywhere." : "Your lists are stored only in this browser. To keep a backup or move them, copy this text and paste it into \"Restore\" on the other device, or connect GitHub at the top of this page to do it automatically."} (API keys are not included in this text.)</p>
+      <details class="more"><summary>Show the backup text</summary><textarea id="exp" rows="4" style="width:100%" readonly>${esc(JSON.stringify({holdings:state.holdings, buys:state.buys||[], watchlist:state.watchlist, settings:state.settings, fv:state.fv, proj:state.proj||{}}))}</textarea></details>
+      <div class="row" style="margin-top:8px"><button id="copy">Copy the backup</button><span id="cmsg" class="small muted"></span></div>
       <h2 style="margin-top:16px">Restore</h2>
       <textarea id="rest" rows="3" style="width:100%" placeholder="Paste backup text here"></textarea>
       <div class="row" style="margin-top:8px"><button id="restbtn">Restore (replaces current lists)</button><span id="rmsg" class="small"></span></div>
-    </div>`;
+    </div></div>`;
+  { const src = $("#sg-src", app), cards = [...src.children], put = (id, list) => list.forEach(c => $("#" + id, app).append(c));
+    const has = (c, t) => (c.querySelector("h2") || {}).textContent && c.querySelector("h2").textContent.startsWith(t);
+    put("sg-pref-b", cards.filter(c => ["Valuation settings", "Fair value settings", "Fund prices"].some(t => has(c, t))));
+    put("sg-keys-b", cards.filter(c => c.id === "rqcard" || / API key/.test((c.querySelector("h2") || {}).textContent || "")));
+    put("sg-data-b", cards.filter(c => c.parentElement === src)); src.remove(); }
   const msg = (id, t, err) => { const e=$(id,app); e.textContent=t; e.className="small "+(err?"err":"muted"); };
   rqShow(); rqPull().then(() => { if($("#rqbody", app)) rqShow(); });
   const ghm = (t, err) => { const e = $("#ghmsg", app); if(e){ e.textContent = t; e.className = "small " + (err ? "err" : "muted"); } };
