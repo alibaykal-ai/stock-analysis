@@ -59,6 +59,7 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--mute
 /* My Stocks / Watchlist: column titles stay visible under the top bar while scrolling (desktop) */
 .listwrap{overflow-x:auto}
 .listtbl.nohealth .c-health{display:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #commonflags{margin:0 0 10px}
 @media (min-width:801px){ .listwrap{overflow:visible} .listtbl thead th{position:sticky;top:var(--hdr,55px);z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)} }
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -421,7 +422,9 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 .cmp-t thead th{text-transform:none;letter-spacing:normal;font-size:15px;color:var(--ink)}
 .cmp-t thead th a{font-size:16px}
 .cmp-t tr.cmp-g th{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding-top:16px}
-.cmp-t td.cmp-best{background:var(--infobg)}
+.cmp-t td.cmp-best{background:none} /* 7.32: ★ only (was blue shading on most rows) */
+/* 7.32: labels as coloured words (no pills) except Fair value and Valuation overall; the word stays, so colour isn't the only cue */
+.cmp-t tr:not([data-row="fv"]):not([data-row="val"]) .badge{background:none;padding:0;white-space:normal;font-size:13px}
 .cmp-t td.cmp-best .up,.cmp-t td.cmp-best .pj-hit{color:#166534} /* 7.29: AA contrast on the blue cell (light) */
 @media (prefers-color-scheme:dark){ .cmp-t td.cmp-best .up,.cmp-t td.cmp-best .pj-hit{color:var(--good)} }
 html.sharing .cmp-t td.cmp-best .up,html.sharing .cmp-t td.cmp-best .pj-hit{color:#166534}
@@ -501,7 +504,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.31</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.32</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1708,13 +1711,16 @@ function riskFlags(c){
       if(old && sc(cur) - sc(old) <= -0.25) add("amber", "Analysts less positive", "Buy/hold/sell ratings have shifted towards hold or sell over ~3 months.");
     }
   }
-  return f.sort((a, b) => (a.sev === "red" ? 0 : 1) - (b.sev === "red" ? 0 : 1));
+  // 7.31: most important first (My Stocks shows only the first): red, then time-sensitive and trend-turn warnings, then the rest
+  const AMBER = ["Earnings", "Death cross approaching", "Analysts less positive", "Near 52-week", "Unusual volume", "RSI", "Below 200-day"];
+  const rank = x => x.sev === "red" ? -1 : (i => i < 0 ? AMBER.length : i)(AMBER.findIndex(k => x.text.startsWith(k)));
+  return f.sort((a, b) => rank(a) - rank(b));
 }
 function flagsCell(f, checked, common){
   if(!f.length) return `<span class="small muted">${common ? "Only the one above the list" : checked ? "None" : "None so far"}</span>`;
   const b = x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(x.why)}">${esc(x.text)}</span>`;
   const more = f.slice(1); // 7.29: the most serious flag only; the rest on hover and on the stock page
-  return `<div class="flags">${b(f[0])}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more</span>` : ""}</div>`;
+  return `<div class="flags">${b(f[0])}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more<span class="sr">: ${esc(more.map(x => x.text).join(", "))}</span></span>` : ""}</div>`;
 }
 // 7.30: a flag on most of the list (e.g. "Below 200-day avg" in a falling market) is a market-wide move: one line above the list
 function paintFlags(app){
@@ -1927,13 +1933,14 @@ const CMP_ROWS = [
   { g: "Value", id: "evebitda", label: "EV/EBITDA", more: true, best: "low", rule: "lowest", f: cmpRatio(RATIOS[3]) },
   { g: "Value", id: "pfcf", label: "P/FCF", sub: "price ÷ free cash flow", more: true, best: "low", rule: "lowest", f: cmpRatio(RATIOS[4]) },
   { g: "Value", id: "pb", label: "P/B", sub: "price ÷ book value", more: true, best: "low", rule: "lowest", f: cmpRatio(RATIOS[2]) },
-  { g: "Growth", id: "gr", label: "Growth used", sub: "next year, as in Fair value", best: "high", rule: "highest", f: D => {
+  { g: "Growth", id: "gr", label: "Growth used", sub: "a year over 5 years, as in Fair value", best: "high", rule: "highest", f: D => {
+    // 7.32: the same basis for every stock (the critique found your 5-year setting for one stock next to analysts' next-year figure for another)
     const F = D.box && $("#fv", D.box)._fv, inp = F && F.inp, a = F && F.a;
     if(!inp) return { h: cmpSpin(D), v: NaN };
-    if(a && a.custom) return { h: `${fmtPct(a.g, 1)}<span class="small muted">/yr</span>`, v: a.g, s: `<span class="muted">your Fair value setting</span>` };
+    if(a && a.custom) return { h: `${fmtPct(a.g, 1)}<span class="small muted">/yr</span>`, v: a.g, s: `<span class="muted">your Fair value setting${isNum(inp.g1) ? ` (the app's: about ${inp.startG}%)` : ""}</span>` };
     if(!isNum(inp.g1)) return { h: `<span class="muted">no growth data</span>`, v: NaN };
     const src = inp.gSrc === "analysts" ? "analysts" : inp.gSrc === "reports" ? "its reports" : "past 5 years";
-    return { h: fmtPct(inp.g1, 0), v: inp.g1, s: `<span class="muted">${src}; about ${inp.startG}%/yr over 5 years</span>` }; } },
+    return { h: `${fmtPct(inp.startG, 0)}<span class="small muted">/yr</span>`, v: inp.startG, s: `<span class="muted">next year ${fmtPct(inp.g1, 0)} (${src}), then slowing</span>` }; } },
   { g: "Growth", id: "rg", label: "Sales growth, last year", best: "high", rule: "highest", f: D => { const i = cmpItem(D, "growth", "Revenue growth, last year"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
   { g: "Growth", id: "rg5", label: "Sales growth, 5 years", sub: "per year", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "growth", "Revenue growth, 5 years"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
   { g: "Growth", id: "eg5", label: "EPS growth, 5 years", sub: "per year", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "growth", "EPS growth, 5 years"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
@@ -2019,7 +2026,7 @@ function cmpDraw(app, list){
   let groups = "";
   rows.forEach((r, i) => {
     if(i === 0 || rows[i - 1].g !== r.g) groups += `<tr class="cmp-g"><th colspan="${n + 1}">${r.g}</th></tr>`;
-    groups += `<tr data-row="${r.id}"><th scope="row"><b>${r.label}</b>${r.sub ? `<div class="small muted">${r.sub}</div>` : ""}${r.best ? `<div class="small muted cmp-rule">★ ${r.rule}</div>` : ""}</th>${cells[i].map((c, j) =>
+    groups += `<tr data-row="${r.id}"><th scope="row"><b>${r.label}</b>${r.sub ? `<div class="small muted">${r.sub}</div>` : ""}</th>${cells[i].map((c, j) =>
       `<td class="${best[i] === j ? "cmp-best" : ""}"><div class="cmp-v">${best[i] === j ? `<span class="cmp-star" title="Best of these on this row: ${esc(r.rule || "")}">★</span> ` : ""}${c.h}</div>${c.s ? `<div class="small cmp-s">${c.s}</div>` : ""}</td>`).join("")}</tr>`;
   });
   const nMore = CMP_ROWS.filter(r => r.more).length;
@@ -2032,7 +2039,7 @@ function cmpDraw(app, list){
     <div class="row" style="margin-top:10px"><button type="button" id="cmp-more">${cmpMore ? "Fewer rows" : `${nMore} more rows`}</button></div>
     <details class="more"><summary>How to read this</summary><p class="small muted" style="margin-bottom:0">
       Each column has the same figures as that stock's own page (tap the ticker to open it), so the details and the reasons behind each verdict are there.
-      ★ marks the best of these stocks on a row, by the rule under the row's name; rows without a rule have no "best" (a trend or a dividend isn't better or worse on its own).
+      ★ marks the best of these stocks on a row (hold the pointer on a ★ for the rule): ${CMP_ROWS.filter(r => r.best).map(r => `${esc(r.label)} ${esc(r.rule)}`).join(" · ")}. Rows without a rule have no "best" (a trend or a dividend isn't better or worse on its own).
       Figures that aren't meaningful (a negative P/E, a fair value that needs forecasts) don't get a ★, nor does a low P/E or forward P/E when profits are at a cyclical high (boom-and-bust companies such as MU: the low P/E comes from peak profits that won't last).
       This page doesn't use Alpha Vantage requests: analysts' forecasts and worked-out ratio history are used only when already saved, so a stock that hasn't had them loaded may show less here than on its own page.</p></details>`;
   $("#cmp-more", out).onclick = () => { cmpMore = !cmpMore; cmpDraw(app, list); };
@@ -4595,7 +4602,8 @@ function renderTop(app, data, mine, fredJ){
     vb.classList.remove("muted", "small");
     vb.innerHTML = `<div class="mood"><div><span class="badge big ${k}">${word}</span></div>
       <div style="flex:1;min-width:260px;max-width:760px"><p style="margin:0 0 6px">${sentence}</p>
-      <p class="small muted" style="margin:0">Combines the four other sections in the menu: market mood, sector rotation, where rates are heading (Inflation &amp; the Fed) and the economy. Each counts +1 for, 0 neutral, −1 against; +2 or more = Mostly tailwinds, −2 or less = Mostly headwinds. It describes the backdrop for stocks in general, not a reason to buy or sell any one stock.${parts.length < 4 ? " Some sections are still loading." : ""}</p></div></div>`;
+      ${parts.length < 4 ? `<p class="small muted" style="margin:0">Some sections are still loading.</p>` : ""}
+      ${howTo("Combines the four other sections in the menu: market mood, sector rotation, where rates are heading (Inflation &amp; the Fed) and the economy. Each counts +1 for, 0 neutral, −1 against; +2 or more = Mostly tailwinds, −2 or less = Mostly headwinds. It describes the backdrop for stocks in general, not a reason to buy or sell any one stock.", "How is this worked out?")}</div></div>`;
   }
   // Macro → your stocks: one line per sector you own (holdings first, then watchlist-only sectors)
   const secs = SECTORS.map(([etf, name]) => ({ etf, name, t: mine[etf], r: rows.find(x => x.etf === etf) })).filter(x => x.t);
@@ -4603,12 +4611,14 @@ function renderTop(app, data, mine, fredJ){
   if(!secs.length){ yb.innerHTML = state.holdings.length || state.watchlist.length ? `<span class="spin"></span> Matching your stocks to sectors…` : `Add stocks to My Stocks or the Watchlist to see how the backdrop affects them.`; return; }
   secs.sort((a, b) => (b.t.mine.length ? 1 : 0) - (a.t.mine.length ? 1 : 0) || ((b.r && b.r.rel3) || 0) - ((a.r && a.r.rel3) || 0));
   yb.classList.remove("muted", "small");
-  yb.innerHTML = secs.map(x => {
+  const groups = new Map();
+  secs.forEach(x => { const note = sectorMacroNote(x.etf, fedDir, econ && econ.k, oilTag); if(!groups.has(note)) groups.set(note, []); groups.get(note).push(x); });
+  yb.innerHTML = [...groups].map(([note, list]) => `<p class="small" style="margin:12px 0 2px"><b>${note}</b></p>` + list.map(x => {
     const r = x.r, rel = r && isNum(r.rel3) ? r.rel3 : NaN;
     const perf = isNum(rel) ? `${rel >= 2 ? "Leading" : rel <= -2 ? "Lagging" : "In line with"} the S&amp;P 500 ${rel >= 2 || rel <= -2 ? `by ${Math.abs(rel).toFixed(1)} points ` : ""}over 3 months${r.above === true ? ", above its 200-day average" : r.above === false ? ", below its 200-day average" : ""}.` : "";
     const tick = [...x.t.mine.map(s => `<b>${esc(s)}</b>`), ...x.t.watch.map(s => `<span class="muted">${esc(s)}</span>`)].join(", ");
-    return `<div class="flag"><div style="min-width:74px">${relBadge(rel)}</div><div><b>${esc(x.name)}</b> (${tick}): ${perf} ${sectorMacroNote(x.etf, fedDir, econ && econ.k, oilTag)}</div></div>`;
-  }).join("") + `<p class="small muted" style="margin:8px 0 0">Holdings in bold, watchlist in grey; ETFs and funds left out. Sector notes describe how these sectors usually react, not a forecast for any one company.</p>`;
+    return `<div class="flag"><div style="min-width:74px">${isNum(rel) || spy ? relBadge(rel) : '<span class="spin"></span>'}</div><div><b>${esc(x.name)}</b> (${tick})${perf ? `: ${perf}` : ""}</div></div>`;
+  }).join("")).join("") + `<p class="small muted" style="margin:8px 0 0">Holdings in bold, watchlist in grey; ETFs and funds left out. Sector notes describe how these sectors usually react, not a forecast for any one company.</p>`;
 }
 // Macro sections (7.12): one at a time, from a menu like My Stocks' (left on the Mac, a swipeable row on the iPhone).
 // Every section still loads in the background; the menu shows each one's headline badge.
@@ -4628,7 +4638,7 @@ async function viewMacro(app, tok){
     <div class="homegrid">
     <nav class="side" aria-label="Macro sections">${MSECS.map(([k, l]) => `<button data-ms="${k}" class="${k === macroSec ? "on" : ""}">${l.replace("&", "&amp;")}<small id="ms-${k}"></small></button>`).join("")}</nav>
     <div class="side-main">
-    <div class="card" id="m-verdict" data-msec="overview"><h2>Overall: the backdrop for stocks</h2><div id="m-coming"></div><div id="m-verdict-b" class="muted small"><span class="spin"></span> Loading…</div></div>
+    <div class="card" id="m-verdict" data-msec="overview"><h2>Overall: the backdrop for stocks</h2><div id="m-verdict-b" class="muted small"><span class="spin"></span> Loading…</div><div id="m-coming" style="margin-top:12px"></div></div>
     <div class="card" id="m-yours" data-msec="overview"><h2>Macro → your stocks</h2><div id="m-yours-b" class="muted small"><span class="spin"></span> Loading…</div></div>
     <div class="card" id="m-mood" data-msec="mood"><h2>Market mood</h2><div id="m-mood-b" class="muted small">${state.tdKey ? '<span class="spin"></span> Loading the S&P 500…' : ""}</div></div>
     <div class="card" id="m-sect" data-msec="sect"><h2>Sectors: who's leading, who's lagging</h2><div id="m-sect-b" class="muted small"></div></div>
