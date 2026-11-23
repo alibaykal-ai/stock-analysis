@@ -9,13 +9,13 @@
 <title>Stock Analysis</title>
 <style>
 :root{
-  --bg:#f6f7f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e5e7eb;
-  --accent:#2563eb; --good:#15803d; --goodbg:#dcfce7; --bad:#b91c1c; --badbg:#fee2e2;
+  --bg:#f6f7f9; --card:#fff; --ink:#0f172a; --muted:#5b6678; --line:#e5e7eb;
+  --accent:#2563eb; --onaccent:#fff; --good:#15803d; --goodbg:#dcfce7; --bad:#b91c1c; --badbg:#fee2e2;
   --mid:#92400e; --midbg:#fef3c7; --neutralbg:#f1f5f9; --info:#1d4ed8; --infobg:#dbeafe;
 }
 @media (prefers-color-scheme:dark){
   :root{ --bg:#0b1120; --card:#111827; --ink:#e5e7eb; --muted:#94a3b8; --line:#1f2937;
-    --accent:#60a5fa; --good:#4ade80; --goodbg:#052e16; --bad:#f87171; --badbg:#450a0a;
+    --accent:#60a5fa; --onaccent:#0b1120; --good:#4ade80; --goodbg:#052e16; --bad:#f87171; --badbg:#450a0a;
     --mid:#fbbf24; --midbg:#422006; --neutralbg:#1e293b; --info:#93c5fd; --infobg:#172554; }
 }
 *{box-sizing:border-box}
@@ -50,7 +50,7 @@ h2{font-size:16px;margin:0 0 12px}
 input,select,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px;cursor:pointer}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--onaccent)}
 button.link{border:none;background:none;color:var(--muted);padding:4px 6px}
 button:disabled{opacity:.5;cursor:default}
 table{width:100%;border-collapse:collapse}
@@ -69,6 +69,10 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .b-inline{background:var(--infobg);color:var(--info)} /* 7.20 (owner): neutral verdicts blue, like the Base case */
 .b-tag{background:var(--neutralbg);color:var(--muted)} /* plain tags, not a verdict: n/a, ETF, account, "In My Stocks"… */
 .b-warn{background:var(--midbg);color:var(--mid)}
+#syncstat:not(:empty)::before,#rqfoot:not(:empty)::before{content:" · "}
+.verdict{margin:0 0 10px;font-size:15px} .verdict .badge{margin-right:4px}
+.howto{margin:6px 0 0} .howto ul{margin:6px 0 0;padding-left:18px} .howto li{margin:3px 0}
+input.pj-in.pj-ed{border-color:var(--accent);background:var(--infobg);font-weight:600}
 .range{position:relative;height:6px;background:var(--neutralbg);border-radius:3px;min-width:80px}
 .range i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--accent);transform:translateX(-50%)}
 .rangecap{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px}
@@ -117,7 +121,7 @@ h3{font-size:14px;margin:18px 0 8px}
 .hp-bar{height:8px;background:var(--neutralbg);border-radius:4px;overflow:hidden}
 .hp-bar i{display:block;height:100%;border-radius:4px}
 .hp-v{text-align:right;font-variant-numeric:tabular-nums}
-#c-chart,#perf,#c-sales{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
+#c-chart,#perf,#c-sales{--s1:#2a78d6;--s2:#eb6834;--s3:#15946a;--vol:#cbd5e1}
 .slwrap{position:relative;touch-action:pan-y}
 .slwrap svg,.slov{display:block;width:100%;height:330px}
 .slov{position:absolute;top:0;left:0;right:0;pointer-events:none}
@@ -384,7 +388,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 /* ===== Compare (7.22) ===== */
 .shadow-stock{display:none}
 .btnlink{display:inline-block;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px}
-.btnlink.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btnlink.primary{background:var(--accent);border-color:var(--accent);color:var(--onaccent)}
 .cmp-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
 .cmp-chip{border-radius:999px;padding:6px 14px;font-weight:600;min-height:36px}
 .cmp-chip.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
@@ -404,6 +408,9 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 .cmp-t thead th a{font-size:16px}
 .cmp-t tr.cmp-g th{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding-top:16px}
 .cmp-t td.cmp-best{background:var(--infobg)}
+.cmp-t td.cmp-best .up,.cmp-t td.cmp-best .pj-hit{color:#166534} /* 7.29: AA contrast on the blue cell (light) */
+@media (prefers-color-scheme:dark){ .cmp-t td.cmp-best .up,.cmp-t td.cmp-best .pj-hit{color:var(--good)} }
+html.sharing .cmp-t td.cmp-best .up,html.sharing .cmp-t td.cmp-best .pj-hit{color:#166534}
 .cmp-star{color:var(--info);font-weight:700}
 .cmp-v{font-weight:600}
 .cmp-v .small{font-weight:400}
@@ -430,9 +437,9 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 /* ===== Share as PDF (7.24): the look while the page is turned into PDF pages ===== */
 .share-only{display:none}
 html.sharing .share-only{display:block}
-html.sharing{--bg:#f6f7f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e5e7eb; --accent:#2563eb; --good:#15803d; --goodbg:#dcfce7; --bad:#b91c1c; --badbg:#fee2e2;
+html.sharing{--bg:#f6f7f9; --card:#fff; --ink:#0f172a; --muted:#5b6678; --line:#e5e7eb; --accent:#2563eb; --onaccent:#fff; --good:#15803d; --goodbg:#dcfce7; --bad:#b91c1c; --badbg:#fee2e2;
   --mid:#92400e; --midbg:#fef3c7; --neutralbg:#f1f5f9; --info:#1d4ed8; --infobg:#dbeafe; color-scheme:light}
-html.sharing #c-chart,html.sharing #c-sales{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--vol:#cbd5e1}
+html.sharing #c-chart,html.sharing #c-sales{--s1:#2a78d6;--s2:#eb6834;--s3:#15946a;--vol:#cbd5e1}
 html.sharing:not(.sharing-mine) #app .mine{display:none!important}
 /* Short version (7.26): only the verdict part of Fair value and the three case lines of Projections */
 html.sharing-short #c-fv #fv-more,html.sharing-short #c-fv #ov,html.sharing-short #c-proj details{display:none!important}
@@ -480,7 +487,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.28</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.29</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -803,7 +810,7 @@ function rqOthers(t){ const o = t.per.filter(d => !d.mine);
 function rqShow(){
   const f = document.getElementById("rqfoot");
   if(f){ const parts = []; if(state.avKey) parts.push(`Alpha Vantage ${rqToday("av").n}/${RQ.av.day} in 24 h`); if(state.tdKey) parts.push(`Twelve Data ${rqToday("td").n}/${RQ.td.day}`);
-    f.innerHTML = parts.length ? `<a href="#settings" data-rq="foot" aria-haspopup="dialog">Requests: ${parts.join(" · ")}${state.tdKey ? " today" : ""}</a> · ` : ""; }
+    f.innerHTML = parts.length ? `<a href="#settings" data-rq="foot" aria-haspopup="dialog">Requests: ${parts.join(" · ")}${state.tdKey ? " today" : ""}</a>` : ""; }
   rqRing();
   const pop = document.getElementById("rqpop"); if(pop && !pop.hidden) pop.innerHTML = rqPanel();
   const b = document.getElementById("rqbody"); if(b) b.innerHTML = rqCard();
@@ -2072,7 +2079,7 @@ function shareBlocks(kind, mine, short){
   const app = document.getElementById("app");
   if(kind === "compare") return [document.getElementById("cmp-out")].filter(Boolean);
   if(short) return ["c-top", "c-glance", ...(mine && app.querySelector("#ai .ai-text") ? ["c-ai"] : []), "c-fv", "c-proj"].map(id => app.querySelector("#" + id)).filter(Boolean);
-  return ["c-top", "c-glance", ...(mine && app.querySelector("#ai .ai-text") ? ["c-ai"] : []), "c-chart", "c-val", "c-fv", "c-sales", "c-proj", "c-health", "c-rec", "c-ins"].map(id => app.querySelector("#" + id)).filter(Boolean);
+  return ["c-top", "c-glance", "c-fv", "c-val", "c-sales", "c-proj", "c-health", "c-rec", ...(mine && app.querySelector("#ai .ai-text") ? ["c-ai"] : []), "c-chart", "c-ins"].map(id => app.querySelector("#" + id)).filter(Boolean);
 }
 async function shareBuild(L, kind, ids, title, mine, short, progress){
   const root = document.documentElement, app = document.getElementById("app");
@@ -2169,27 +2176,27 @@ async function viewStock(app, sym, tok){
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
     </div>
     <nav class="jump" id="jump">
-      <a data-go="c-top">Overview</a><a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-val">Valuation</a><a data-go="c-fv">Fair value</a><a data-go="c-sales">Sales</a><a data-go="c-proj">Projections</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a><a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
+      <a data-go="c-top">Overview</a>${isFund ? "" : `<a data-go="c-fv">Fair value</a><a data-go="c-val">Valuation</a><a data-go="c-sales">Sales</a><a data-go="c-proj">Projections</a><a data-go="c-health">Health</a><a data-go="c-rec">Analysts</a>`}<a data-go="c-chart">Chart</a>${isFund ? "" : `<a data-go="c-ins">Insiders</a>`}<a data-go="c-news">News</a>
     </nav>
     <div class="card glance" id="c-glance">
-      <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
-      ${isFund ? "" : `<div class="gl" data-go="c-val"><span>Valuation</span><div id="g-val" class="small muted">…</div></div>
-      <div class="gl" data-go="c-fv"><span>Fair value</span><div id="g-fv" class="small muted">…</div></div>
+      ${isFund ? "" : `<div class="gl" data-go="c-fv"><span>Fair value</span><div id="g-fv" class="small muted">…</div></div>
+      <div class="gl" data-go="c-val"><span>Valuation</span><div id="g-val" class="small muted">…</div></div>
       <div class="gl" data-go="c-proj"><span>Projections</span><div id="g-proj" class="small muted">…</div></div>
       <div class="gl" data-go="c-health"><span>Health</span><div id="g-health" class="small muted">…</div></div>
-      <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>
-      <div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
+      <div class="gl" data-go="c-rec"><span>Analysts</span><div id="g-rec" class="small muted">…</div></div>`}
+      <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
+      ${isFund ? "" : `<div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
     </div>
-    <div class="card" id="c-ai"><h2>AI summary: bull &amp; bear case <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
-    <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
-    <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div><div id="ov"></div></div>
+    <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
     <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div></div>
     <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
-    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div></div>
-    <div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
+    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div></div>`}
+    <div class="card" id="c-ai"><h2>AI summary: bull &amp; bear case <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
+    <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
+    ${isFund ? "" : `<div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
     <div class="card" id="c-news"><h2>Recent news</h2><div id="news" class="news"><span class="spin"></span></div></div>`;
   if($("#b-watch", app)) $("#b-watch", app).onclick = () => {
     if(state.watchlist.includes(sym)) state.watchlist = state.watchlist.filter(x=>x!==sym); else state.watchlist.push(sym);
@@ -2275,7 +2282,7 @@ function pegInfo(met, prof, price, av, rep){
 }
 function pegRow(P){
   const why = P.na ? `<span class="small muted">Not meaningful: ${esc(P.na)}.</span>`
-    : `<span class="badge ${P.k[0]}">${P.k[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g.toFixed(1)}% a year, the average growth Fair value assumes over 5 years (${isNum(P.g1) && Math.abs(P.g1 - P.g) >= 0.05 ? `${fmtPct(P.g1, 0)} next year, then slowing; ` : ""}${P.bank ? "past 5-year earnings growth: banks and insurers' cash flow isn't comparable" : P.past ? "no analysts' forecasts, from its reports" : "see Growth used under Fair value"}). The usual way to read PEG. ${PEG_RULE}</div>`;
+    : `<span class="badge ${P.k[0]}">${P.k[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g.toFixed(1)}% a year (${P.bank ? "past 5-year earnings growth" : P.past ? "no analysts' forecasts, from its reports" : "Fair value's 5-year average"}): the usual way to read PEG.</div>`;
   const main = `<tr class="peg-row">
         <td><b title="Price/earnings divided by the yearly earnings growth in %. A fast grower can deserve a higher P/E: PEG puts the two side by side.">PEG</b><div class="small muted">P/E ÷ growth</div></td>
         <td class="num"><b>${P.na ? "n/a" : P.peg.toFixed(2)}</b>${!P.na && P.past ? `<div class="small muted">(no analysts' forecasts)</div>` : ""}</td>
@@ -2287,7 +2294,7 @@ function pegRow(P){
         <td><b title="The same P/E divided by next year's growth alone.">PEG at next year's pace</b><div class="small muted">P/E ÷ next year's growth</div></td>
         <td class="num"><b>${P.peg1.toFixed(2)}</b></td>
         <td class="num small">growth ${fmtPct(P.g1, 1)}/yr<div class="muted">next year</div></td>
-        <td colspan="3"><span class="badge ${P.k1[0]}">${P.k1[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g1.toFixed(1)}% next year's growth. ${P.g1 > P.g ? "If this year's pace lasted; fast growth usually slows, so this is the optimistic view." : "Next year's growth is below the 5-year average Fair value assumes (it expects growth to pick up toward 2.5% a year), so here this is the more cautious view."} Not counted in any verdict.</div></td>
+        <td colspan="3"><span class="badge ${P.k1[0]}">${P.k1[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g1.toFixed(1)}% next year's growth: ${P.g1 > P.g ? "the optimistic view" : "the more cautious view"}, not counted in any verdict.</div></td>
       </tr>`;
 }
 async function renderValuation(app, sym, met, prof, tok, price){
@@ -2334,7 +2341,7 @@ async function renderValuation(app, sym, met, prof, tok, price){
         "Usual range" is the middle half of the stock's values over the last ${state.settings.years} years; the verdict compares today with the middle value.
         "In line" means within ±${state.settings.band}% (change in <a href="#settings">Settings</a>).
         A stock can deserve a higher ratio if it is growing faster, so treat this as a starting point, not an answer.
-        <b>PEG</b> takes growth into account: P/E ÷ yearly growth in %. The main PEG uses the average growth Fair value assumes over 5 years (see "Growth used" under Fair value), the usual way to read it. "PEG at next year's pace" divides by next year's growth alone: what the P/E looks like if this year's pace lasted, the optimistic view for a fast grower. ${PEG_RULE} Neither is counted in the verdict above.
+        <b>PEG</b> takes growth into account: P/E ÷ yearly growth in %. The main PEG uses the average growth Fair value assumes over 5 years (next year's growth, then slowing: see "Growth used" under Fair value), the usual way to read it; banks and insurers use their past 5-year earnings growth (their cash flow isn't comparable), and stocks without analysts' forecasts use growth from their reports. "PEG at next year's pace" divides by next year's growth alone: what the P/E looks like if this year's pace lasted, the optimistic view for a fast grower (when next year's growth is below the 5-year average, it's the more cautious view). ${PEG_RULE} Neither is counted in the verdict above.
       </p></details>
       ${rows.some(x => x.hist && x.hist.freq === "calc") ? `<p class="small muted">* Worked out by the app from the company's reports and month-end prices (Alpha Vantage), because the main data source has too little history for this stock.</p>` : ""}
       ${histNote ? `<p class="small muted">${histNote}</p>` : ""}
@@ -2700,8 +2707,8 @@ function fvBar(lo, mid, hi, price, buyAt, richAt, target, tMeta){
       <div class="fvpline" style="left:${px}%"></div>
       <div class="fvplab" style="left:${px}%;transform:${lab}">Price ${fmt(price)}</div>
     </div>
-    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>Fair value ${hi - lo < 0.005 ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>
-    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analysts' average 12-month price target ${fmt(target)}${tMeta ? ` (${esc(tMeta.src)}${tMeta.date ? ", " + new Date(tMeta.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""}, from Outside views below)` : ""}: a prediction of the share price in a year, not a fair value, so it isn't part of the range.</div>` : ""}`;
+    <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>${hi - lo < 0.005 ? `Fair value ${fmt(lo)}` : `Methods' range ${fmt(lo)}–${fmt(hi)}`} · middle ${fmt(mid)}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>
+    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analysts' 12-month price target ${fmt(target)}${tMeta ? ` (${esc(tMeta.src)}${tMeta.date ? ", " + new Date(tMeta.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""}, Outside views)` : ""}: a price prediction, not a fair value, so not part of the range.</div>` : ""}`;
 }
 function fvAnalysts(inp, price, fx){
   if(!state.avKey) return `<p class="small muted" style="margin:0">Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' earnings forecasts. They make the fair value more accurate.</p>`;
@@ -2754,7 +2761,8 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
     ["gt", "Long-term growth", 0, 4, 0.5, "Growth after year 10, forever. Keep this near inflation (2–3%)."],
   ];
   el.innerHTML = `<div id="fv-out"></div>
-    <details class="fvctl" ${state.fv[sym] ? "open" : ""}><summary><b>Adjust the assumptions</b> <span class="small muted">(changes every method's growth view and the reverse DCF)</span></summary>
+    <details class="fvctl"><summary><b>Adjust the assumptions</b> <span class="small muted" id="fv-ctlsum"></span></summary>
+      <p class="small muted" style="margin:6px 0 0">Changes every method's growth view and the reverse DCF.</p>
       ${sliders.map(([k,l,mn,mx,st,h]) => `<label class="sl"><span>${l} <b id="fv-v-${k}"></b></span>
         <input type="range" id="fv-${k}" min="${mn}" max="${mx}" step="${st}"><small class="muted">${h}</small></label>`).join("")}
       <div class="row"><button id="fv-reset" type="button">Reset to defaults</button><span class="small muted" id="fv-def"></span></div>
@@ -2844,9 +2852,10 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
       </tr>`).join("")}</tbody></table>
       <p class="small muted" style="margin-bottom:0"><b>How to read this:</b> each method is a different way of estimating what one share is worth.
         The range runs from the lowest to the highest estimate that fits this company, and the middle is the median.
-        "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it (change in <a href="#settings">Settings</a>).
+        "Attractive" means at least ${state.settings.fvBuy}% below the middle; "Expensive" means at least ${state.settings.fvRich}% above it, so "Expensive above" can sit inside the methods' range (change in <a href="#settings">Settings</a>).
         These are estimates built on assumptions, not facts: a range of possible values, not a price target.</p></details>`;
     $("#fv-more", el).ontoggle = e => { fvMoreOpen = e.target.open; };
+    { const cs = $("#fv-ctlsum", el); if(cs) cs.textContent = a.custom ? `· Your settings: ${sliders.map(([k, l]) => `${k === "r" ? "return" : k === "gt" ? "long-term" : k === "cy" ? "" : "growth"} ${a[k]}${unit(k)}`.trim()).join(", ")} · Change` : "· App's starting values · Change"; }
     $("#fv-def", el).textContent = a.custom ? "Your settings for this stock are saved." : cy ? "Starting point: 5 years until profits are back to normal." : `Starting growth ${inp.startG}%: ${inp.startHow || "no growth data, so a cautious 5%"}.`;
   };
   sliders.forEach(([k]) => { $("#fv-"+k, el).oninput = e => {
@@ -2872,6 +2881,7 @@ function renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP){
 // Bear / Bull (owner confirmed 2026-11-22): growth a third lower / higher (at least 3 points); margin 15% lower / higher;
 // P/E: Bear 80% of the usual low → usual low, Bull usual middle → usual high (never above its usual high).
 const PJ_CASES = [["bear", "Bear"], ["base", "Base"], ["bull", "Bull"]], PJ_KEYS = ["g", "m", "lo", "hi"];
+let pjYearsOpen = false; // 7.29: "Show the years" starts folded on every device; stays open while you work on it
 const pjR1 = v => Math.round(v * 10) / 10, pjPE = v => v >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
 const pjBig = v => { if(!isNum(v)) return "—"; const a = Math.abs(v), [d, u] = a >= 1e12 ? [1e12, "T"] : a >= 1e9 ? [1e9, "B"] : a >= 1e6 ? [1e6, "M"] : [1e3, "K"]; const n = v / d, k = Math.abs(n);
   return (v < 0 ? "−" : "") + "$" + Math.abs(n).toFixed(k >= 100 ? 0 : k >= 10 ? 1 : 2) + u; };
@@ -3103,8 +3113,9 @@ function drawSales(el, S, F, unit, avRaw){
       <div class="slx">${cols.map((c, i) => { const l = lab(c).split(" "); return `<span style="left:${pX(cx(i))}"${c.fc ? ` class="fc"` : ""}>${view === "y" ? `${l[0].slice(0, 2)}<br>${l[0].slice(2)}` : `${l[0]}<br>${l[1]}`}</span>`; }).join("")}</div>
       <div id="sltip" class="tip" style="display:none"></div>
     </div>`}
-    <p class="small muted" style="margin:8px 0 0">Sales and profit (net income) from the company's reports (Finnhub).${qNote}${fcNote} ${matchMedia("(hover:none)").matches ? "Tap" : "Hover over"} a ${view === "y" ? "year" : "quarter"} for its figures.</p>
-    <details class="more"><summary>Show the numbers</summary>${tables()}</details>`;
+    <p class="small muted" style="margin:8px 0 0">${matchMedia("(hover:none)").matches ? "Tap" : "Hover over"} a ${view === "y" ? "year" : "quarter"} for its figures.</p>
+    <details class="more"><summary>Show the numbers</summary>${tables()}</details>
+    ${howTo(`Sales and profit (net income) from the company's reports (Finnhub).${qNote}${fcNote}`, "Where these figures come from")}`;
   el.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { if(b.disabled) return; salesView = b.dataset.v; drawSales(el, S, F, unit, avRaw); });
   if(n < 2) return;
   // hover / tap: the column lights up, one box lists its figures
@@ -3153,7 +3164,13 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     return `<div class="pj-line pj-l-${c}" data-case="${c}"><span class="badge pj-tag">${label}</span> <span>${what}</span>
       <div class="small muted">${r.year}: sales growth ${isNum(v.g[4]) ? v.g[4] + "%" : "—"}, profit margin ${isNum(v.m[4]) ? v.m[4] + "%" : "—"}, P/E ${isNum(v.lo[4]) ? v.lo[4] : "—"}–${isNum(v.hi[4]) ? v.hi[4] : "—"}×, EPS ${pjMoney(r.eps)}</div></div>`;
   };
-  const cell = (c, k, i, v) => `<input type="number" step="any" class="pj-in" data-c="${c}" data-k="${k}" data-i="${i}" value="${isNum(v) ? v : ""}" aria-label="${c} ${k} year ${i + 1}">`;
+  // 7.29: a box the owner changed (differs from the app's value) is highlighted, the app's value in its tooltip
+  const appV = (c, k, i) => S && S.cases[c] && S.cases[c][k] ? S.cases[c][k][i] : NaN;
+  const isEd = (c, k, i, v) => saved() && (isNum(v) !== isNum(appV(c, k, i)) || (isNum(v) && Math.abs(v - appV(c, k, i)) > 0.05));
+  const edCount = () => PJ_CASES.reduce((n, [c]) => n + PJ_KEYS.reduce((m, k) => m + [0, 1, 2, 3, 4].filter(i => isEd(c, k, i, cur[c][k][i])).length, 0), 0);
+  const edMark = inp => { const c = inp.dataset.c, k = inp.dataset.k, i = +inp.dataset.i, on = isEd(c, k, i, cur[c][k][i]) || inp.value.trim() !== "" && Math.abs(parseFloat(inp.value) - appV(c, k, i)) > 0.05;
+    inp.classList.toggle("pj-ed", !!on); inp.title = on ? `Your value (the app's: ${isNum(appV(c, k, i)) ? appV(c, k, i) : "empty"})` : ""; };
+  const cell = (c, k, i, v) => { const ed = isEd(c, k, i, v); return `<input type="number" step="any" class="pj-in${ed ? " pj-ed" : ""}" data-c="${c}" data-k="${k}" data-i="${i}" value="${isNum(v) ? v : ""}" aria-label="${c} ${k} year ${i + 1}${ed ? ", changed by you" : ""}"${ed ? ` title="Your value (the app's: ${isNum(appV(c, k, i)) ? appV(c, k, i) : "empty"})"` : ""}>`; };
   const resCells = r => [pjBig(r.sales), pjBig(r.profit), pjShares(r.sh), pjMoney(r.eps),
     isNum(r.pLo) && isNum(r.pHi) ? `<span class="${pjCls(r.rLo, r.eps, R())}">${pjMoney(r.pLo)}</span>–<span class="${pjCls(r.rHi, r.eps, R())}">${pjMoney(r.pHi)}</span>` : "—",
     isNum(r.rLo) && isNum(r.rHi) ? `<span class="${pjCls(r.rLo, r.eps, R())}">${pjRet(r.rLo)}</span>${pjSep(r.rLo)}<span class="${pjCls(r.rHi, r.eps, R())}">${pjRet(r.rHi)}</span>` : r.eps <= 0 ? `<span class="pj-loss">loss</span>` : "—"];
@@ -3185,16 +3202,16 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     S = projStart(met, prof, price, fx.fin, fx.finQ, fx.av, fx.peer, (() => { const s = state.fv[sym]; return s && isNum(s.cy) ? s.cy : 5; })(), peek.earn(sym));
     if(!S){ el.innerHTML = `<p class="muted">Not enough data (sales, profit and share count) to project this company.</p>`; glance("g-proj", "Not enough data", el); return; }
     cur = values();
-    const yrs = window.matchMedia("(max-width:700px)").matches ? "" : " open";
+    const yrs = pjYearsOpen ? " open" : "", nEd = saved() ? edCount() : 0;
     const pr = S.pe ? `its usual P/E ${fmtX(S.pe.lo)}–${fmtX(S.pe.hi)} (middle ${fmtX(S.pe.mid)})` : "no usual P/E (type your own)";
     el.innerHTML = `<div class="pj-top"><div id="pj-status">${status()}</div>${saved() ? `<button type="button" id="pj-reset">Reset to the app's values</button>` : ""}</div>
       <div class="pj-sum">${PJ_CASES.map(([c, l]) => sumLine(c, l, projRows(S, cur[c], price), cur[c])).join("")}</div>
-      <p class="small muted" style="margin:6px 0 0">Today's price <b>$${fmt(price)}</b> · ${pr} · colours vs your <b>${R()}%</b> required return: <span class="pj-hit">green</span> at or above, <span class="pj-miss">grey</span> below, <span class="pj-loss">red</span> a loss.
-        The P/E assumed in the last year drives most of the answer. These are scenarios built on your assumptions, not forecasts.</p>
-      <details class="pj-years"${yrs}><summary><b>Show the years</b> <span class="small muted">(change any box: growth, margin, P/E)</span></summary>
+      <p class="small muted" style="margin:6px 0 0">Scenarios built on your assumptions, not forecasts. Today's price <b>$${fmt(price)}</b> · ${pr}.</p>
+      <details class="pj-years" id="pj-years"${yrs}><summary><b>Show the years</b> <span class="small muted">· change any box: growth, margin, P/E${nEd ? ` · <span class="pj-edn">${nEd} box${nEd === 1 ? "" : "es"} changed by you (highlighted)</span>` : ""}</span></summary>
         ${PJ_CASES.map(([c, l]) => caseTable(c, l, cur)).join("")}
       </details>
-      <details class="more"><summary>Where the app's numbers come from</summary>
+      <details class="more"><summary>How to read this, and where the app's numbers come from</summary>
+        <p class="small">Colours vs your <b>${R()}%</b> required return: <span class="pj-hit">green</span> at or above, <span class="pj-miss">grey</span> below, <span class="pj-loss">red</span> a loss. The P/E assumed in the last year drives most of the answer.${nEd ? " Boxes you changed are highlighted in blue; hold the pointer on one to see the app's value." : ""}</p>
         <p class="small">Starting point: sales ${pjBig(S.sales)}, profit ${pjBig(S.profit)} (margin ${S.m0.toFixed(1)}%), ${pjShares(S.shares)} shares, so earnings of ${pjMoney(S.eps0)} per share: ${esc(S.from)}. Each year below is 12 months after that.</p>
         <ul class="small">
           <li><b>Base sales growth:</b> ${esc(S.gHow)}, with the growth above 2.5% halving every 2 years after that (same rule as Fair value); limited to −20%…+60%.</li>
@@ -3208,8 +3225,9 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
           Your values are saved for this stock and shared between your devices through your GitHub file. No extra data requests: everything comes from figures the app already has.</p>
       </details>`;
     glanceSet();
+    { const yd = $("#pj-years", el); if(yd) yd.ontoggle = () => { pjYearsOpen = yd.open; }; }
     el.querySelectorAll(".pj-in").forEach(inp => {
-      inp.oninput = () => { cur[inp.dataset.c][inp.dataset.k][+inp.dataset.i] = inp.value.trim() === "" ? NaN : parseFloat(inp.value); refresh(inp.dataset.c); };
+      inp.oninput = () => { cur[inp.dataset.c][inp.dataset.k][+inp.dataset.i] = inp.value.trim() === "" ? NaN : parseFloat(inp.value); refresh(inp.dataset.c); edMark(inp); };
       inp.onchange = () => { state.proj = state.proj || {}; state.proj[sym] = { at: ymd(new Date()), v: JSON.parse(JSON.stringify(cur, (k, x) => typeof x === "number" && !isFinite(x) ? null : x)) }; save();
         $("#pj-status", el).innerHTML = status(); if(!$("#pj-reset", el)){ $(".pj-top", el).insertAdjacentHTML("beforeend", `<button type="button" id="pj-reset">Reset to the app's values</button>`); bindReset(); } };
       inp.onblur = () => setTimeout(() => { if(pending) draw(); }, 0);
@@ -3226,6 +3244,8 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
 /* ================= At a glance strip ================= */
 // near: an element of the page section calling it. Inside the compare page's hidden copy of a stock page (7.22, .shadow-stock)
 // the tile is that copy's own, and the compare page is told (box._onGlance); on a stock page nothing changes.
+// 7.29 (UX): explanations behind one fold, the verdict stays visible
+const howTo = (html, label = "How to read this") => `<details class="more"><summary>${label}</summary><div class="small muted howto">${html}</div></details>`;
 function glance(id, html, near){ const box = near && near.closest && near.closest(".shadow-stock");
   const el = box ? box.querySelector("#" + id) : document.getElementById(id); if(el){ el.innerHTML = html; el.classList.remove("muted"); }
   if(box && box._onGlance) box._onGlance(id, html); }
@@ -3317,7 +3337,7 @@ function drawChart(el, h){
       <div class="ylab">${[70,30].map(v => `<span style="top:${(yR(v)/H*SVGH).toFixed(1)}px;transform:translateY(-50%);left:auto;right:30px">${v}</span>`).join("")}</div>
       <div id="tip" class="tip" style="display:none"></div>
     </div>
-    <p class="small muted" style="margin:8px 0 0">${chartRange}: ${fmtPct(chg,1)} (from ${fmt(first)}). Daily closing prices from Twelve Data. Moving averages smooth out daily swings: price above its 200-day average is usually read as a long-term uptrend.</p>
+    <p class="small muted" style="margin:8px 0 0">${chartRange}: ${fmtPct(chg,1)} (from ${fmt(first)}). Daily closing prices from Twelve Data.</p>
     ${signalsHtml(tx)}
     <details class="more"><summary>Show the numbers</summary>${chartTable(h, m50, m200, idx)}</details>`;
   el.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { chartRange = b.dataset.r; drawChart(el, h); });
@@ -3344,18 +3364,23 @@ function drawChart(el, h){
 }
 // Technical signals: each tile = value, plain-English verdict, one-line rule.
 function signalsHtml(t){
-  const tile = (name, val, badgeCls, word, rule) => `<div class="stat"><span>${name}</span><b>${val} ${word ? `<span class="badge ${badgeCls}">${word}</span>` : ""}</b><p>${rule}</p></div>`;
+  const rules = [];
+  const tile = (name, val, badgeCls, word, rule, line) => { rules.push(`<li><b>${name}:</b> ${rule}</li>`);
+    return `<div class="stat"><span>${name}</span><b>${val} ${word ? `<span class="badge ${badgeCls}">${word}</span>` : ""}</b>${line ? `<p>${line}</p>` : ""}</div>`; };
   const r = t.rsiNow;
   const rsiT = !isNum(r) ? tile("RSI (14 days)", "—", "", "", "Needs more price history.")
     : tile("RSI (14 days)", r.toFixed(0), r >= 70 || r <= 30 ? "b-warn" : "b-inline", r >= 70 ? "Overbought" : r <= 30 ? "Oversold" : "Neutral",
       "Momentum from 0 to 100. Above 70 = risen fast, often pauses; below 30 = fallen fast, often bounces.");
   const tlab = trendLabel(t.px, t.m50, t.m200);
+  const crossDay = t.cross ? new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"}) : "";
   const tr = !isNum(t.m50) || !isNum(t.m200) ? tile("Trend (50 vs 200-day)", "—", "", "", "Needs 200 days of prices.")
     : tile("Trend (averages and price)", tlab ? tlab.word : (t.m50 > t.m200 ? "Uptrend" : "Downtrend"), tlab ? tlab.k : (t.m50 > t.m200 ? "b-cheap" : "b-rich"),
       t.cross && (Date.now() - new Date(t.cross.date)) < 90*864e5 ? (t.cross.kind === "golden" ? "Golden cross" : "Death cross") : "",
-      (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + (t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${new Date(t.cross.date + "T00:00:00").toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"})}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
-               : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`));
-  const trA = t.approach ? tile("Trend (averages and price)", tlab ? tlab.word : "Uptrend", "b-warn", "Death cross approaching", (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + approachWhy(t)) : "";
+      (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + (t.cross ? `50-day average crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${crossDay}. ${t.cross.kind === "golden" ? "Usually read as a long-term turn up." : "Usually read as a long-term turn down."}`
+               : `50-day average is ${t.m50 > t.m200 ? "above" : "below"} the 200-day.`) + " Moving averages smooth out daily swings: price above its 200-day average is usually read as a long-term uptrend.",
+      t.cross ? `50-day crossed ${t.cross.kind === "golden" ? "above" : "below"} the 200-day on ${crossDay}.` : `50-day average ${t.m50 > t.m200 ? "above" : "below"} the 200-day; price ${t.px >= t.m200 ? "above" : "below"} it.`);
+  const trA = t.approach ? tile("Trend (averages and price)", tlab ? tlab.word : "Uptrend", "b-warn", "Death cross approaching", (tlab && tlab.k === "b-warn" ? tlab.why + " " : "") + approachWhy(t),
+      `The 50-day and 200-day averages would cross ${wksText(t.approach.weeks)} at this pace.`) : "";
   const rv = t.relVol;
   const rvT = tile("Relative volume", isNum(rv) ? rv.toFixed(1) + "×" : "—", isNum(rv) && rv >= 2 ? "b-warn" : "b-inline", isNum(rv) ? (rv >= 2 ? "Unusually busy" : rv <= 0.5 ? "Quiet" : "Normal") : "",
       `Latest day's shares traded vs the 30-day average. 2× or more usually means news. (If the market is open, today's figure is still building.)`);
@@ -3369,10 +3394,12 @@ function signalsHtml(t){
   const div = (oDir === "Rising" && pDir === "falling") || (oDir === "Falling" && pDir === "rising");
   const obvT = tile("On-Balance Volume trend", oDir, !isNum(o) ? "" : div ? "b-warn" : "b-inline",
       div ? (oDir === "Rising" ? "Hidden buying" : "Hidden selling") : "",
+      "Compares the price over the last 50 days with whether volume is flowing in (more traded on up days) or out. When the two disagree, a turn often follows; when they agree, volume confirms the price move.",
       `Last 50 days: price ${pDir} (${fmtPct(pT,0)}), volume ${oDir === "Rising" ? "flowing in" : oDir === "Falling" ? "flowing out" : "balanced"}. ` +
       (div ? "The two disagree, which often comes before a turn." : oDir === "Flat" || pDir === "flat" ? "No clear signal." : "Volume confirms the price move."));
-  return `<h3 style="margin-top:16px">Technical signals <span class="small muted" style="font-weight:400">· supporting information for timing, not a reason to buy or sell on its own</span></h3>
-    <div class="grid sig">${rsiT}${trA || tr}${rvT}${udT}${obvT}</div>`;
+  return `<h3 style="margin-top:16px">Technical signals</h3>
+    <div class="grid sig">${rsiT}${trA || tr}${rvT}${udT}${obvT}</div>
+    ${howTo(`<p style="margin:0">Supporting information for timing, not a reason to buy or sell on its own.</p><ul>${rules.join("")}</ul>`, "How to read these signals")}`;
 }
 function chartTable(h, m50, m200, idx){
   // Weekly rows (every 5th trading day), newest first, at most 60
@@ -3568,6 +3595,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
   const total = H.total;
   if(finState !== "loading" || isNum(total)) glance("g-health", isNum(total) ? `<span class="badge ${scoreClass(total)}">${total}/100 ${scoreWord(total)}</span>${flags.some(f => f[0] === "b-rich") ? ` <span class="muted">${flags.filter(f => f[0] === "b-rich").length} red flag${flags.filter(f => f[0] === "b-rich").length > 1 ? "s" : ""}</span>` : ""}` : "Not enough data", el);
   el.innerHTML = `
+    ${isNum(total) ? `<p class="verdict"><span class="badge ${scoreClass(total)}">${scoreWord(total)}</span> Score <b>${total}</b> of 100${flags.length ? ` · ${flags.length} flag${flags.length === 1 ? "" : "s"} below` : " · no red flags"}.</p>` : ""}
     <div class="hs">
       <div class="hs-ring" style="--p:${isNum(total)?total:0};--c:${scoreColor(total)}"><div><b>${isNum(total)?total:"—"}</b><span>of 100</span></div></div>
       <div style="flex:1;min-width:0">
@@ -3630,10 +3658,10 @@ async function renderInsiders(app, sym, tok){
   let bd, line;
   if(!tx.ok) { bd = ["b-tag", "n/a"]; line = `Insider data unavailable: ${esc(tx.e.message)}`; }
   // A purchase only counts as "Insiders buying" when it outweighs the selling (7.2, after NBIS: 1 buyer for $330K vs 8 sellers for $197.5M was labelled buying)
-  else if(buys.length && sum(buys) >= sum(sells)){ bd = ["b-cheap", "Insiders buying"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))})${sells.length ? `, while ${people(sells)} sold (${fmtUSD(sum(sells))})` : ""}. Insiders buying with their own money is one of the more meaningful signals: they usually buy only when they think the shares are cheap.`; }
+  else if(buys.length && sum(buys) >= sum(sells)){ bd = ["b-cheap", "Insiders buying"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))})${sells.length ? `, while ${people(sells)} sold (${fmtUSD(sum(sells))})` : ""}.`; }
   else if(buys.length && sum(buys) >= sum(sells) / 4){ bd = ["b-inline", "Mixed"]; line = `<b>${people(buys)}</b> insider${people(buys) === 1 ? "" : "s"} bought shares on the open market in the last 6 months (${fmtUSD(sum(buys))}), and ${people(sells)} sold more (${fmtUSD(sum(sells))}). Buying and selling of a similar size: no clear signal.`; }
-  else if(people(sells3) >= 3){ bd = ["b-warn", "Heavy insider selling"]; line = `${buys.length ? `Only a small purchase in 6 months (${people(buys)} insider${people(buys) === 1 ? "" : "s"}, ${fmtUSD(sum(buys))}), against <b>${people(sells)}</b> insiders selling ${fmtUSD(sum(sells))}; ` : "No open-market purchases in 6 months, and "}<b>${people(sells3)}</b> insiders sold in the last 3 months (${fmtUSD(sum(sells3))}). Selling is common (pay, taxes, planned sales), but several insiders selling at once is worth a look.`; }
-  else if(sells.length){ bd = ["b-inline", "Some selling"]; line = `${buys.length ? `Only a small purchase in 6 months (${people(buys)} insider${people(buys) === 1 ? "" : "s"}, ${fmtUSD(sum(buys))}), much less than the selling; ` : "No open-market purchases in 6 months; "}${people(sells)} insider${people(sells) === 1 ? "" : "s"} sold (${fmtUSD(sum(sells))}). Usually routine: executives are paid in shares and sell to diversify or pay tax, often on pre-set plans.`; }
+  else if(people(sells3) >= 3){ bd = ["b-warn", "Heavy insider selling"]; line = `${buys.length ? `Only a small purchase in 6 months (${people(buys)} insider${people(buys) === 1 ? "" : "s"}, ${fmtUSD(sum(buys))}), against <b>${people(sells)}</b> insiders selling ${fmtUSD(sum(sells))}; ` : "No open-market purchases in 6 months, and "}<b>${people(sells3)}</b> insiders sold in the last 3 months (${fmtUSD(sum(sells3))}). Several insiders selling at once is worth a look.`; }
+  else if(sells.length){ bd = ["b-inline", "Some selling"]; line = `${buys.length ? `Only a small purchase in 6 months (${people(buys)} insider${people(buys) === 1 ? "" : "s"}, ${fmtUSD(sum(buys))}), much less than the selling; ` : "No open-market purchases in 6 months; "}${people(sells)} insider${people(sells) === 1 ? "" : "s"} sold (${fmtUSD(sum(sells))}). Usually routine.`; }
   else { bd = ["b-inline", "Quiet"]; line = "No open-market buying or selling by insiders in the last 6 months."; }
   const sd = sent.ok && Array.isArray(sent.v.data) ? sent.v.data.slice().sort((a, b) => (a.year - b.year) || (a.month - b.month)) : [];
   const mspr3 = sd.slice(-3).map(x => x.mspr).filter(isNum), msprAvg = mspr3.length ? mspr3.reduce((a, b) => a + b, 0) / mspr3.length : NaN;
@@ -3643,19 +3671,22 @@ async function renderInsiders(app, sym, tok){
   const siData = si.ok && Array.isArray(si.v.data) ? si.v.data.slice().sort((a, b) => (a.settlementDate || "").localeCompare(b.settlementDate || "")) : [];
   const siLast = siData[siData.length - 1];
   const ownData = own.ok && Array.isArray(own.v.ownership) ? own.v.ownership.slice(0, 10) : [];
+  const nPS = buys.length + sells.length, nS = sells.length, nB = buys.length;
+  const siLinks = `<a href="https://finance.yahoo.com/quote/${encodeURIComponent(sym)}/key-statistics/" target="_blank" rel="noopener">${esc(sym)} on Yahoo Finance</a> ("Short % of float" under Share statistics)${/NASDAQ/i.test((cacheGet("/stock/profile2?" + new URLSearchParams({ symbol: sym })) || {}).exchange || "") ? ` · <a href="https://www.nasdaq.com/market-activity/stocks/${encodeURIComponent(sym.toLowerCase())}/short-interest" target="_blank" rel="noopener">Nasdaq short interest history</a>` : ""}`;
   el.innerHTML = `
-    <div class="mood" style="margin-bottom:10px"><div><span class="badge big ${bd[0]}">${bd[1]}</span></div><p style="margin:0;flex:1;min-width:260px;max-width:760px">${line}</p></div>
+    <p class="verdict"><span class="badge ${bd[0]}">${bd[1]}</span> ${line}</p>
     ${isNum(msprAvg) ? `<p class="small" style="margin:0 0 10px"><b>Insider sentiment</b> (last 3 months): ${msprAvg.toFixed(0)} on a scale from −100 (all selling) to +100 (all buying). ${sparkSvg([{ v: sd.slice(-12).map(x => x.mspr), cls: "s-ln" }], 160, 26, 0)}</p>` : ""}
-    ${top.length ? `<div style="overflow-x:auto"><table class="tight" style="max-width:820px"><thead><tr><th>Date</th><th>Insider</th><th></th><th class="num">Shares</th><th class="num hide-sm">Price</th><th class="num">Value</th></tr></thead><tbody>
-      ${top.map(r => `<tr><td>${fmtDay(r.transactionDate)}</td><td>${esc(r.name || "")}</td><td><span class="badge ${r.transactionCode === "P" ? "b-cheap" : "b-inline"}">${r.transactionCode === "P" ? "Bought" : "Sold"}</span></td><td class="num">${fmt(Math.abs(r.change || 0), 0)}</td><td class="num hide-sm">${isNum(r.transactionPrice) && r.transactionPrice > 0 ? fmt(r.transactionPrice) : "—"}</td><td class="num">${fmtUSD(val(r))}</td></tr>`).join("")}
-    </tbody></table></div>` : ""}
-    ${other ? `<p class="small muted">Plus ${other} other filing${other === 1 ? "" : "s"} in 6 months (share grants, option exercises, shares withheld for tax, gifts): these aren't buying or selling decisions, so they're left out.</p>` : ""}
+    ${top.length ? `<details class="more" id="ins-tbl"><summary>Show ${top.length < nPS ? `the latest ${top.length} of the ${nPS}` : `the ${nPS}`} open-market ${nS && !nB ? `sale${nPS === 1 ? "" : "s"}` : nB && !nS ? `purchase${nPS === 1 ? "" : "s"}` : `trade${nPS === 1 ? "" : "s"}`} (6 months)</summary><div style="overflow-x:auto"><table class="tight" style="max-width:820px"><thead><tr><th>Date</th><th>Insider</th><th></th><th class="num">Shares</th><th class="num hide-sm">Price</th><th class="num">Value</th></tr></thead><tbody>
+      ${top.map(r => `<tr><td>${fmtDay(r.transactionDate)}</td><td>${esc(r.name || "")}</td><td><span class="badge ${r.transactionCode === "P" ? "b-cheap" : "b-tag"}">${r.transactionCode === "P" ? "Bought" : "Sold"}</span></td><td class="num">${fmt(Math.abs(r.change || 0), 0)}</td><td class="num hide-sm">${isNum(r.transactionPrice) && r.transactionPrice > 0 ? fmt(r.transactionPrice) : "—"}</td><td class="num">${fmtUSD(val(r))}</td></tr>`).join("")}
+    </tbody></table></div>
+    ${other ? `<p class="small muted">Plus ${other} other filing${other === 1 ? "" : "s"} in 6 months (share grants, option exercises, shares withheld for tax, gifts): these aren't buying or selling decisions, so they're left out.</p>` : ""}</details>` : other ? `<p class="small muted">${other} other filing${other === 1 ? "" : "s"} in 6 months (share grants, option exercises, shares withheld for tax, gifts): these aren't buying or selling decisions, so they're left out.</p>` : ""}
+    ${paid(si) && paid(own) ? `<p class="small muted" style="margin:10px 0 0">Not in Finnhub's free plan: <b>short interest</b> (free elsewhere, updated twice a month: ${siLinks}) and the <b>biggest institutional owners</b>.</p>` : `
     <h3>Short interest</h3>
-    ${siLast ? `<p class="small" style="margin:0">${fmt(siLast.shortInterest, 0)} shares sold short on ${fmtDay(siLast.settlementDate)}.</p>` : `<p class="small muted" style="margin:0">${paid(si) ? "Not included in Finnhub's free plan." : si.ok ? "No data." : esc(si.e.message)} Free alternatives (short interest is updated twice a month): <a href="https://finance.yahoo.com/quote/${encodeURIComponent(sym)}/key-statistics/" target="_blank" rel="noopener">${esc(sym)} on Yahoo Finance</a> ("Short % of float" under Share statistics)${/NASDAQ/i.test((cacheGet("/stock/profile2?" + new URLSearchParams({ symbol: sym })) || {}).exchange || "") ? ` · <a href="https://www.nasdaq.com/market-activity/stocks/${encodeURIComponent(sym.toLowerCase())}/short-interest" target="_blank" rel="noopener">Nasdaq short interest history</a>` : ""}.</p>`}
+    ${siLast ? `<p class="small" style="margin:0">${fmt(siLast.shortInterest, 0)} shares sold short on ${fmtDay(siLast.settlementDate)}.</p>` : `<p class="small muted" style="margin:0">${paid(si) ? "Not included in Finnhub's free plan." : si.ok ? "No data." : esc(si.e.message)} Free alternatives (short interest is updated twice a month): ${siLinks}.</p>`}
     <h3>Biggest institutional owners</h3>
-    ${ownData.length ? `<table style="max-width:620px"><tbody>${ownData.map(o => `<tr><td>${esc(o.name)}</td><td class="num">${fmt(o.share, 0)} shares</td></tr>`).join("")}</tbody></table>` : `<p class="small muted" style="margin:0">${paid(own) ? "Not included in Finnhub's free plan." : own.ok ? "No data." : esc(own.e.message)}</p>`}
+    ${ownData.length ? `<table style="max-width:620px"><tbody>${ownData.map(o => `<tr><td>${esc(o.name)}</td><td class="num">${fmt(o.share, 0)} shares</td></tr>`).join("")}</tbody></table>` : `<p class="small muted" style="margin:0">${paid(own) ? "Not included in Finnhub's free plan." : own.ok ? "No data." : esc(own.e.message)}</p>`}`}
     <details class="more"><summary>How to read this</summary>
-      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. <b>Label</b> (suggested): open-market purchases in 6 months at least as large (in $) as the sales = Insiders buying (green); purchases at least a quarter of the sales = Mixed (blue); otherwise 3+ insiders selling in 3 months = Heavy insider selling (amber), else Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
+      <p class="small muted">From the forms company insiders (directors, executives, owners of 10%+) must file within two business days of trading (SEC Form 4), via Finnhub. Only <b>open-market</b> purchases and sales count as decisions; grants, option exercises and tax withholding are routine. Insiders buying with their own money is one of the more meaningful signals: they usually buy only when they think the shares are cheap. Selling is common and usually routine (executives are paid in shares and sell to diversify or pay tax, often on pre-set plans), but several insiders selling at once is worth a look. <b>Label</b> (suggested): open-market purchases in 6 months at least as large (in $) as the sales = Insiders buying (green); purchases at least a quarter of the sales = Mixed (blue); otherwise 3+ insiders selling in 3 months = Heavy insider selling (amber), else Some selling / Quiet (grey). Insider sentiment (MSPR) is Finnhub's monthly measure of net buying vs selling. Short interest = shares borrowed and sold by investors betting the price falls; high short interest means many expect a fall (and can fuel sharp rises if they buy back). Context, not a buy or sell signal.</p>
     </details>`;
   glance("g-ins", `<span class="badge ${bd[0]}">${bd[1]}</span>`);
 }
@@ -3900,6 +3931,8 @@ function recTarget(app, sym){
       <span class="muted">Where analysts expect the price to be in a year; found by Outside views ${ovAge(o.t)}. Targets usually sit above fair value estimates.</span></p>`
     : `<p class="small muted" style="margin:10px 0 0">Price target: not looked up yet. The free data services don't include it; tap <b>Check outside views</b> under Fair value to find it.</p>`;
 }
+// 7.29 verdict label for the Analysts card (Claude's suggestion): 70%+ buy = Mostly buy, 30%+ sell = Many sell, else Mixed
+const recK = (b, s, t) => b / t >= 0.7 ? ["b-cheap", "Mostly buy"] : s / t >= 0.3 ? ["b-rich", "Many sell"] : ["b-inline", "Mixed"];
 function renderRec(app, r){
   const el = $("#rec", app);
   if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings", el); return; }
@@ -3914,11 +3947,11 @@ function renderRec(app, r){
   if(isNum(sOld)){ const d = sNow - sOld; trend = Math.abs(d) < 0.1 ? "Roughly unchanged vs ~3 months ago." : d > 0 ? "<span class='up'>More positive</span> than ~3 months ago." : "<span class='down'>Less positive</span> than ~3 months ago."; }
   glance("g-rec", `<b class="up">${buyish} buy</b> · ${cur.hold||0} hold · <b class="down">${sellish} sell</b>${trend.includes("Less") ? ' <span class="muted">· less positive</span>' : trend.includes("More") ? ' <span class="muted">· more positive</span>' : ""}`, el);
   el.innerHTML = `
-    <p style="margin-top:0"><b>${tot}</b> analysts: <b class="up">${buyish} buy</b> · <b>${cur.hold||0} hold</b> · <b class="down">${sellish} sell</b> <span class="small muted">(${esc(cur.period)})</span></p>
+    <p class="verdict"><span class="badge ${recK(buyish, sellish, tot)[0]}">${recK(buyish, sellish, tot)[1]}</span> <b>${tot}</b> analysts: <b class="up">${buyish} buy</b> · ${cur.hold||0} hold · <span class="${sellish ? "down" : ""}">${sellish} sell</span> <span class="small muted">(${esc(cur.period)})</span></p>
     <div class="recbar">${parts.map(([k,,c])=>cur[k]?`<div style="width:${cur[k]/tot*100}%;background:${c}" title="${k}: ${cur[k]}"></div>`:"").join("")}</div>
     <div class="legend">${parts.map(([k,l,c])=>`<span><i style="background:${c}"></i>${l} ${cur[k]||0}</span>`).join("")}</div>
     <p class="small">${trend}</p>
-    <p class="small muted" style="margin-bottom:0">Full analyst reports aren't in the free data plan. Analysts' earnings forecasts are under Fair value (needs a free Alpha Vantage key).</p>`;
+    <p class="small muted" style="margin-bottom:0">Full analyst reports aren't in the free data plan. Analysts' earnings forecasts are under Fair value${state.avKey ? "" : ` (needs a free <a href="#settings">Alpha Vantage key</a>)`}.</p>`;
 }
 
 function renderNews(app, n){
