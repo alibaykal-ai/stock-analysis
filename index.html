@@ -384,6 +384,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 /* ===== Compare (7.22) ===== */
 .shadow-stock{display:none}
 .btnlink{display:inline-block;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px}
+.btnlink.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .cmp-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
 .cmp-chip{border-radius:999px;padding:6px 14px;font-weight:600;min-height:36px}
 .cmp-chip.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
@@ -479,7 +480,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.27</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.28</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2159,9 +2160,9 @@ async function viewStock(app, sym, tok){
           <div style="margin-top:6px"><span id="s-price" style="font-size:24px;font-weight:700"></span> <span id="s-chg"></span></div>
         </div>
         <div class="row">
-          ${inMine ? "" : `<button id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
-          ${inMine ? `<span class="badge b-tag mine">In My Stocks</span>` : `<button id="b-mine">+ My Stocks</button>`}
-          ${isFund ? "" : `<a class="btnlink" id="b-cmp" href="${cmpHref([sym])}">⇄ Compare with…</a>`}
+          ${inMine ? "" : `<button class="primary" id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
+          ${inMine ? `<span class="badge b-tag mine">In My Stocks</span>` : `<button class="primary" id="b-mine">+ My Stocks</button>`}
+          ${isFund ? "" : `<a class="btnlink primary" id="b-cmp" href="${cmpHref([sym])}">⇄ Compare with…</a>`}
           <button type="button" class="primary" id="b-share">⤴ Share PDF</button>
         </div>
       </div>
