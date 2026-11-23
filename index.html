@@ -380,10 +380,10 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
     <a href="#macro" data-nav="macro">Macro</a>
     <a href="#settings" data-nav="settings">Settings</a>
   </nav>
-  <button id="rqring" class="rqring" type="button" data-rq="ring" hidden aria-haspopup="dialog" aria-label="Requests today"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="rqr-bg" cx="18" cy="18" r="14"/><circle class="rqr-fg" cx="18" cy="18" r="14"/></svg></button>
+  <button id="rqring" class="rqring" type="button" data-rq="ring" hidden aria-haspopup="dialog" aria-label="Requests"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="rqr-bg" cx="18" cy="18" r="14"/><circle class="rqr-fg" cx="18" cy="18" r="14"/></svg></button>
 </div></header>
 <div id="rqback" class="rqback" hidden></div>
-<div id="rqpop" class="rqpop" role="dialog" aria-label="Requests today" hidden></div>
+<div id="rqpop" class="rqpop" role="dialog" aria-label="Requests" hidden></div>
 <main id="app"></main>
 <nav class="tabbar" aria-label="Main">
   <a href="#home" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>My Stocks</a>
@@ -392,7 +392,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.17</b> · 22 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
+  <b id="appver">Version 7.18</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a> · <span id="syncstat"></span> · <span id="rqfoot"></span>
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -637,10 +637,11 @@ function shapeFinancials(j){
 // with a daily limit (Alpha Vantage, Twelve Data) and the AI cost are also put in the GitHub file (rq.<device id>), so the
 // numbers shown are Mac + iPhone together: the free limits are per key. Finnhub (per minute only) and GitHub stay per device.
 // A day follows each service's own reset, checked 22 Nov 2026: Twelve Data resets at midnight UTC (its help pages; its
-// api_usage request agrees and costs 1 request). Alpha Vantage doesn't publish a time; midnight UTC is assumed and the app
-// notes when its limit message stops, to check. Times are kept, so the boundary (reset, minutes after midnight UTC) can
-// change without losing counts. Only the last 2 days are kept.
-const RQ = { av: { day: 25, reset: 0 }, td: { day: 800, min: 8, reset: 0 }, fh: { min: 60, reset: 0 }, ai: { reset: 0 }, gh: { reset: 0 } };
+// api_usage request agrees and costs 1 request). Alpha Vantage doesn't publish a time; its limit log (22-23 Nov 2026: limit at
+// 17:32 UTC, a request worked at 20:45, refused again, worked at 05:35 next day) fits a rolling 24 hours, not midnight UTC,
+// so since 7.18 it is counted over the last 24 hours (roll) and each request frees up 24 hours after it was sent.
+// Times are kept, so the boundary (reset, minutes after midnight UTC, or roll) can change without losing counts. 2 days kept.
+const RQ = { av: { day: 25, roll: 86400 }, td: { day: 800, min: 8, reset: 0 }, fh: { min: 60, reset: 0 }, ai: { reset: 0 }, gh: { reset: 0 } };
 const RQ_KEEP = 2*86400, rqNow = () => Math.floor(Date.now() / 1000);
 let rqLog = null, rqShareTimer = null, rqFootTimer = null, rqPushed = "", rqSaving = false, rqPulled = 0;
 function rqLoad(){
@@ -672,7 +673,7 @@ function rqAvLimit(hit){ const L = rqLoad(), last = L.avlim[L.avlim.length - 1],
   if(hit){ if(last && !last.ok) last.last = t; else L.avlim.push({ hit: t, last: t }); rqFlush(); rqShareSoon(); }
   else if(last && !last.ok){ last.ok = t; rqFlush(); rqShareSoon(); } }
 // The start of the service's current day (seconds), from its reset time.
-function rqDayStart(svc){ const off = (RQ[svc].reset || 0) * 60, d = new Date((rqNow() - off) * 1000); d.setUTCHours(0, 0, 0, 0); return d.getTime() / 1000 + off; }
+function rqDayStart(svc){ if(RQ[svc].roll) return rqNow() - RQ[svc].roll; const off = (RQ[svc].reset || 0) * 60, d = new Date((rqNow() - off) * 1000); d.setUTCHours(0, 0, 0, 0); return d.getTime() / 1000 + off; }
 function rqDevName(){ const u = navigator.userAgent;
   return /iPhone/.test(u) ? "iPhone" : /iPad/.test(u) || /Macintosh/.test(u) && navigator.maxTouchPoints > 1 ? "iPad" : /Mac/.test(u) ? "Mac" : /Android/.test(u) ? "Android" : /Windows/.test(u) ? "Windows PC" : "computer"; }
 function rqMine(){ const L = rqLoad(); rqTrim(L); return { name: rqDevName(), t: rqNow(), av: L.av, td: L.td, ai: L.ai, avlim: L.avlim }; }
@@ -692,6 +693,10 @@ function rqDevices(){ const me = rqLoad().dev, list = [{ ...rqMine(), mine: true
   if(ghOn()) for(const [k, e] of Object.entries(state.rq || {})) if(k !== me && e && e.t > rqNow() - RQ_KEEP) list.push({ ...e, mine: false });
   return list; }
 const rqT = x => Array.isArray(x) ? x[0] : x;
+// Alpha Vantage (rolling 24 hours): when the next request frees up, i.e. when the count drops below the limit if it's used up,
+// else when the oldest request in the window drops out. Null when none were sent in the last 24 hours.
+function rqAvFree(){ const s = rqDayStart("av"), lim = RQ.av.day, a = rqDevices().flatMap(d => (d.av || []).map(rqT)).filter(t => t >= s).sort((x, y) => x - y);
+  if(!a.length) return null; return a[Math.max(0, a.length - lim)] + RQ.av.roll; }
 function rqToday(svc){ const s = rqDayStart(svc);
   const per = rqDevices().map(d => ({ name: d.name, mine: d.mine, at: d.t, n: (d[svc] || []).filter(x => rqT(x) >= s).length, list: (d[svc] || []).filter(x => rqT(x) >= s) }));
   return { n: per.reduce((a, d) => a + d.n, 0), per }; }
@@ -709,8 +714,8 @@ function rqOthers(t){ const o = t.per.filter(d => !d.mine);
 // The footer line and the Settings card.
 function rqShow(){
   const f = document.getElementById("rqfoot");
-  if(f){ const parts = []; if(state.avKey) parts.push(`Alpha Vantage ${rqToday("av").n}/${RQ.av.day}`); if(state.tdKey) parts.push(`Twelve Data ${rqToday("td").n}/${RQ.td.day}`);
-    f.innerHTML = parts.length ? `<a href="#settings" data-rq="foot" aria-haspopup="dialog">Requests today: ${parts.join(" · ")}</a> · ` : ""; }
+  if(f){ const parts = []; if(state.avKey) parts.push(`Alpha Vantage ${rqToday("av").n}/${RQ.av.day} in 24 h`); if(state.tdKey) parts.push(`Twelve Data ${rqToday("td").n}/${RQ.td.day}`);
+    f.innerHTML = parts.length ? `<a href="#settings" data-rq="foot" aria-haspopup="dialog">Requests: ${parts.join(" · ")}${state.tdKey ? " today" : ""}</a> · ` : ""; }
   rqRing();
   const pop = document.getElementById("rqpop"); if(pop && !pop.hidden) pop.innerHTML = rqPanel();
   const b = document.getElementById("rqbody"); if(b) b.innerHTML = rqCard();
@@ -719,14 +724,15 @@ function rqShow(){
 }
 function rqCard(){
   const L = rqLoad(), both = ghOn(), out = [];
+  const avFree = () => { const f = rqAvFree(); return f ? `Next request frees up at ${rqClock(f)} your time, in ${rqIn(f)}` : "None sent in the last 24 hours"; };
   const midnight = svc => `New day at ${rqClock(rqDayStart(svc) + 86400)} your time (midnight UTC), in ${rqIn(rqDayStart(svc) + 86400)}`;
   // Alpha Vantage
   { const t = rqToday("av"), obs = rqDevices().flatMap(d => d.avlim || []).filter(o => o && o.ok).sort((a, b) => b.ok - a.ok)[0];
     let o = "";
     if(obs){ const mids = []; for(let m = Math.ceil(obs.last / 86400) * 86400; m <= obs.ok; m += 86400) mids.push(m);
-      o = ` Last time the limit was reached, its message showed until ${rqWhen(obs.last)} and requests worked again at ${rqWhen(obs.ok)}, so the reset came in between${mids.length ? " (midnight UTC is in that window)" : ". Midnight UTC is <b>not</b> in that window, so the reset time may differ"}.`; }
+      o = ` Last time the limit was reached, its message showed until ${rqWhen(obs.last)} and requests worked again at ${rqWhen(obs.ok)}${mids.length ? " (midnight UTC fell in between)" : " (midnight UTC did not fall in between)"}.`; }
     out.push(`<div class="rq-row"><div><b>Alpha Vantage</b> <span class="rq-n">${t.n} of ${RQ.av.day}</span>${rqBar(t.n, RQ.av.day)}</div>
-      <p class="small muted">${state.avKey ? "" : "No key yet. "}${t.n >= RQ.av.day ? "<b>Today's free requests are used up.</b> " : ""}25 a day${rqSplit(t)}. ${midnight("av")}: Alpha Vantage doesn't publish its reset time, midnight UTC is the usual report, and the app checks it each time the limit is reached.${o}${rqOthers(t)}</p></div>`); }
+      <p class="small muted">${state.avKey ? "" : "No key yet. "}${t.n >= RQ.av.day ? "<b>All 25 free requests are used.</b> " : ""}In the last 24 hours${rqSplit(t)}. ${avFree()}. Alpha Vantage doesn't publish when its 25 a day reset; its limit messages on 22-23 Nov fit a rolling 24 hours (each request frees up a day after it was sent), not midnight UTC, so the app counts it that way.${o}${rqOthers(t)}</p></div>`); }
   // Twelve Data
   { const t = rqToday("td"), pk = rqPeak(t.per.flatMap(d => d.list), rqDayStart("td")), x = L.tdx && L.tdx.t >= rqDayStart("td") ? L.tdx : null;
     out.push(`<div class="rq-row"><div><b>Twelve Data</b> <span class="rq-n">${t.n} of ${RQ.td.day}</span>${rqBar(t.n, RQ.td.day)}</div>
@@ -746,7 +752,7 @@ function rqCard(){
     if(errs.length || hour >= 1000){ const e = errs[errs.length - 1];
       out.push(`<div class="rq-row"><div><b>GitHub saving</b> <span class="rq-n">${hour} in the last hour</span>${rqBar(hour, 5000)}</div>
         <p class="small muted">Limit 5,000 an hour.${e ? ` ${errs.length} error${errs.length > 1 ? "s" : ""} today, last at ${rqClock(e[0])}: GitHub said ${esc(e[1])}${e[2] ? " " + esc(e[2]) : ""}.` : ""}</p></div>`); } }
-  return `<p class="small muted" style="margin-top:0">Requests this app sent today, counted for each service's own day. ${both ? "Mac and iPhone are added together (each device adds its count to your GitHub file), because the free limits are per key." : "This device only: connect GitHub saving above to add your other devices."}</p>${out.join("")}`;
+  return `<p class="small muted" style="margin-top:0">Requests this app sent, counted the way each service counts its limit: Alpha Vantage over the last 24 hours, the others since their day started. ${both ? "Mac and iPhone are added together (each device adds its count to your GitHub file), because the free limits are per key." : "This device only: connect GitHub saving above to add your other devices."}</p>${out.join("")}`;
 }
 // The ring in the top bar (7.8, like Claude's usage ring): fills with whichever daily limit is closest to running out.
 // Hover (Mac) or tap (iPhone, a sheet from the bottom) shows the panel; the footer line opens the same panel.
@@ -754,26 +760,29 @@ const RQ_C = 2 * Math.PI * 14;
 function rqDaily(){ const out = [];
   if(state.avKey) out.push({ svc: "av", name: "Alpha Vantage", n: rqToday("av").n, lim: RQ.av.day, stop: avBlocked() });
   if(state.tdKey) out.push({ svc: "td", name: "Twelve Data", n: rqToday("td").n, lim: RQ.td.day, stop: false });
-  out.forEach(d => { d.f = d.stop ? 1 : Math.min(1, d.n / d.lim); d.left = d.stop ? 0 : Math.max(0, d.lim - d.n); d.reset = rqDayStart(d.svc) + 86400; });
+  out.forEach(d => { d.f = d.stop ? 1 : Math.min(1, d.n / d.lim); d.left = d.stop ? 0 : Math.max(0, d.lim - d.n);
+    d.roll = !!RQ[d.svc].roll; d.reset = d.roll ? rqAvFree() : rqDayStart(d.svc) + 86400; });
   return out; }
 const rqColour = f => f >= 1 ? "var(--bad)" : f >= 0.8 ? "var(--mid)" : "var(--good)";
 function rqRing(){ const b = document.getElementById("rqring"); if(!b) return;
   const d = rqDaily(); b.hidden = !d.length; if(!d.length) return;
   const top = d.slice().sort((x, y) => y.f - x.f)[0], c = b.querySelector(".rqr-fg");
   c.style.strokeDasharray = `${Math.max(top.f > 0 ? 2 : 0, top.f * RQ_C)} ${RQ_C}`; c.style.stroke = rqColour(top.f);
-  b.setAttribute("aria-label", "Requests today: " + d.map(x => `${x.name} ${x.n} of ${x.lim}`).join(", ")); }
+  b.setAttribute("aria-label", "Requests: " + d.map(x => `${x.name} ${x.n} of ${x.lim}`).join(", ")); }
 function rqStatus(d){
   if(!d.length) return "Add an Alpha Vantage or Twelve Data key in Settings to count their requests.";
-  const t = d.slice().sort((x, y) => y.f - x.f)[0], at = `${rqClock(t.reset)} (in ${rqIn(t.reset)})`;
-  if(t.f >= 1) return `<b>${t.name} is used up</b> until ${at}. Saved ${t.svc === "av" ? "forecasts" : "prices"} are shown meanwhile.`;
+  const t = d.slice().sort((x, y) => y.f - x.f)[0], at = t.reset ? `${rqClock(t.reset)} (in ${rqIn(t.reset)})` : "";
+  if(t.f >= 1) return t.roll ? `<b>${t.name} is used up.</b> ${t.n >= t.lim && at ? `The next request frees up at ${at}.` : "It said its limit is reached; the app waits 2 hours before trying again."} Saved forecasts are shown meanwhile.`
+    : `<b>${t.name} is used up</b> until ${at}. Saved prices are shown meanwhile.`;
   const w = t.f >= 0.8 ? "Getting close." : t.f >= 0.5 ? "On track." : "Plenty left.";
+  if(t.roll) return `<b>${w}</b> ${t.left} of ${t.lim} ${t.name} requests left in the last 24 hours${at ? `; the next one used frees up at ${at}` : ""}.`;
   return `<b>${w}</b> ${t.left} ${t.name} request${t.left === 1 ? "" : "s"} left until ${at}.`; }
 function rqPanel(){
   const d = rqDaily(), L = rqLoad(), rows = [];
   for(const x of d){ const sp = rqSplit(rqToday(x.svc));
     rows.push(`<div class="rqp-row"><div class="rqp-top"><span>${x.name}</span><span>${x.n} / ${x.lim}</span></div>
       <div class="rqp-bar"><span style="width:${Math.round(x.f * 100)}%;background:${rqColour(x.f)}"></span></div>
-      <div class="rqp-sub">${x.stop && x.n < x.lim ? "Alpha Vantage said today's limit is reached" : `${x.left} left`} · resets at ${rqClock(x.reset)} (in ${rqIn(x.reset)})${sp ? "<br>" + sp.slice(2, -1) : ""}</div></div>`); }
+      <div class="rqp-sub">${x.stop && x.n < x.lim ? "Alpha Vantage said its limit is reached" : `${x.left} left`} · ${x.roll ? (x.reset ? `last 24 hours, next frees up at ${rqClock(x.reset)} (in ${rqIn(x.reset)})` : "none used in the last 24 hours") : `resets at ${rqClock(x.reset)} (in ${rqIn(x.reset)})`}${sp ? "<br>" + sp.slice(2, -1) : ""}</div></div>`); }
   const s = rqDayStart("fh"), fh = L.fh.map(Number), pk = rqPeak(fh, s);
   rows.push(`<div class="rqp-row"><div class="rqp-top"><span>Finnhub, busiest minute</span><span>${pk} / ${RQ.fh.min}</span></div>
     <div class="rqp-bar"><span style="width:${Math.round(Math.min(1, pk / RQ.fh.min) * 100)}%;background:${rqColour(pk / RQ.fh.min)}"></span></div>
@@ -782,7 +791,7 @@ function rqPanel(){
   if(ai.length || state.aiKey){ const p = ai.filter(a => isNum(a[1])).reduce((t, a) => t + a[1], 0), usd = ai.filter(a => !isNum(a[1])).reduce((t, a) => t + (a[2] || 0), 0);
     rows.push(`<div class="rqp-row"><div class="rqp-top"><span>AI summaries</span><span>${ai.length ? (usd > 0 ? `about ${Math.round(p)}p + $${usd.toFixed(3)}` : p < 1 ? "under 1p" : `about ${Math.round(p)}p`) : "0p"}</span></div>
       <div class="rqp-sub">${ai.length} today · paid per use, no limit</div></div>`); }
-  return `<div class="rqp-h"><b>Requests today</b><button type="button" class="rqp-x" data-rqx aria-label="Close">×</button></div>
+  return `<div class="rqp-h"><b>Requests</b><button type="button" class="rqp-x" data-rqx aria-label="Close">×</button></div>
     <p class="rqp-st">${rqStatus(d)}</p>${rows.join("")}
     <div class="rqp-foot"><span>${ghOn() ? "Mac and iPhone together" : "This device only"}</span><a href="#settings" data-rqx>More in Settings</a></div>`; }
 const rqPhone = () => matchMedia("(max-width:700px)").matches, rqHover = () => matchMedia("(hover:hover) and (pointer:fine)").matches;
@@ -844,7 +853,7 @@ async function avApi(fn, sym, ttl, shape, force){
   const withAt = (v, stale) => v && typeof v === "object" ? { ...v, _at: at, _stale: !!stale } : v;
   if(has && !force && Date.now() - at < fresh) return withAt(ent.v);
   if(has && !force && avBlocked()) return withAt(ent.v, true);
-  if(!force && avBlocked()) throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit");
+  if(!force && avBlocked()) throw new ApiError("Alpha Vantage's 25 free requests are used up. Each frees up 24 hours after it was sent.", "avlimit");
   if(inflight.has(ck)) return inflight.get(ck);
   const p = (async () => {
     const wait = avLast + 1200 - Date.now(); avLast = Math.max(Date.now(), avLast + 1200);
@@ -856,7 +865,7 @@ async function avApi(fn, sym, ttl, shape, force){
     const j = await r.json();
     const info = j && (j.Information || j.Note || j["Error Message"]);
     if(info){
-      if(/limit|per day|frequency/i.test(info)){ if(/day/i.test(info)){ avLS("limitAt", Date.now()); rqAvLimit(true); } throw new ApiError("Daily limit of free Alpha Vantage requests reached. It resets tomorrow.", "avlimit"); }
+      if(/limit|per day|frequency/i.test(info)){ if(/day/i.test(info)){ avLS("limitAt", Date.now()); rqAvLimit(true); } throw new ApiError("Alpha Vantage's 25 free requests are used up. Each frees up 24 hours after it was sent.", "avlimit"); }
       if(/premium/i.test(info)) throw new ApiError("Not included in the free Alpha Vantage plan. Alpha Vantage says: " + String(info).slice(0, 140), "premium");
       if(/apikey|api key/i.test(info)) throw new ApiError("Alpha Vantage rejected the key. Check it in Settings. Alpha Vantage says: " + String(info).replace(/key as \S+/i, "key as …").slice(0, 140), "auth");
       throw new ApiError(String(info).slice(0, 160), "api");
@@ -902,7 +911,7 @@ async function avPriority(){
   const due = (avLS("want") || []).filter(s => owned.has(s)).filter(s => { fcHydrate(s); const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e || Date.now() - (e.t || e.exp - 24*3600e3) >= AV_FRESH.EARNINGS_ESTIMATES; });
   for(const s of due.slice(0, 4)){ if(avBlocked()) return; await safe(avApi("EARNINGS_ESTIMATES", s)); }
   // 7.16: every stock's forecasts, oldest first, refreshed weekly: at most 3 each time My Stocks opens and only while
-  // Mac + iPhone together have used under 15 of today's 25 (stock pages and boom-and-bust stocks keep the rest).
+  // Mac + iPhone together have used under 15 of the 25 in the last 24 hours (stock pages and boom-and-bust stocks keep the rest).
   const age = s => { fcHydrate(s); const e = memCache.get("av:EARNINGS_ESTIMATES:" + s); return cacheGet("av:EARNINGS_ESTIMATES:" + s) === undefined || !e ? Infinity : Date.now() - (e.t || e.exp - 24*3600e3); };
   const stocks = [...new Set([...myHoldings().filter(h => !h.type || h.type === "stock").map(h => h.symbol), ...state.watchlist])].filter(s => !/\.L$/i.test(s));
   const all = stocks.filter(s => age(s) >= AV_FRESH.EARNINGS_ESTIMATES).sort((a, b) => age(b) - age(a));
@@ -1683,7 +1692,7 @@ async function viewStock(app, sym, tok){
     const mb = sg.querySelector(".statmore"); mb.onclick = () => { const o = sg.classList.toggle("open"); mb.textContent = o ? "Fewer numbers" : "More numbers"; }; } }
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; $("#sales",app).innerHTML=""; }
-    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; const repP = Promise.all([finP, safe(fh.earnings(sym))]).then(([[f, fq], e]) => ({ fin: f.ok ? f.v : null, finQ: fq.ok ? fq.v : null, cal: e.ok ? e.v : null })); renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
+    else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; const repP = Promise.all([finP, safe(fh.earnings(sym))]).then(([[f, fq], e]) => ({ fin: f.ok ? f.v : null, finQ: fq.ok ? fq.v : null, cal: e.ok ? e.v : null })); renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP); repP.then(r => { const ve = $("#val", app); if(live(tok) && ve && ve._pegRep) ve._pegRep(r); }); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
     recTarget(app, sym);
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
@@ -1692,42 +1701,55 @@ async function viewStock(app, sym, tok){
   fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
 }
 
-// PEG (7.1): today's P/E ÷ expected yearly earnings growth (%), using the growth Fair value starts from:
-// analysts' forecast for next year (Alpha Vantage, already saved), else past growth. No new requests.
-// n/a when losing money / no positive P/E, growth zero or negative, or a boom-and-bust company at a cyclical high (the rule
-// that also skips peer P/E). Banks, lenders and insurers: shown (P/E and earnings growth mean the same for them), but
-// without forecasts only their past earnings growth is used, because their cash flow (part of "past growth") is distorted.
+// PEG (7.1; 7.18 owner: both growth views): today's P/E ÷ yearly growth (%), from the same growth Fair value uses (7.16
+// sources: analysts' yearly forecasts, analysts' next-quarter sales estimates, the last 12 months of sales, else past 5-year
+// figures). Main row and verdict: ÷ the 5-year average Fair value assumes (next year's growth, the excess over 2.5% halving
+// every 2 years), the usual way to read PEG. Second row: ÷ next year's growth, "if this year's pace lasted" (the optimistic
+// view), shown when the two differ by a point or more. No new requests. n/a when losing money / no positive P/E, growth zero
+// or negative, or a boom-and-bust company at a cyclical high (the rule that also skips peer P/E). Banks, lenders and
+// insurers: shown, but when only past figures exist their past earnings growth is used, not the mix with cash flow
+// (distorted for them by loans, deposits and premiums).
 const PEG_RULE = "Below 1 = cheap for its growth, 1 to 2 = fair, above 2 = pricey.";
-function pegInfo(met, prof, price, av){
+const pegK = peg => peg < 1 ? ["b-cheap", "Cheap for its growth"] : peg <= 2 ? ["b-inline", "Fair for its growth"] : ["b-rich", "Pricey for its growth"];
+function pegInfo(met, prof, price, av, rep){
   const mm = met && met.metric || {}, pe = nowValue(met, RATIOS[0]);
-  const inp = fvInputs(met, prof || {}, price, av || {});
+  const inp = fvInputs(met, prof || {}, price, av || {}, rep || {});
   if(isNum(inp.eps) && inp.eps <= 0) return { na: "losing money" };
   if(!(pe > 0)) return { na: "no positive P/E" };
   if(inp.cy) return { na: "profits at a cyclical high, so growth looks bigger than it will last", pe };
-  const fc = isFinancialCo(prof);
-  const gr = inp.exp ? { g: inp.exp.g, src: "analysts' forecast for next year", past: false }
-    : fc ? (isNum(mm.epsGrowth5Y) ? { g: mm.epsGrowth5Y, src: "past 5-year earnings growth: banks and insurers' cash flow isn't comparable", past: true } : null)
-    : isNum(inp.pastMid) ? { g: inp.pastMid, src: "middle of its past 5-year growth in earnings, sales and cash flow", past: true } : null;
-  if(!gr) return { na: "no growth figure", pe };
-  if(!(gr.g > 0)) return { na: `earnings growth zero or negative (${fmtPct(gr.g, 1)})`, pe, ...gr };
-  const peg = pe / gr.g;
-  const k = peg < 1 ? ["b-cheap", "Cheap for its growth"] : peg <= 2 ? ["b-inline", "Fair for its growth"] : ["b-rich", "Pricey for its growth"];
-  return { pe, ...gr, peg, k };
+  let bank = false, g1 = inp.g1, src = inp.startHow ? inp.startHow.split(" for next year")[0] : "";
+  const past = inp.gSrc === "past" || inp.gSrc === "reports";
+  if(inp.fin && inp.gSrc === "past"){ g1 = isNum(mm.epsGrowth5Y) ? gCap(mm.epsGrowth5Y) : NaN; src = "past 5-year earnings growth: banks and insurers' cash flow isn't comparable"; bank = true; }
+  if(!isNum(g1)) return { na: "no growth figure", pe };
+  const avg = Math.round(fadeAvg5(g1, 2.5) * 2) / 2;
+  if(!(avg > 0)) return { na: `growth zero or negative (${fmtPct(avg, 1)} a year over 5 years)`, pe, g: avg };
+  const peg = pe / avg, out = { pe, g: avg, g1, src, past, bank, peg, k: pegK(peg) };
+  if(g1 > 0 && Math.abs(g1 - avg) >= 1){ out.peg1 = pe / g1; out.k1 = pegK(out.peg1); }
+  return out;
 }
 function pegRow(P){
   const why = P.na ? `<span class="small muted">Not meaningful: ${esc(P.na)}.</span>`
-    : `<span class="badge ${P.k[0]}">${P.k[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g.toFixed(1)}% ${P.past ? "yearly growth" : "expected earnings growth"} (${esc(P.src)}). ${PEG_RULE}</div>`;
-  return `<tr class="peg-row">
-        <td><b title="Price/earnings divided by the expected yearly earnings growth in %. A fast grower can deserve a higher P/E: PEG puts the two side by side.">PEG</b><div class="small muted">P/E ÷ growth</div></td>
-        <td class="num"><b>${P.na ? "n/a" : P.peg.toFixed(2)}</b>${!P.na && P.past ? `<div class="small muted">(past growth, no forecasts)</div>` : ""}</td>
-        <td class="num small">${isNum(P.g) ? `growth ${fmtPct(P.g, 1)}/yr` : '<span class="muted">—</span>'}</td>
+    : `<span class="badge ${P.k[0]}">${P.k[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g.toFixed(1)}% a year, the average growth Fair value assumes over 5 years (${isNum(P.g1) && Math.abs(P.g1 - P.g) >= 0.05 ? `${fmtPct(P.g1, 0)} next year, then slowing; ` : ""}${P.bank ? "past 5-year earnings growth: banks and insurers' cash flow isn't comparable" : P.past ? "no analysts' forecasts, from its reports" : "see Growth used under Fair value"}). The usual way to read PEG. ${PEG_RULE}</div>`;
+  const main = `<tr class="peg-row">
+        <td><b title="Price/earnings divided by the yearly earnings growth in %. A fast grower can deserve a higher P/E: PEG puts the two side by side.">PEG</b><div class="small muted">P/E ÷ growth</div></td>
+        <td class="num"><b>${P.na ? "n/a" : P.peg.toFixed(2)}</b>${!P.na && P.past ? `<div class="small muted">(no analysts' forecasts)</div>` : ""}</td>
+        <td class="num small">${isNum(P.g) ? `growth ${fmtPct(P.g, 1)}/yr<div class="muted">5-year average</div>` : '<span class="muted">—</span>'}</td>
         <td colspan="3">${why}</td>
+      </tr>`;
+  if(P.na || !isNum(P.peg1)) return main;
+  return main + `<tr class="peg-row peg-row2">
+        <td><b title="The same P/E divided by next year's growth alone.">PEG at next year's pace</b><div class="small muted">P/E ÷ next year's growth</div></td>
+        <td class="num"><b>${P.peg1.toFixed(2)}</b></td>
+        <td class="num small">growth ${fmtPct(P.g1, 1)}/yr<div class="muted">next year</div></td>
+        <td colspan="3"><span class="badge ${P.k1[0]}">${P.k1[1]}</span><div class="small muted">P/E ${fmtX(P.pe)} ÷ ${P.g1.toFixed(1)}% next year's growth. ${P.g1 > P.g ? "If this year's pace lasted; fast growth usually slows, so this is the optimistic view." : "Next year's growth is below the 5-year average Fair value assumes (it expects growth to pick up toward 2.5% a year), so here this is the more cautious view."} Not counted in any verdict.</div></td>
       </tr>`;
 }
 async function renderValuation(app, sym, met, prof, tok, price){
   const el = $("#val", app);
   let pegAv = (() => { const v = peek.av(sym); return v ? parseAV(null, { ok: true, v }) : {}; })(), lastInfo = null;
+  let pegRep = { cal: peek.earn(sym), fin: peek.fin(sym), finQ: peek.finQ(sym) }; // saved copies first; the page's fresh ones when they arrive
   el._peg = av => { pegAv = av || {}; if(el.isConnected) draw(lastInfo); }; // fair value calls this when the forecasts arrive
+  el._pegRep = r => { if(r) pegRep = r; if(el.isConnected) draw(lastInfo); };
   const draw = (peerInfo) => { lastInfo = peerInfo;
     const rows = RATIOS.map(r => ({ r, now: nowValue(met, r), hist: history(met, r) }));
     const anyRow = rows.some(x => isNum(x.now));
@@ -1747,7 +1769,7 @@ async function renderValuation(app, sym, met, prof, tok, price){
         <td class="num small">${peerInfo ? (isNum(pm) ? fmtX(pm) : '<span class="muted">—</span>') : '<span class="spin"></span>'}</td>
         <td>${loss ? "" : peerInfo ? badge(vPeer, "the peer median") : ""}${!loss && peerInfo && isNum(pm) ? `<div class="ph-only small muted">peers ${fmtX(pm)}</div>` : ""}</td>
       </tr>`;
-    }).join("") + (isNum(nowValue(met, RATIOS[0])) ? pegRow(pegInfo(met, prof, price, pegAv)) : "");
+    }).join("") + (isNum(nowValue(met, RATIOS[0])) ? pegRow(pegInfo(met, prof, price, pegAv, pegRep)) : "");
     let summary = "";
     const gv = counted >= 2 ? null : "Not enough data";
     if(counted >= 2){
@@ -1766,7 +1788,7 @@ async function renderValuation(app, sym, met, prof, tok, price){
         "Usual range" is the middle half of the stock's values over the last ${state.settings.years} years; the verdict compares today with the middle value.
         "In line" means within ±${state.settings.band}% (change in <a href="#settings">Settings</a>).
         A stock can deserve a higher ratio if it is growing faster, so treat this as a starting point, not an answer.
-        <b>PEG</b> takes growth into account: P/E ÷ the expected yearly earnings growth in % (the same growth Fair value starts from: analysts' forecast for next year, or past growth without forecasts). ${PEG_RULE} It isn't counted in the verdict above.
+        <b>PEG</b> takes growth into account: P/E ÷ yearly growth in %. The main PEG uses the average growth Fair value assumes over 5 years (see "Growth used" under Fair value), the usual way to read it. "PEG at next year's pace" divides by next year's growth alone: what the P/E looks like if this year's pace lasted, the optimistic view for a fast grower. ${PEG_RULE} Neither is counted in the verdict above.
       </p></details>
       ${rows.some(x => x.hist && x.hist.freq === "calc") ? `<p class="small muted">* Worked out by the app from the company's reports and month-end prices (Alpha Vantage), because the main data source has too little history for this stock.</p>` : ""}
       ${histNote ? `<p class="small muted">${histNote}</p>` : ""}
@@ -1836,6 +1858,16 @@ const G_HALF = 2;
 const fadeF5 = [1, 2, 3, 4, 5].reduce((t, y) => t + Math.pow(0.5, (y - 1) / G_HALF), 0) / 5;
 const fadeAvg5 = (g0, gt) => gt + (g0 - gt) * fadeF5;
 const gCap = g => Math.max(-20, Math.min(60, g)); // the growth slider's range
+// DCF with analysts' forecasts first (7.18): years 1 and 2 = analysts' earnings for this and next fiscal year × the share of
+// earnings the company usually turns into free cash flow; from year 3 the growth fades as everywhere else (the excess over gt
+// halves every G_HALF years, starting from g1 = the year-1 growth that gives the slider's 5-year average), then gt forever
+// after year 10. Fixes companies whose reported earnings are depressed today while analysts expect them to jump (AMD: EPS
+// 4.60 reported after Xilinx deal charges, 8.08 and 17.64 expected; the plain DCF grew 4.28 of cash flow 35% a year).
+const g1FromAvg = (avg, gt) => gt + (avg - gt) / fadeF5;
+function fcDcfPath(f1, f2, g1, gt){ const cf = [f1, f2]; let c = f2;
+  for(let t = 3; t <= 10; t++){ c *= 1 + gt + (g1 - gt) * Math.pow(0.5, (t - 1) / G_HALF); cf.push(c); } return cf; }
+function fcDcf(f1, f2, g1, r, gt){ const cf = fcDcfPath(f1, f2, g1, gt);
+  return cf.reduce((v, c, i) => v + c / Math.pow(1 + r, i + 1), 0) + cf[9] * (1 + gt) / (r - gt) / Math.pow(1 + r, 10); }
 // 7.16 (owner: "don't make easy assumptions… check the real numbers"): next year's growth comes from the most forward-looking
 // figure available (fvInputs): 1) analysts' yearly forecasts (Alpha Vantage); 2) analysts' sales estimates for the next 2
 // quarters vs the same quarters a year earlier (Finnhub's earnings calendar: free, every stock); 3) the company's last 12
@@ -1993,14 +2025,25 @@ function fvInputs(met, prof, price, av, rep){
   // when today's free cash flow is under 60% of what the company usually turns its earnings into (median of up to 5 earlier
   // annual reports, at least 3), the DCF starts halfway between today's figure and the usual one. Not for boom-and-bust
   // companies (their own model) or banks and insurers (no DCF).
-  const fcfRaw = fcf; let fcfHow = "";
+  const fcfRaw = fcf; let fcfHow = "", convU = NaN, convN = 0;
+  { const ys = ((rep.fin && rep.fin.years) || []).slice(1, 6).filter(y => isNum(y.fcf) && y.net > 0);
+    if(ys.length >= 3){ convU = median(ys.map(y => y.fcf / y.net)); convN = ys.length; } }
   if(!fin && !cy && isNum(fcf) && fcf > 0 && isNum(eps) && eps > 0){
     const ys = ((rep.fin && rep.fin.years) || []).slice(1, 6).filter(y => isNum(y.fcf) && y.net > 0);
     if(ys.length >= 3){ const conv = median(ys.map(y => y.fcf / y.net)), now = fcf / eps;
       if(conv >= 0.5 && now < 0.6 * conv){ fcf = (fcfRaw + eps * Math.min(conv, 1.2)) / 2;
         fcfHow = ` Today's free cash flow (${fmt(fcfRaw)} per share) is only ${(now * 100).toFixed(0)}% of earnings, against a usual ${(conv * 100).toFixed(0)}% (median of ${ys.length} earlier years), e.g. because of heavy investment, so the model starts halfway between today's figure and the usual one.`; } }
   }
-  return { fin, eps, bvps, fcf, fcfRaw, fcfHow, past, pastMid, exp, startG, startHow, g1, gSrc, avRev, cal, ttm, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
+  // Forecast DCF inputs (7.18): both fiscal years' earnings forecasts positive, and a usual cash conversion from the reports
+  // (else today's, if positive), limited to 120% so one-off cash inflows don't count twice.
+  let fcd = null;
+  const fy1 = av.fy1, fy2 = av.fy2;
+  if(!fin && !cy && fy1 && fy2 && fy1.eps > 0 && fy2.eps > 0){
+    const c = isNum(convU) && convU > 0 ? { v: convU, how: `its usual ${(Math.min(convU, 1.2) * 100).toFixed(0)}% of earnings (median of ${convN} earlier years${convU > 1.2 ? `, ${(convU * 100).toFixed(0)}% limited to 120%` : ""})` }
+      : isNum(fcfRaw) && fcfRaw > 0 && eps > 0 ? { v: fcfRaw / eps, how: `today's ${(Math.min(fcfRaw / eps, 1.2) * 100).toFixed(0)}% of earnings (too few earlier reports for its usual share)` } : null;
+    if(c){ const k = Math.min(c.v, 1.2); fcd = { f1: fy1.eps * k, f2: fy2.eps * k, e1: fy1.eps, e2: fy2.eps, d1: fy1.date, d2: fy2.date, n: fy2.n, conv: k, how: c.how }; }
+  }
+  return { fin, eps, bvps, fcf, fcfRaw, fcfHow, fcd, past, pastMid, exp, startG, startHow, g1, gSrc, avRev, cal, ttm, epsG5: mm.epsGrowth5Y, roe: pick(mm, ["roeTTM","roeRfy","roe5Y"]), av, cy };
 }
 function fvAssump(sym, inp){
   const s = state.fv[sym] || {};
@@ -2034,6 +2077,10 @@ function fvMethods(inp, a, met, fx){
     return out;
   }
   if(inp.fin) out.push({ name:"Discounted cash flow", v:NaN, note:"Skipped: for banks, lenders and insurers, cash flow includes loans made and customers' money held (e.g. premiums waiting to pay claims), so it isn't free cash the owners can take out." });
+  else if(inp.fcd){ const d = inp.fcd, g1 = g1FromAvg(a.g / 100, a.gt / 100), path = fcDcfPath(d.f1, d.f2, g1, a.gt / 100);
+    out.push({ name:"Discounted cash flow (analysts' forecasts first)", v: fcDcf(d.f1, d.f2, g1, a.r/100, a.gt/100), counted:true,
+      note:`Years 1 and 2 from analysts' earnings forecasts: ${fmt(d.e1)} per share for the year to ${fmtDay(d.d1)} and ${fmt(d.e2)} for the year to ${fmtDay(d.d2)}${isNum(d.n) ? ` (${d.n} analysts)` : ""}, turned into free cash flow at ${d.how}: ${fmt(d.f1)} and ${fmt(d.f2)} per share. From year 3 it grows ${fmtPct(Math.pow(path[2] / path[1], 1) * 100 - 100, 1)}, slowing each year (the growth above ${a.gt}% halving every ${G_HALF} years, the same fade as a ${a.g}% average over 5 years on the growth slider) to ${a.gt}% after year 10; valued at your ${a.r}% required return. Today's free cash flow: ${isNum(inp.fcfRaw) ? fmt(inp.fcfRaw) + " per share" : "not reported"}.` });
+  }
   else if(isNum(inp.fcf) && inp.fcf > 0){
     out.push({ name:"Discounted cash flow", v: dcfPerShare(inp.fcf, a.g/100, a.r/100, a.gt/100), counted:true,
       note:`Free cash flow of ${fmt(inp.fcf)} per share, growing ${a.g}% a year for 5 years, slowing to ${a.gt}% by year 10, valued at your ${a.r}% required return.${inp.fcfHow || ""}` });
@@ -4809,7 +4856,7 @@ function viewSettings(app){
         </details>`}
     </div>
     <div class="card" id="rqcard">
-      <h2>Requests today</h2>
+      <h2>Requests</h2>
       <div id="rqbody">${rqCard()}</div>
     </div>
     <div class="card">
@@ -4824,7 +4871,7 @@ function viewSettings(app){
     </div>
     <div class="card">
       <h2>Alpha Vantage API key <span class="small muted">(optional, recommended)</span></h2>
-      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests a day for this key (Mac and iPhone share them, and share the forecasts they fetch through your GitHub file when saving to GitHub is on). Each stock uses 1 a week (forecasts are kept 7 days; month-end prices for valuation history, only when needed, 30 days). Requests today: <b id="avused">${avUsedToday()} of 25</b>${ghOn() ? " (both devices, see Requests today above)" : ""}${avBlocked() ? " · daily limit reached, pausing for a couple of hours" : ""}. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
+      <p class="small muted" style="margin-top:0">Adds analysts' earnings forecasts to Fair value. Free at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a>: 25 requests in any 24 hours for this key (Mac and iPhone share them, and share the forecasts they fetch through your GitHub file when saving to GitHub is on). Each stock uses 1 a week (forecasts are kept 7 days; month-end prices for valuation history, only when needed, 30 days). Requests in the last 24 hours: <b id="avused">${avUsedToday()} of 25</b>${ghOn() ? " (both devices, see Requests above)" : ""}${avBlocked() ? " · limit reached, pausing for a couple of hours" : ""}. Saved in this browser${ghOn() ? " and in your private GitHub file" : " only"}.</p>
       <form id="avform" class="row">
         <input id="avkey" type="password" placeholder="Paste your Alpha Vantage key" value="${esc(state.avKey)}" style="flex:1;min-width:220px" autocomplete="off">
         <button class="primary">Save</button>
@@ -4932,7 +4979,7 @@ function viewSettings(app){
   };
   $("#avtest",app).onclick = async () => {
     state.avKey = $("#avkey",app).value.trim(); save();
-    msg("#avmsg","Testing… (uses 1 of today's 25 requests)"); 
+    msg("#avmsg","Testing… (uses 1 of the 25 requests)"); 
     try{ const e = parseAV(null, {ok:true, v: await avq.estimates("MSFT", true)});
       msg("#avmsg", e.fy2 && isNum(e.fy2.eps) ? `✓ Works. Analysts expect Microsoft to earn ${fmt(e.fy2.eps)} per share next fiscal year.` : "Key accepted, but no estimates came back.", !(e.fy2 && isNum(e.fy2.eps))); }
     catch(e){ msg("#avmsg", e.message, true); }
