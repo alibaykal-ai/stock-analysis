@@ -58,6 +58,8 @@ th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertic
 th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:600}
 /* My Stocks / Watchlist: column titles stay visible under the top bar while scrolling (desktop) */
 .listwrap{overflow-x:auto}
+.listtbl.nohealth .c-health{display:none}
+#commonflags{margin:0 0 10px}
 @media (min-width:801px){ .listwrap{overflow:visible} .listtbl thead th{position:sticky;top:var(--hdr,55px);z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)} }
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
@@ -237,7 +239,11 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
 }
 
 /* ===== iPhone layout (6.0): bottom tab bar, swipeable sections, stock cards, "+ Add" folded ===== */
-.tabbar,.addbtn{display:none}
+.tabbar,.editbtn{display:none}
+.addfold:not(.open){display:none}
+.listtbl tr.grp td{padding-top:18px;border-bottom:1px solid var(--line)}
+/* 7.30: rows that scroll sideways fade at the edge while there's more to see */
+.side.fade-r,.jump.fade-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent)}
 .ph-lbl{display:none}
 @media (max-width:700px){
   header nav:not(.tabbar){display:none}
@@ -259,8 +265,11 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .side button{flex:0 0 auto;white-space:nowrap;min-height:44px;border-radius:22px;border-color:var(--line);background:var(--card)}
   .side small{display:inline;margin-left:6px;font-size:13px}
   /* "+ Add" folds the add form and "Record a purchase or sale" */
-  .addbtn{display:inline-block;min-height:44px}
-  .addfold:not(.open){display:none}
+  .addbtn,.editbtn{display:inline-block;min-height:44px}
+  .listtbl:not(.editing) td.c-del{display:none}
+  .listtbl tr.grp{display:block;padding:16px 2px 6px}
+  .listtbl tr.grp td{padding-top:0}
+  .listtbl tr.fundrow td.c-val,.listtbl tr.fundrow td.c-health,.listtbl tr.fundrow td.c-flags{display:none}
   #refresh{min-height:44px}
   /* My Stocks / Watchlist: each stock is a card instead of a table row */
   .listwrap{overflow:visible}
@@ -487,7 +496,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.29</b> · 23 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.30</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1321,7 +1330,9 @@ function viewHome(app, tok){
   const hasMine = state.holdings.length && state.apiKey, hasAny = state.apiKey && (state.holdings.length || state.watchlist.length);
   if(!hasAny && homeSec === "alerts") homeSec = "list";
   if(!hasMine && (homeSec === "risk" || homeSec === "perf" || homeSec === "whatif")) homeSec = "list";
-  const list = homeTab === "mine" ? myHoldings() : state.watchlist.map(s=>({symbol:s, type:"stock"}));
+  const isFundH = h => h.type && h.type !== "stock";
+  const list = homeTab === "mine" ? (l => [...l.filter(h => !isFundH(h)), ...l.filter(isFundH)])(myHoldings()) : state.watchlist.map(s=>({symbol:s, type:"stock"}));
+  const nFund = list.filter(isFundH).length; // 7.30: funds and ETFs as one group at the bottom
   app.innerHTML = `
     ${keyNotice()}
     <div class="homegrid">
@@ -1338,7 +1349,7 @@ function viewHome(app, tok){
     <div class="card" data-home="list">
       <div class="row" style="justify-content:space-between;margin-bottom:12px">
         <h2 style="margin:0">${homeTab==="mine" ? "My Stocks" : "Watchlist"}</h2>
-        <span class="row" style="gap:4px"><button id="refresh" class="link" title="Refresh prices">↻ Refresh</button><button id="addbtn" class="addbtn primary" aria-expanded="${addOpen}">${addOpen ? "Close" : "+ Add"}</button></span>
+        <span class="row" style="gap:4px"><button id="refresh" class="link" title="Refresh prices">↻ Refresh</button>${list.length ? `<button id="editlist" class="link editbtn" aria-pressed="false">Edit</button>` : ""}<button id="addbtn" class="addbtn primary" aria-expanded="${addOpen}">${addOpen ? "Close" : "+ Add"}</button></span>
       </div>
       <div id="alertbanner" class="callout" hidden style="margin:0 0 12px"></div>
       ${homeTab==="mine" && hasMine ? `<div id="mytotal" class="total"><span class="spin"></span> Adding up your holdings…</div>` : ""}
@@ -1354,14 +1365,15 @@ function viewHome(app, tok){
       ${homeTab==="mine" ? buyBox() : ""}
       </div>
       ${list.length ? `
-      <div class="listwrap"><table class="listtbl${homeTab==="mine" ? " mine" : ""}">
+      <p id="commonflags" class="small" hidden></p>
+      <div class="listwrap"><table class="listtbl nohealth${homeTab==="mine" ? " mine" : ""}">
         <thead><tr>
           <th>Stock</th><th class="num">Price</th><th class="num">Today</th>
           <th class="hide-sm">52-week range</th>
           ${homeTab==="mine" ? `<th class="num hide-sm">Shares</th><th class="num hide-sm">Value</th>` : ""}
-          <th>P/E vs its past</th><th class="num">Health</th><th>Flags</th><th></th>
+          <th>P/E vs its past</th><th class="num c-health">Health</th><th>Flags</th><th class="c-del"></th>
         </tr></thead>
-        <tbody>${list.map(h => rowSkeleton(h)).join("")}</tbody>
+        <tbody>${list.map((h, i) => (isFundH(h) && (i === 0 || !isFundH(list[i - 1])) ? `<tr class="grp"><td colspan="11"><b>Funds and ETFs (${nFund})</b> <span class="small muted">· no valuation, health or flags: company measures don't apply</span></td></tr>` : "") + rowSkeleton(h)).join("")}</tbody>
       </table></div>
       <div class="row" style="margin-top:12px">
         <button id="fullcheck" title="Fetches what's missing: company reports (Finnhub) and daily prices (Twelve Data, 1 request per stock, kept 12 hours)">Run full check</button>
@@ -1383,6 +1395,7 @@ function viewHome(app, tok){
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { const same = homeTab === b.dataset.tab; homeTab = b.dataset.tab;
     if(same && homeSec !== "list"){ homeSec = "list"; showSec(); window.scrollTo(0, 0); } else { homeSec = "list"; viewHome(app, ++renderToken); } });
   $("#addbtn", app).onclick = () => { addOpen = !addOpen; const f = $(".addfold", app); f.classList.toggle("open", addOpen); const b = $("#addbtn", app); b.textContent = addOpen ? "Close" : "+ Add"; b.setAttribute("aria-expanded", addOpen); if(addOpen) $("#addsym", app).focus(); };
+  { const eb = $("#editlist", app); if(eb) eb.onclick = () => { const t = $(".listtbl", app), on = t.classList.toggle("editing"); eb.textContent = on ? "Done" : "Edit"; eb.setAttribute("aria-pressed", on); }; }
   $("#refresh", app).onclick = () => { cacheDel(k => k.startsWith("/quote"));
     viewHome(app, ++renderToken); };
   $("#addform", app).onsubmit = e => {
@@ -1482,7 +1495,7 @@ function alertInline(app, msg){
 function rowSkeleton(h){
   const mine = homeTab==="mine";
   const typeTag = h.type && h.type!=="stock" ? ` <span class="badge b-tag">${h.type.toUpperCase()}</span>` : "";
-  return `<tr class="click" data-sym="${esc(h.symbol)}">
+  return `<tr class="click${h.type && h.type!=="stock" ? " fundrow" : ""}" data-sym="${esc(h.symbol)}">
     <td class="sym c-sym"><b>${esc(h.symbol)}</b>${typeTag} <small class="muted" data-f="name">${esc(h.name||"")}</small></td>
     <td class="num c-price" data-f="price">${state.apiKey?'<span class="spin"></span>':"—"}</td>
     <td class="num c-chg" data-f="chg"></td>
@@ -1692,22 +1705,38 @@ function riskFlags(c){
   }
   return f.sort((a, b) => (a.sev === "red" ? 0 : 1) - (b.sev === "red" ? 0 : 1));
 }
-function flagsCell(f, checked){
-  if(!f.length) return `<span class="small muted">${checked ? "None" : "None so far"}</span>`;
+function flagsCell(f, checked, common){
+  if(!f.length) return `<span class="small muted">${common ? "Only the one above the list" : checked ? "None" : "None so far"}</span>`;
   const b = x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(x.why)}">${esc(x.text)}</span>`;
-  const more = f.slice(3);
-  return `<div class="flags">${f.slice(0,3).map(b).join("")}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more</span>` : ""}</div>`;
+  const more = f.slice(1); // 7.29: the most serious flag only; the rest on hover and on the stock page
+  return `<div class="flags">${b(f[0])}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more</span>` : ""}</div>`;
+}
+// 7.30: a flag on most of the list (e.g. "Below 200-day avg" in a falling market) is a market-wide move: one line above the list
+function paintFlags(app){
+  const rows = [...app.querySelectorAll(".listtbl tr[data-sym]")].map(tr => ({ tr, c: rowCtx.get(tr.dataset.sym) })).filter(x => x.c && x.c._f);
+  const withTd = rows.filter(x => x.c.td).length, cnt = new Map();
+  rows.forEach(x => new Set(x.c._f.map(f => flagKey(f.text))).forEach(k => cnt.set(k, (cnt.get(k) || 0) + 1)));
+  const common = new Set([...cnt].filter(([, n]) => withTd >= 5 && n >= 4 && n >= withTd * 0.6).map(([k]) => k));
+  rows.forEach(({ tr, c }) => { const fEl = tr.querySelector('[data-f="flags"]'); if(!fEl) return;
+    const own = c._f.filter(f => !common.has(flagKey(f.text))), had = own.length < c._f.length;
+    fEl.innerHTML = !c._f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(own, c._checked, had); });
+  const el = $("#commonflags", app); if(!el) return;
+  el.hidden = !common.size;
+  if(common.size) el.innerHTML = `<b>Across most of the list:</b> ${[...common].map(k => { const hits = rows.filter(x => x.c._f.some(f => flagKey(f.text) === k)), ex = hits[0].c._f.find(f => flagKey(f.text) === k);
+      return `<span class="badge ${ex.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(ex.why + "\n" + hits.map(x => x.c._f.find(f => flagKey(f.text) === k).text.replace(k, x.tr.dataset.sym).trim()).join(", "))}">${esc(k)}</span> ${hits.length} of ${withTd}`; }).join(" · ")}. A market-wide move, so it's shown here once instead of on each stock.`;
 }
 const rowCtx = new Map(); // symbol -> data used for its flags, so a full check can redraw them
 function drawRowFlags(app, h){
   const c = rowCtx.get(h.symbol); if(!c) return;
   const tr = app.querySelector(`tr[data-sym="${CSS.escape(h.symbol)}"]`); if(!tr) return;
   c.td = c.td || peek.td(h.symbol); c.tdErr = c.tdErr || cacheGet("td:err:" + h.symbol); c.fin = c.fin || peek.fin(h.symbol); c.finQ = c.finQ || peek.finQ(h.symbol); c.av = c.av || peek.av(h.symbol); c.earn = c.earn || peek.earn(h.symbol);
-  const f = riskFlags(c);
-  const checked = !!c.td && (!c.isStock || !!c.fin);
-  const hEl = tr.querySelector('[data-f="health"]'), fEl = tr.querySelector('[data-f="flags"]');
-  if(hEl) hEl.innerHTML = !c.isStock ? '<span class="small muted">—</span>' : isNum(c.health) ? `<span class="badge ${scoreClass(c.health)}" title="Financial health score">${c.health}</span>` : '<span class="small muted" title="Run the full check, or open the stock">?</span>';
-  if(fEl) fEl.innerHTML = !f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(f, checked);
+  c._f = riskFlags(c);
+  c._checked = !!c.td && (!c.isStock || !!c.fin);
+  // 7.30: no "?" while the company reports are still on their way: the cell stays empty (the column hides while no row has a score)
+  const hEl = tr.querySelector('[data-f="health"]');
+  if(hEl) hEl.innerHTML = !c.isStock ? "" : isNum(c.health) ? `<span class="badge ${scoreClass(c.health)}" title="Financial health score">${c.health}</span>` : "";
+  const tb = tr.closest("table"); if(tb) tb.classList.toggle("nohealth", !tb.querySelector('[data-f="health"] .badge'));
+  paintFlags(app);
 }
 // Background refresh: whenever My Stocks opens, fetch what's missing or out of date for holdings and watchlist
 // (daily prices from Twelve Data, kept 12 hours, so about 2 requests per stock per day; company reports from Finnhub, kept a week).
@@ -3244,6 +3273,10 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
 /* ================= At a glance strip ================= */
 // near: an element of the page section calling it. Inside the compare page's hidden copy of a stock page (7.22, .shadow-stock)
 // the tile is that copy's own, and the compare page is told (box._onGlance); on a stock page nothing changes.
+function edgeFade(){ document.querySelectorAll(".side, .jump").forEach(el => { const more = el.scrollWidth - el.clientWidth - el.scrollLeft > 4; el.classList.toggle("fade-r", more);
+  if(!el._fade){ el._fade = 1; el.addEventListener("scroll", () => el.classList.toggle("fade-r", el.scrollWidth - el.clientWidth - el.scrollLeft > 4), { passive: true }); } }); }
+window.addEventListener("resize", edgeFade);
+new MutationObserver(() => { clearTimeout(edgeFade.t); edgeFade.t = setTimeout(edgeFade, 150); }).observe(document.documentElement, { childList: true, subtree: true });
 // 7.29 (UX): explanations behind one fold, the verdict stays visible
 const howTo = (html, label = "How to read this") => `<details class="more"><summary>${label}</summary><div class="small muted howto">${html}</div></details>`;
 function glance(id, html, near){ const box = near && near.closest && near.closest(".shadow-stock");
@@ -5266,7 +5299,9 @@ function drawAlertBadges(app){
   const A = alertsState(), n = A.events.filter(e => e.isNew).length;
   const side = $("#side-alerts", app); if(side) side.textContent = n ? `${n} new` : "";
   const ban = $("#alertbanner", app);
-  if(ban){ ban.hidden = !n; if(n) ban.innerHTML = `<b>🔔 ${n} new alert${n === 1 ? "" : "s"}:</b> ${A.events.filter(e => e.isNew).slice(0, 3).map(e => esc(e.text)).join(" · ")}${n > 3 ? " …" : ""} <button class="link" id="seealerts">See alerts →</button>`;
+  if(ban){ ban.hidden = !n; if(n){ const g = new Map(); A.events.filter(e => e.isNew).forEach(e => { const k = e.type === "flag" ? flagKey(e.text.replace(/^[^:]+:\s*/, "")) : "Your price alerts"; g.set(k, (g.get(k) || 0) + 1); });
+    const top = [...g].sort((a, b) => b[1] - a[1]); // 7.30: grouped by kind, "RSI: oversold (6)", instead of the first three one by one
+    ban.innerHTML = `<b>🔔 ${n} new alert${n === 1 ? "" : "s"}:</b> ${top.slice(0, 3).map(([k, c]) => `${esc(k)}${c > 1 ? ` (${c})` : ""}`).join(" · ")}${top.length > 3 ? ` · ${top.length - 3} more kind${top.length - 3 === 1 ? "" : "s"}` : ""} <button class="link" id="seealerts">See alerts →</button>`; }
     const b = $("#seealerts", app); if(b) b.onclick = () => { homeSec = "alerts"; app.querySelectorAll("[data-home]").forEach(c => c.hidden = c.dataset.home !== "alerts"); app.querySelectorAll(".side button").forEach(x => x.classList.toggle("on", x.dataset.sec === "alerts")); renderAlerts(app); window.scrollTo(0, 0); }; }
 }
 function renderAlerts(app){
