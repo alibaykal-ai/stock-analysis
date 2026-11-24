@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.42</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.43</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -646,6 +646,7 @@ const fh = {
   metric:  s => api("/stock/metric", {symbol:s, metric:"all"}, "metric"),
   peers:   s => api("/stock/peers", {symbol:s}, "peers"),
   rec:     s => api("/stock/recommendation", {symbol:s}, "rec"),
+  surprises: s => api("/stock/earnings", {symbol:s}, "earn"), // 7.43: last 4 quarters' EPS vs the forecast (free plan)
   earnings:s => api("/calendar/earnings", { symbol: s, from: ymd(new Date(Date.now() - 400*864e5)), to: ymd(new Date(Date.now() + 200*864e5)) }, "earn"), // 7.16: a year back (same quarter last year) to the next 2 quarters' estimates
   news:    s => { const to=new Date(), from=new Date(Date.now()-14*864e5); return api("/company-news",{symbol:s,from:ymd(from),to:ymd(to)},"news"); },
   search:  q => api("/search", {q}, "search"),
@@ -2333,7 +2334,7 @@ async function viewStock(app, sym, tok){
     <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div></div>
     <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
-    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div></div>`}
+    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div><div id="rec-surp"></div></div>`}
     <div class="card" id="c-ai"><h2>AI summary: bull &amp; bear case <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? "" : `<div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
@@ -2385,7 +2386,7 @@ async function viewStock(app, sym, tok){
   if(!isFund){
     if(!m.ok){ $("#val",app).innerHTML = `<p class="err">${esc(m.e.message)}</p>`; $("#health",app).innerHTML=""; $("#fv",app).innerHTML=""; $("#proj",app).innerHTML=""; $("#sales",app).innerHTML=""; }
     else { renderHealth(app, mm, price, prof); const finP = Promise.all([safe(fh.fin(sym)), safe(fh.finQ(sym))]); finP.then(([f, fq]) => live(tok) && renderHealth(app, mm, price, prof, f.ok ? f.v : null, fq.ok ? fq.v : null)); const peerP = renderValuation(app, sym, met, prof, tok, price); const avP = state.avKey ? Promise.all([null, safe(avq.estimates(sym))]) : null; const repP = Promise.all([finP, safe(fh.earnings(sym))]).then(([[f, fq], e]) => ({ fin: f.ok ? f.v : null, finQ: fq.ok ? fq.v : null, cal: e.ok ? e.v : null })); renderFairValue(app, sym, met, prof, price, peerP, avP, tok, repP); repP.then(r => { const ve = $("#val", app); if(live(tok) && ve && ve._pegRep) ve._pegRep(r); }); renderOutside(app, sym); renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok); renderSales(app, sym, prof, finP, avP, tok); }
-    recTarget(app, sym);
+    recTarget(app, sym); renderSurprises(app, sym);
     fh.rec(sym).then(r => live(tok) && renderRec(app, r), e => live(tok) && ($("#rec",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
     renderInsiders(app, sym, tok);
   }
@@ -4085,6 +4086,29 @@ function recTarget(app, sym){
 }
 // 7.29 verdict label for the Analysts card (Claude's suggestion): 70%+ buy = Mostly buy, 30%+ sell = Many sell, else Mixed
 const recK = (b, s, t) => b / t >= 0.7 ? ["b-cheap", "Mostly buy"] : s / t >= 0.3 ? ["b-rich", "Many sell"] : ["b-inline", "Mixed"];
+// 7.43 (gap review with the Equity Research plugin, owner's pick 1): earnings track record. Last 4 quarters' earnings per share
+// vs analysts' forecast just before the results (Finnhub stock/earnings, free). Same beat / miss rule as the Earnings calendar (±2%).
+const qLabel = x => new Date(x.period + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric" });
+function trackRecord(r){
+  const rows = (Array.isArray(r) ? r : []).filter(x => isNum(x.actual) && isNum(x.estimate) && x.period).sort((a, b) => a.period < b.period ? 1 : -1).slice(0, 4);
+  const sp = rows.map(x => surprise(x.actual, x.estimate)), n = rows.length, beat = sp.filter(v => v >= 2).length, miss = sp.filter(v => v <= -2).length;
+  const k = !n ? null : miss >= 2 ? ["b-rich", "Often misses"] : beat >= 3 && !miss ? ["b-cheap", "Usually beats"] : ["b-inline", "Mixed"];
+  return { rows, sp, n, beat, miss, k };
+}
+const trackShort = t => !t || !t.n ? "" : `${t.beat} of ${t.n} beat${t.miss ? ` · ${t.miss} missed` : ""}`;
+function renderSurprises(app, sym){
+  const el = $("#rec-surp", app); if(!el) return;
+  safe(fh.surprises(sym)).then(r => {
+    const t = r.ok ? trackRecord(r.v) : null;
+    if(!t || !t.n){ el.innerHTML = `<p class="small muted" style="margin:12px 0 0">Earnings vs forecasts: ${r.ok ? "no past quarters with a forecast" : esc(r.e.message)}.</p>`; return; }
+    const last = t.rows[0], ls = t.sp[0];
+    el.innerHTML = `<h3 style="margin:16px 0 6px">Earnings vs forecasts</h3>
+      <p class="verdict" style="margin-bottom:6px"><span class="badge ${t.k[0]}">${t.k[1]}</span> Beat analysts' forecast in <b>${t.beat} of the last ${t.n}</b> quarters${t.miss ? `, missed ${t.miss}` : ""}. Latest (quarter to ${qLabel(last)}): ${fmt(last.actual)} per share vs ${fmt(last.estimate)} expected, ${fmtPct(ls, 1)}.</p>
+      <details class="more"><summary>Show the ${t.n} quarters</summary><div style="overflow-x:auto"><table class="tight"><thead><tr><th>Quarter to</th><th class="num">Expected</th><th class="num">Actual</th><th class="num">Difference</th><th></th></tr></thead><tbody>${
+        t.rows.map((x, i) => `<tr><td>${qLabel(x)}</td><td class="num">${fmt(x.estimate)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmtPct(t.sp[i], 1)}</td><td>${beatBadge(t.sp[i])}</td></tr>`).join("")}</tbody></table></div></details>
+      ${howTo(`Earnings per share as reported vs analysts' average forecast just before the results (Finnhub, last ${t.n} quarters). Beat = 2% or more above the forecast, missed = 2% or more below, else in line: the same rule as the Earnings calendar. Label (Claude's suggestion): Usually beats = 3 or more beats and no miss; Often misses = 2 or more misses; else Mixed. Many companies set forecasts they can beat, so a beat is normal; a miss, or a run of them, is the stronger signal.`, "How to read this")}`;
+  });
+}
 function renderRec(app, r){
   const el = $("#rec", app);
   if(!Array.isArray(r) || !r.length){ el.innerHTML = `<p class="muted">No analyst ratings available.</p>`; glance("g-rec", "No ratings", el); return; }
@@ -5587,6 +5611,7 @@ async function renderEarnings(app, tok){
   const syms = [...new Set([...mineSet, ...state.watchlist])];
   if(!syms.length){ el.innerHTML = "No stocks yet."; return; }
   const res = await Promise.all(syms.map(s => safe(fh.earnings(s)).then(r => ({ s, r }))));
+  const tracks = new Map((await Promise.all(syms.map(s => safe(fh.surprises(s)).then(r => [s, r.ok ? trackRecord(r.v) : null])))));
   if(!live(tok)) return;
   const today = ymd(new Date()), up = [], past = [], failed = [];
   for(const { s, r } of res){
@@ -5602,7 +5627,7 @@ async function renderEarnings(app, tok){
   const soon = up.filter(x => daysUntil(x.date) <= 14);
   const inTxt = n => n === 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`;
   const head = up.length ? `Next: ${name(up[0].symbol)} on <b>${fmtWkDay(up[0].date)}</b>${HOUR[up[0].hour] ? " " + HOUR[up[0].hour] : ""}, ${inTxt(daysUntil(up[0].date))}. ${soon.length} of your stocks report in the next 2 weeks.` : "No earnings dates found in the next 3 months.";
-  const upRow = x => { const n = daysUntil(x.date); return `<tr><td>${fmtWkDay(x.date)}</td><td>${name(x.symbol)}</td>
+  const upRow = x => { const n = daysUntil(x.date), tr = trackShort(tracks.get(x.symbol)); return `<tr><td>${fmtWkDay(x.date)}</td><td>${name(x.symbol)}${tr ? `<div class="small muted" style="white-space:nowrap" title="Last quarters' earnings vs analysts' forecast (beat = 2% or more above)">${tr}</div>` : ""}</td>
       <td>${n <= 7 ? `<span class="badge b-warn">${inTxt(n)}</span>` : `<span class="small muted">${inTxt(n)}</span>`}</td>
       <td class="small muted">${HOUR[x.hour] || "time not set"}</td>
       <td class="num">${isNum(x.epsEstimate) ? fmt(x.epsEstimate) : "—"}</td><td class="num hide-sm">${fmtBig(x.revenueEstimate)}</td></tr>`; };
