@@ -505,7 +505,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.33</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.34</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1950,7 +1950,7 @@ const CMP_ROWS = [
   { g: "Quality", id: "roe", label: "Return on equity", best: "high", rule: "highest", f: D => { const i = cmpItem(D, "profit", "Return on equity"); return cmpNum(i && i.v, v => v.toFixed(1) + "%", D); } },
   { g: "Quality", id: "fcfm", label: "Free cash flow margin", sub: "last year", more: true, best: "high", rule: "highest", f: D => { const i = cmpItem(D, "cash", "Free cash flow margin"); return cmpNum(i && i.v, v => v.toFixed(1) + "%", D); } },
   { g: "Quality", id: "dil", label: "Share count change", sub: "per year (dilution +, buybacks −)", more: true, best: "low", rule: "lowest", f: D => { const i = cmpItem(D, "dilution", "Change in share count"); return cmpNum(i && i.v, v => fmtPct(v, 1), D); } },
-  { g: "Quality", id: "health", label: "Health score", best: "high", rule: "highest", f: D => D.g["g-health"] ? { h: `<span class="small">${D.g["g-health"]}</span>`, v: D.H && isNum(D.H.total) ? D.H.total : NaN } : { h: cmpSpin(D), v: NaN } },
+  { g: "Quality", id: "health", label: "Health score", best: "high", rule: "highest", f: D => D.g["g-health"] ? { h: `<span class="small">${D.g["g-health"].replace(/(\d+\/100) (Strong|Average|Weak)/, '$1<span class="sr"> $2</span>')}</span>`, v: D.H && isNum(D.H.total) ? D.H.total : NaN } : { h: cmpSpin(D), v: NaN } },
   { g: "Outlook", id: "rec", label: "Analysts", sub: "buy / hold / sell ratings", best: "high", rule: "largest share rating it a buy", f: D => {
     const gl = D.g["g-rec"]; if(!gl) return { h: D.recErr ? `<span class="muted">${esc(D.recErr)}</span>` : cmpSpin(D), v: NaN };
     const c = Array.isArray(D.rec) && D.rec[0], tot = c ? ["strongBuy", "buy", "hold", "sell", "strongSell"].reduce((a, k) => a + (c[k] || 0), 0) : 0;
