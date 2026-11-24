@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.43</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.44</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -652,7 +652,7 @@ const fh = {
   search:  q => api("/search", {q}, "search"),
   // Annual reports as filed (10-K). Large reply, so only a small summary per year is kept.
   fin:     s => api("/stock/financials-reported", {symbol:s, freq:"annual"}, "fin", shapeFinancials),
-  finQ:    s => api("/stock/financials-reported", {symbol:s, freq:"quarterly"}, "fin", shapeQuarters),
+  finQ:    s => api("/stock/financials-reported", {symbol:s, freq:"quarterly", v:"2"}, "fin", shapeQuarters), // v=2 (7.44): saved copies before 7.44 lack reported EPS
 };
 /* ---- Annual reports: pick the few numbers the health score needs ---- */
 const FIN_CONCEPTS = {
@@ -671,6 +671,7 @@ const FIN_CONCEPTS = {
   pretax:   ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest","IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments","IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic","ProfitLossBeforeTax"],
   deposits: ["Deposits","InterestBearingDepositLiabilities"],
   net:      ["NetIncomeLoss","ProfitLoss","NetIncomeLossAvailableToCommonStockholdersBasic","ProfitLossAttributableToOwnersOfParent"],
+  epsD:     ["EarningsPerShareDiluted","EarningsPerShareBasicAndDiluted","EarningsPerShareBasic"], // 7.44: as reported (incl. one-offs)
   shares:   ["WeightedAverageNumberOfDilutedSharesOutstanding","WeightedAverageNumberOfShareOutstandingBasicAndDiluted","WeightedAverageNumberOfSharesOutstandingBasic","AdjustedWeightedAverageShares","WeightedAverageShares"],
   epsDil:   ["EarningsPerShareDiluted","EarningsPerShareBasicAndDiluted","EarningsPerShareBasic","DilutedEarningsLossPerShare","BasicEarningsLossPerShare"],
   cfo:      ["NetCashProvidedByUsedInOperatingActivities","NetCashProvidedByUsedInOperatingActivitiesContinuingOperations","CashFlowsFromUsedInOperatingActivities"],
@@ -706,7 +707,7 @@ function shapeQuarters(j){
     const end = String(d.endDate||"").slice(0,10), start = String(d.startDate||"").slice(0,10);
     if(!end || seen.has(end)) continue; seen.add(end);
     const y = readReport(d.report);
-    out.push({ end, start, months: start ? monthsBetween(start, end) : 3, revenue: y.revenue, net: y.net, pretax: y.pretax, ebit: y.ebit, equity: y.equity, shares: y.shares });
+    out.push({ end, start, months: start ? monthsBetween(start, end) : 3, revenue: y.revenue, net: y.net, pretax: y.pretax, ebit: y.ebit, equity: y.equity, shares: y.shares, epsD: y.epsD });
   }
   return { q: out.sort((a,b) => b.end.localeCompare(a.end)).slice(0, 20) };
 }
@@ -1717,7 +1718,7 @@ const peek = {
   av:  s => { fcHydrate(s); return cacheGet("av:EARNINGS_ESTIMATES:" + s); },
   fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual"})),
   earn:s => cacheGet("/calendar/earnings?" + new URLSearchParams({ symbol: s, from: ymd(new Date(Date.now() - 400*864e5)), to: ymd(new Date(Date.now() + 200*864e5)) })),
-  finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly"})),
+  finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly", v:"2"})),
 };
 // Each flag: sev "red" (concern) or "amber" (watch), short text, one-line why.
 function riskFlags(c){
@@ -4096,18 +4097,33 @@ function trackRecord(r){
   const k = !n ? null : miss >= 2 ? ["b-rich", "Often misses"] : beat >= 3 && !miss ? ["b-cheap", "Usually beats"] : ["b-inline", "Mixed"];
   return { rows, sp, n, beat, miss, k };
 }
+// 7.44 (owner: TradingView shows GOOGL beating where the app said "Often misses"): Finnhub's "actual" leaves out one-off items
+// (GOOGL Jun 2026: 2.85, while the reported figure with ~$99bn of investment gains was 9.11). The reported figure, from the
+// company's filings: 10-Qs are year to date, so a quarter = this filing − the one 3 months shorter; Q4 = the year − 9 months.
+// Per share for one filing: net profit ÷ diluted shares when both are there (exact), else the EPS line itself unless it's a whole
+// number (Finnhub keeps Tesla's EPS lines rounded to 0 / 1).
+const epsOf = x => !x ? NaN : isNum(x.net) && isNum(x.shares) && x.shares > 0 ? x.net / x.shares : isNum(x.epsD) && x.epsD % 1 !== 0 ? x.epsD : NaN;
+function reportedEps(period, fin, finQ){
+  const qs = (finQ && finQ.q) || [], q = qs.find(x => x.end === period), near = (a, b) => Math.abs(a - b) <= 0.6;
+  if(q && isNum(epsOf(q))){ if(near(q.months, 3)) return epsOf(q);
+    const prev = qs.find(x => x.start === q.start && near(x.months, q.months - 3)); return prev && isNum(epsOf(prev)) ? epsOf(q) - epsOf(prev) : NaN; }
+  const y = fin && fin.years && fin.years.find(x => x.end === period); if(!y || !isNum(epsOf(y))) return NaN;
+  const nine = qs.find(x => near(x.months, 9) && near(monthsBetween(x.end, period), 3)); return nine && isNum(epsOf(nine)) ? epsOf(y) - epsOf(nine) : NaN;
+}
 const trackShort = t => !t || !t.n ? "" : `${t.beat} of ${t.n} beat${t.miss ? ` · ${t.miss} missed` : ""}`;
 function renderSurprises(app, sym){
   const el = $("#rec-surp", app); if(!el) return;
-  safe(fh.surprises(sym)).then(r => {
+  Promise.all([safe(fh.surprises(sym)), safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([r, fa, fq]) => {
     const f = splitOf(sym), t = r.ok ? trackRecord(f === 1 ? r.v : r.v.map(x => ({ ...x, actual: x.actual / f, estimate: x.estimate / f }))) : null; // per-share figures after a split, like the Earnings calendar (earnAdj)
+    const repd = t ? t.rows.map(x => { const v = reportedEps(x.period, fa.ok ? fa.v : null, fq.ok ? fq.v : null); return isNum(v) ? v / f : NaN; }) : [];
+    const odd = repd.map((v, i) => isNum(v) && Math.abs(v - t.rows[i].actual) > Math.max(0.05, Math.abs(t.rows[i].actual) * 0.2)), nOdd = odd.filter(Boolean).length;
     if(!t || !t.n){ el.innerHTML = r.ok ? "" : `<p class="small muted" style="margin:12px 0 0">Earnings vs forecasts: ${esc(r.e.message)}.</p>`; return; } // funds and new listings: nothing to show
     const last = t.rows[0], ls = t.sp[0];
     el.innerHTML = `<h3 style="margin:16px 0 6px">Earnings vs forecasts</h3>
-      <p class="verdict" style="margin-bottom:6px"><span class="badge ${t.k[0]}">${t.k[1]}</span> Beat analysts' forecast in <b>${t.beat} of the last ${t.n}</b> quarters${t.miss ? `, missed ${t.miss}` : ""}. Latest (quarter to ${qLabel(last)}): ${fmt(last.actual)} per share vs ${fmt(last.estimate)} expected, ${fmtPct(ls, 1)}.</p>
-      <details class="more"><summary>Show the ${t.n} quarters</summary><div style="overflow-x:auto"><table class="tight"><thead><tr><th>Quarter to</th><th class="num">Expected</th><th class="num">Actual</th><th class="num">Difference</th><th></th></tr></thead><tbody>${
-        t.rows.map((x, i) => `<tr><td>${qLabel(x)}</td><td class="num">${fmt(x.estimate)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmtPct(t.sp[i], 1)}</td><td>${beatBadge(t.sp[i])}</td></tr>`).join("")}</tbody></table></div></details>
-      ${howTo(`Earnings per share as reported vs analysts' average forecast just before the results (Finnhub, last ${t.n} quarters). Beat = 2% or more above the forecast, missed = 2% or more below, else in line: the same rule as the Earnings calendar. Label (Claude's suggestion): Usually beats = 3 or more beats and no miss; Often misses = 2 or more misses; else Mixed. Many companies set forecasts they can beat, so a beat is normal; a miss, or a run of them, is the stronger signal. The reported figure can include one-off gains or costs that analysts left out of their forecast, so check a surprising miss or beat in the company's results before reading much into it.`, "How to read this")}`;
+      <p class="verdict" style="margin-bottom:6px"><span class="badge ${t.k[0]}">${t.k[1]}</span> Beat analysts' forecast in <b>${t.beat} of the last ${t.n}</b> quarters${t.miss ? `, missed ${t.miss}` : ""}. Latest (quarter to ${qLabel(last)}): ${fmt(last.actual)} per share vs ${fmt(last.estimate)} expected, ${fmtPct(ls, 1)}.${nOdd ? ` <span class="small muted">These are adjusted figures, the kind analysts forecast; in ${nOdd} of the ${t.n} quarters the officially reported figure, which sites like TradingView show, was very different (see the quarters).</span>` : ""}</p>
+      <details class="more"><summary>Show the ${t.n} quarters</summary><div style="overflow-x:auto"><table class="tight"><thead><tr><th>Quarter to</th><th class="num">Expected</th><th class="num">Actual</th><th class="num">Difference</th><th></th>${repd.some(isNum) ? `<th class="num">As reported</th>` : ""}</tr></thead><tbody>${
+        t.rows.map((x, i) => `<tr><td>${qLabel(x)}</td><td class="num">${fmt(x.estimate)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmtPct(t.sp[i], 1)}</td><td>${beatBadge(t.sp[i])}</td>${repd.some(isNum) ? `<td class="num">${isNum(repd[i]) ? fmt(repd[i]) + (odd[i] ? ` <span class="small muted">differs</span>` : "") : "—"}</td>` : ""}</tr>`).join("")}</tbody></table></div></details>
+      ${howTo(`Earnings per share vs analysts' average forecast just before the results (Finnhub, last ${t.n} quarters). Finnhub's "actual" is adjusted earnings, the measure analysts forecast: it leaves out items such as one-off gains or losses on investments the company holds and, for some companies, the cost of paying staff in shares. "As reported" is the official figure from the company's filings (net profit ÷ shares), the one sites like TradingView show. They can be far apart: Alphabet's quarter to June 2026 was 9.13 reported, lifted by large gains on its investments, and 2.85 adjusted; Tesla's reported figures are lower every quarter, mostly because its adjusted figure leaves out the shares it pays staff with, a real and recurring cost. Beat = 2% or more above the forecast, missed = 2% or more below, else in line: the same rule as the Earnings calendar. Label (Claude's suggestion): Usually beats = 3 or more beats and no miss; Often misses = 2 or more misses; else Mixed. Many companies set forecasts they can beat, so a beat is normal; a miss, or a run of them, is the stronger signal.`, "How to read this")}`;
   });
 }
 function renderRec(app, r){
