@@ -506,7 +506,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.36</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.37</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1749,7 +1749,8 @@ function riskFlags(c){
   return f.sort((a, b) => rank(a) - rank(b));
 }
 function flagsCell(f, checked, common){
-  if(!f.length) return `<span class="small muted">${common ? "Only the one above the list" : checked ? "None" : "None so far"}</span>`;
+  // 7.37 (owner: "Only the one above the list… what does it mean?"): say it plainly; hover names the shared flag(s) and this stock's figure
+  if(!f.length) return common ? `<span class="small muted" title="${esc("Only the flag shared by most of the list (shown above it): " + common)}">No flags of its own</span>` : `<span class="small muted">${checked ? "None" : "None so far"}</span>`;
   const b = x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(x.why)}">${esc(x.text)}</span>`;
   const more = f.slice(1); // 7.29: the most serious flag only; the rest on hover and on the stock page
   return `<div class="flags">${b(f[0])}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more<span class="sr">: ${esc(more.map(x => x.text).join(", "))}</span></span>` : ""}</div>`;
@@ -1762,7 +1763,7 @@ function paintFlags(app){
   const common = new Set([...cnt].filter(([, n]) => withTd >= 5 && n >= 4 && n >= withTd * 0.6).map(([k]) => k));
   rows.forEach(({ tr, c }) => { const fEl = tr.querySelector('[data-f="flags"]'); if(!fEl) return;
     const own = c._f.filter(f => !common.has(flagKey(f.text))), had = own.length < c._f.length;
-    fEl.innerHTML = !c._f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(own, c._checked, had); });
+    fEl.innerHTML = !c._f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(own, c._checked, had ? c._f.filter(f => common.has(flagKey(f.text))).map(f => f.text).join(", ") : ""); });
   const el = $("#commonflags", app); if(!el) return;
   el.hidden = !common.size;
   if(common.size) el.innerHTML = `<b>Across most of the list:</b> ${[...common].map(k => { const hits = rows.filter(x => x.c._f.some(f => flagKey(f.text) === k)), ex = hits[0].c._f.find(f => flagKey(f.text) === k);
