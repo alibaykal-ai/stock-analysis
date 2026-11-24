@@ -74,7 +74,8 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .b-tag{background:var(--neutralbg);color:var(--muted)} /* plain tags, not a verdict: n/a, ETF, account, "In My Stocks"… */
 .b-warn{background:var(--midbg);color:var(--mid)}
 #syncstat:not(:empty)::before,#rqfoot:not(:empty)::before{content:" · "}
-.verdict{margin:0 0 10px;font-size:15px} .verdict .badge{margin-right:4px}
+.verdict{margin:0 0 10px;font-size:15px}
+details.more.about-n{margin:-6px 2px 14px;border-top:none;padding-top:0} /* 7.35: the page's caveats in one place */ .verdict .badge{margin-right:4px}
 .howto{margin:6px 0 0} .howto ul{margin:6px 0 0;padding-left:18px} .howto li{margin:3px 0}
 input.pj-in.pj-ed{border-color:var(--accent);background:var(--infobg);font-weight:600}
 .range{position:relative;height:6px;background:var(--neutralbg);border-radius:3px;min-width:80px}
@@ -505,7 +506,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.34</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.35</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2229,6 +2230,14 @@ async function viewStock(app, sym, tok){
       <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
       ${isFund ? "" : `<div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
     </div>
+    <details class="more about-n" id="about-nums"><summary>ⓘ About these numbers</summary><ul class="small muted howto">
+      <li><b>Estimates, not facts.</b> Fair value, projections and analysts' forecasts are built on assumptions: a range of possible values, not a promise or a price target.</li>
+      <li><b>Projections are scenarios</b> built on your assumptions (or the app's starting values), not forecasts.</li>
+      <li><b>Price targets</b> are analysts' 12-month price predictions, usually above fair value estimates; they're shown next to the fair value range, never in it.</li>
+      <li><b>Verdicts</b> compare the stock with its own past and similar companies; technical signals are timing context. None of them is a reason to buy or sell on its own.</li>
+      <li><b>Outside views and the AI summary</b> are read from web pages or written by Claude: AI can misread a page or a number, so open the links and check anything important.</li>
+      <li><b>Data</b>: Finnhub, Twelve Data and Alpha Vantage free plans (usually delayed), the company's own reports, FRED for the economy. Each section's "How to read this" explains its rules.</li>
+    </ul></details>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div><div id="ov"></div></div>
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
@@ -2749,7 +2758,7 @@ function fvBar(lo, mid, hi, price, buyAt, richAt, target, tMeta){
       <div class="fvplab" style="left:${px}%;transform:${lab}">Price ${fmt(price)}</div>
     </div>
     <div class="rangecap"><span class="up">Attractive below ${fmt(buyAt)}</span><span>${hi - lo < 0.005 ? `Fair value ${fmt(lo)}` : `Methods' range ${fmt(lo)}–${fmt(hi)}`} · middle ${fmt(mid)}</span><span class="down">Expensive above ${fmt(richAt)}</span></div>
-    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analysts' 12-month price target ${fmt(target)}${tMeta ? ` (${esc(tMeta.src)}${tMeta.date ? ", " + new Date(tMeta.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""}, Outside views)` : ""}: a price prediction, not a fair value, so not part of the range.</div>` : ""}`;
+    ${isNum(target) ? `<div class="small muted" style="margin-top:4px"><span style="color:var(--mid)">◆</span> Analysts' 12-month price target ${fmt(target)}${tMeta ? ` (${esc(tMeta.src)}${tMeta.date ? ", " + new Date(tMeta.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""}, Outside views)` : ""}: not part of the range.</div>` : ""}`;
 }
 function fvAnalysts(inp, price, fx){
   if(!state.avKey) return `<p class="small muted" style="margin:0">Add a free <a href="#settings">Alpha Vantage key in Settings</a> to see analysts' earnings forecasts. They make the fair value more accurate.</p>`;
@@ -3247,7 +3256,7 @@ function renderProjection(app, sym, met, prof, price, finP, peerP, avP, tok){
     const pr = S.pe ? `its usual P/E ${fmtX(S.pe.lo)}–${fmtX(S.pe.hi)} (middle ${fmtX(S.pe.mid)})` : "no usual P/E (type your own)";
     el.innerHTML = `<div class="pj-top"><div id="pj-status">${status()}</div>${saved() ? `<button type="button" id="pj-reset">Reset to the app's values</button>` : ""}</div>
       <div class="pj-sum">${PJ_CASES.map(([c, l]) => sumLine(c, l, projRows(S, cur[c], price), cur[c])).join("")}</div>
-      <p class="small muted" style="margin:6px 0 0">Scenarios built on your assumptions, not forecasts. Today's price <b>$${fmt(price)}</b> · ${pr}.</p>
+      <p class="small muted" style="margin:6px 0 0">Today's price <b>$${fmt(price)}</b> · ${pr}.</p>
       <details class="pj-years" id="pj-years"${yrs}><summary><b>Show the years</b> <span class="small muted">· change any box: growth, margin, P/E${nEd ? ` · <span class="pj-edn">${nEd} box${nEd === 1 ? "" : "es"} changed by you (highlighted)</span>` : ""}</span></summary>
         ${PJ_CASES.map(([c, l]) => caseTable(c, l, cur)).join("")}
       </details>
@@ -3981,7 +3990,7 @@ function recTarget(app, sym){
   const el = $("#rec-tgt", app); if(!el) return;
   const t = ovTarget(sym), o = state.ov && state.ov[sym];
   el.innerHTML = t ? `<p class="small" style="margin:10px 0 0"><b>Average 12-month price target: ${fmt(t.avg)}</b>${isNum(t.lo) && isNum(t.hi) ? ` (lowest ${fmt(t.lo)}, highest ${fmt(t.hi)}${isNum(t.n) ? `, ${t.n} analysts` : ""})` : ""}, <a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.src)}</a>${t.date ? `, ${new Date(t.date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}.
-      <span class="muted">Where analysts expect the price to be in a year; found by Outside views ${ovAge(o.t)}. Targets usually sit above fair value estimates.</span></p>`
+      <span class="muted">Found by Outside views ${ovAge(o.t)}.</span></p>`
     : `<p class="small muted" style="margin:10px 0 0">Price target: not looked up yet. The free data services don't include it; tap <b>Check outside views</b> under Fair value to find it.</p>`;
 }
 // 7.29 verdict label for the Analysts card (Claude's suggestion): 70%+ buy = Mostly buy, 30%+ sell = Many sell, else Mixed
