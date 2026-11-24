@@ -75,7 +75,7 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--neutralbg)}
 .b-warn{background:var(--midbg);color:var(--mid)}
 #syncstat:not(:empty)::before,#rqfoot:not(:empty)::before{content:" · "}
 .verdict{margin:0 0 10px;font-size:15px}
-details.more.about-n{margin:-6px 2px 14px;border-top:none;padding-top:0} /* 7.35: the page's caveats in one place */ .verdict .badge{margin-right:4px}
+p.about-n{margin:-6px 2px 14px;font-size:14px} /* 7.35: the page's caveats in one place */ .verdict .badge{margin-right:4px}
 .howto{margin:6px 0 0} .howto ul{margin:6px 0 0;padding-left:18px} .howto li{margin:3px 0}
 input.pj-in.pj-ed{border-color:var(--accent);background:var(--infobg);font-weight:600}
 .range{position:relative;height:6px;background:var(--neutralbg);border-radius:3px;min-width:80px}
@@ -506,7 +506,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.35</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.36</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1012,7 +1012,8 @@ function abHtml(sym, name, w, facts, err){
 let abFrom = null;
 function abPlace(pop, trigger){
   if(rqPhone()) return; const r = trigger.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
-  let top = r.bottom + 8; if(top + h > innerHeight - 8) top = Math.max(8, innerHeight - h - 8);
+  // below the button; if there's no room, above it (7.36: clamping pushed it over its own button); else as far down as fits
+  let top = r.bottom + 8; if(top + h > innerHeight - 8) top = r.top - h - 8 >= 8 ? r.top - h - 8 : Math.max(8, innerHeight - h - 8);
   pop.style.left = Math.min(Math.max(12, r.left), innerWidth - w - 12) + "px"; pop.style.top = top + "px"; }
 async function abOpen(trigger, sym, prof, holding, mm){
   const pop = document.getElementById("abpop"); if(!pop) return;
@@ -1023,10 +1024,39 @@ async function abOpen(trigger, sym, prof, holding, mm){
   const c = cacheGet("wiki:" + sym); show(c);
   if(c === undefined){ try{ show(await abWiki(sym, name)); }catch(e){ show(null, e.message || "Couldn't reach Wikipedia."); } }
 }
-function abClose(){ const pop = document.getElementById("abpop"); if(!pop || pop.hidden) return; pop.hidden = true; document.getElementById("abback").hidden = true; if(abFrom) abFrom.setAttribute("aria-expanded", "false"); abFrom = null; }
+// 7.36 (owner: "make it hover with a pop up. That's how that 'i' in a circle works usually"): the page's caveats in the
+// same pop-up as the company "ⓘ About" (a box by the button on the Mac, opened on hover or click; a sheet on the iPhone).
+const NUMS_HTML = `<ul class="small howto" style="margin:0 0 4px;padding-left:18px">
+      <li><b>Estimates, not facts.</b> Fair value, projections and analysts' forecasts are built on assumptions: a range of possible values, not a promise or a price target.</li>
+      <li><b>Projections are scenarios</b> built on your assumptions (or the app's starting values), not forecasts.</li>
+      <li><b>Price targets</b> are analysts' 12-month price predictions, usually above fair value estimates; they're shown next to the fair value range, never in it.</li>
+      <li><b>Verdicts</b> compare the stock with its own past and similar companies; technical signals are timing context. None of them is a reason to buy or sell on its own.</li>
+      <li><b>Outside views and the AI summary</b> are read from web pages or written by Claude: AI can misread a page or a number, so open the links and check anything important.</li>
+      <li><b>Data</b>: Finnhub, Twelve Data and Alpha Vantage free plans (usually delayed), the company's own reports, FRED for the economy. Each section's "How to read this" explains its rules.</li>
+    </ul>`;
+function numsOpen(trigger, pin){
+  const pop = document.getElementById("abpop"); if(!pop) return;
+  if(!pop.hidden && abFrom === trigger){ if(pin){ if(numsPin) abClose(); else numsPin = true; } return; }
+  rqClose(); abFrom = trigger; numsPin = !!pin;
+  pop.innerHTML = `<div class="rqp-h"><b>About these numbers</b><button type="button" class="rqp-x" data-abx aria-label="Close">×</button></div>${NUMS_HTML}`;
+  pop.setAttribute("aria-label", "About these numbers"); pop.hidden = false; document.getElementById("abback").hidden = !rqPhone();
+  trigger.setAttribute("aria-expanded", "true"); abPlace(pop, trigger);
+}
+let numsPin = false, numsHideT = null;
+// the pop-up follows its button when the page scrolls or content above it finishes loading (Mac; on the iPhone it's a fixed sheet)
+const abFollow = () => { const pop = document.getElementById("abpop"); if(pop && !pop.hidden && abFrom && abFrom.isConnected) abPlace(pop, abFrom); };
+window.addEventListener("scroll", abFollow, { passive: true }); window.addEventListener("resize", abFollow);
+new MutationObserver(() => requestAnimationFrame(abFollow)).observe(document.getElementById("app") || document.body, { childList: true, subtree: true });
+document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("#b-nums"); if(b){ e.stopPropagation(); numsOpen(b, true); } }, true);
+document.addEventListener("mouseover", e => { if(rqPhone() || !e.target.closest) return; const b = e.target.closest("#b-nums");
+  if(b){ clearTimeout(numsHideT); numsOpen(b, false); } else if(e.target.closest("#abpop") && abFrom && abFrom.id === "b-nums") clearTimeout(numsHideT); });
+document.addEventListener("mouseout", e => { if(rqPhone() || !e.target.closest || !abFrom || abFrom.id !== "b-nums" || numsPin) return;
+  const to = e.relatedTarget; if(to && to.closest && (to.closest("#b-nums") || to.closest("#abpop"))) return;
+  if(e.target.closest("#b-nums") || e.target.closest("#abpop")){ clearTimeout(numsHideT); numsHideT = setTimeout(() => { if(!numsPin) abClose(); }, 250); } });
+function abClose(){ numsPin = false; const ap = document.getElementById("abpop"); if(ap) ap.setAttribute("aria-label", "About this company"); const pop = document.getElementById("abpop"); if(!pop || pop.hidden) return; pop.hidden = true; document.getElementById("abback").hidden = true; if(abFrom) abFrom.setAttribute("aria-expanded", "false"); abFrom = null; }
 document.addEventListener("click", e => { if(!e.target.closest) return;
   if(e.target.closest("[data-abx]")){ abClose(); return; }
-  if(!e.target.closest("#abpop") && !e.target.closest("#b-about")) abClose(); });
+  if(!e.target.closest("#abpop") && !e.target.closest("#b-about") && !e.target.closest("#b-nums")) abClose(); });
 document.addEventListener("keydown", e => { if(e.key === "Escape") abClose(); });
 window.addEventListener("hashchange", abClose);
 /* ================= Alpha Vantage client (second free source) ================= */
@@ -2127,6 +2157,8 @@ function shareBlocks(kind, mine, short){
 async function shareBuild(L, kind, ids, title, mine, short, progress){
   const root = document.documentElement, app = document.getElementById("app");
   const stats = document.getElementById("s-stats"), statsOpen = stats && stats.classList.contains("open");
+  // 7.36: the Full version keeps the outside figures (folded on the page since 7.33, a summary line only)
+  const ovMore = !short && document.getElementById("ov-more"), ovWasOpen = ovMore && ovMore.open; if(ovMore) ovMore.open = true;
   // Title block (first page) and the note at the end
   const now = new Date(), when = now.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) + ", " + now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   const head = document.createElement("div"); head.className = "card share-only"; head.id = "sh-head";
@@ -2191,7 +2223,7 @@ async function shareBuild(L, kind, ids, title, mine, short, progress){
     }
     return { blob: pdf.output("blob"), pages: pagesP.length, phonePg };
   } finally {
-    head.remove(); foot.remove(); vals.forEach(v => v.remove()); root.classList.remove("sharing", "sharing-mine", "sharing-short"); if(stats && !statsOpen) stats.classList.remove("open");
+    head.remove(); foot.remove(); vals.forEach(v => v.remove()); root.classList.remove("sharing", "sharing-mine", "sharing-short"); if(stats && !statsOpen) stats.classList.remove("open"); if(ovMore && !ovWasOpen) ovMore.open = false;
   }
 }
 
@@ -2230,14 +2262,7 @@ async function viewStock(app, sym, tok){
       <div class="gl" data-go="c-chart"><span>Trend</span><div id="g-tech" class="small muted">…</div></div>
       ${isFund ? "" : `<div class="gl" data-go="c-ins"><span>Insiders</span><div id="g-ins" class="small muted">…</div></div>`}
     </div>
-    <details class="more about-n" id="about-nums"><summary>ⓘ About these numbers</summary><ul class="small muted howto">
-      <li><b>Estimates, not facts.</b> Fair value, projections and analysts' forecasts are built on assumptions: a range of possible values, not a promise or a price target.</li>
-      <li><b>Projections are scenarios</b> built on your assumptions (or the app's starting values), not forecasts.</li>
-      <li><b>Price targets</b> are analysts' 12-month price predictions, usually above fair value estimates; they're shown next to the fair value range, never in it.</li>
-      <li><b>Verdicts</b> compare the stock with its own past and similar companies; technical signals are timing context. None of them is a reason to buy or sell on its own.</li>
-      <li><b>Outside views and the AI summary</b> are read from web pages or written by Claude: AI can misread a page or a number, so open the links and check anything important.</li>
-      <li><b>Data</b>: Finnhub, Twelve Data and Alpha Vantage free plans (usually delayed), the company's own reports, FRED for the economy. Each section's "How to read this" explains its rules.</li>
-    </ul></details>
+    <p class="about-n"><button type="button" class="abbtn" id="b-nums" aria-haspopup="dialog" aria-expanded="false">ⓘ About these numbers</button></p>
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div><div id="ov"></div></div>
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
