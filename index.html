@@ -4099,8 +4099,8 @@ const trackShort = t => !t || !t.n ? "" : `${t.beat} of ${t.n} beat${t.miss ? ` 
 function renderSurprises(app, sym){
   const el = $("#rec-surp", app); if(!el) return;
   safe(fh.surprises(sym)).then(r => {
-    const t = r.ok ? trackRecord(r.v) : null;
-    if(!t || !t.n){ el.innerHTML = `<p class="small muted" style="margin:12px 0 0">Earnings vs forecasts: ${r.ok ? "no past quarters with a forecast" : esc(r.e.message)}.</p>`; return; }
+    const f = splitOf(sym), t = r.ok ? trackRecord(f === 1 ? r.v : r.v.map(x => ({ ...x, actual: x.actual / f, estimate: x.estimate / f }))) : null; // per-share figures after a split, like the Earnings calendar (earnAdj)
+    if(!t || !t.n){ el.innerHTML = r.ok ? "" : `<p class="small muted" style="margin:12px 0 0">Earnings vs forecasts: ${esc(r.e.message)}.</p>`; return; } // funds and new listings: nothing to show
     const last = t.rows[0], ls = t.sp[0];
     el.innerHTML = `<h3 style="margin:16px 0 6px">Earnings vs forecasts</h3>
       <p class="verdict" style="margin-bottom:6px"><span class="badge ${t.k[0]}">${t.k[1]}</span> Beat analysts' forecast in <b>${t.beat} of the last ${t.n}</b> quarters${t.miss ? `, missed ${t.miss}` : ""}. Latest (quarter to ${qLabel(last)}): ${fmt(last.actual)} per share vs ${fmt(last.estimate)} expected, ${fmtPct(ls, 1)}.</p>
