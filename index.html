@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.45</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.46</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -651,7 +651,7 @@ const fh = {
   news:    s => { const to=new Date(), from=new Date(Date.now()-14*864e5); return api("/company-news",{symbol:s,from:ymd(from),to:ymd(to)},"news"); },
   search:  q => api("/search", {q}, "search"),
   // Annual reports as filed (10-K). Large reply, so only a small summary per year is kept.
-  fin:     s => api("/stock/financials-reported", {symbol:s, freq:"annual"}, "fin", shapeFinancials),
+  fin:     s => api("/stock/financials-reported", {symbol:s, freq:"annual", v:"2"}, "fin", shapeFinancials), // v=2 (7.46): saved copies before 7.46 lack debt due within a year and tax
   finQ:    s => api("/stock/financials-reported", {symbol:s, freq:"quarterly", v:"2"}, "fin", shapeQuarters), // v=2 (7.44): saved copies before 7.44 lack reported EPS
 };
 /* ---- Annual reports: pick the few numbers the health score needs ---- */
@@ -671,6 +671,8 @@ const FIN_CONCEPTS = {
   pretax:   ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest","IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments","IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic","ProfitLossBeforeTax"],
   deposits: ["Deposits","InterestBearingDepositLiabilities"],
   net:      ["NetIncomeLoss","ProfitLoss","NetIncomeLossAvailableToCommonStockholdersBasic","ProfitLossAttributableToOwnersOfParent"],
+  stDebt:   ["LongTermDebtCurrent","DebtCurrent","ShortTermBorrowings","CommercialPaper"], // 7.46 (ROIC)
+  tax:      ["IncomeTaxExpenseBenefit","IncomeTaxExpenseContinuingOperations"], // 7.46 (ROIC)
   epsD:     ["EarningsPerShareDiluted","EarningsPerShareBasicAndDiluted","EarningsPerShareBasic"], // 7.44: as reported (incl. one-offs)
   shares:   ["WeightedAverageNumberOfDilutedSharesOutstanding","WeightedAverageNumberOfShareOutstandingBasicAndDiluted","WeightedAverageNumberOfSharesOutstandingBasic","AdjustedWeightedAverageShares","WeightedAverageShares"],
   epsDil:   ["EarningsPerShareDiluted","EarningsPerShareBasicAndDiluted","EarningsPerShareBasic","DilutedEarningsLossPerShare","BasicEarningsLossPerShare"],
@@ -1716,7 +1718,7 @@ function earnAdj(sym, cal){
 const peek = {
   td:  s => cacheGet("td:daily:" + s + ":1600"),
   av:  s => { fcHydrate(s); return cacheGet("av:EARNINGS_ESTIMATES:" + s); },
-  fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual"})),
+  fin: s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"annual", v:"2"})),
   earn:s => cacheGet("/calendar/earnings?" + new URLSearchParams({ symbol: s, from: ymd(new Date(Date.now() - 400*864e5)), to: ymd(new Date(Date.now() + 200*864e5)) })),
   finQ:s => cacheGet("/stock/financials-reported?" + new URLSearchParams({symbol:s, freq:"quarterly", v:"2"})),
 };
@@ -3616,6 +3618,23 @@ function altman(y0, mcapM, prof){
   return { z, zone: z > 2.99 ? "safe" : z >= 1.81 ? "grey" : "distress" };
 }
 
+// 7.46 (gap review, owner's pick): return on invested capital, shown in the Health breakdown but not counted in the score
+// (owner: big companies' heavy spending on new capacity would pull it down for years before the profits arrive).
+// After-tax operating profit ÷ money invested (shareholders' equity + debt), invested money averaged over the year.
+// Tax at the year's own rate (tax ÷ profit before tax, 0–35%), 21% when that's missing. Not shown for banks and insurers.
+function roicYears(ys){
+  const ic = y => y && isNum(y.equity) ? y.equity + Math.max(0, y.ltDebt || 0) + Math.max(0, y.stDebt || 0) : NaN;
+  return ys.map((y, i) => { const p = ys[i + 1], a = ic(y), b = ic(p), avg = isNum(b) ? (a + b) / 2 : a;
+    const tr = isNum(y.tax) && isNum(y.pretax) && y.pretax > 0 ? Math.min(0.35, Math.max(0, y.tax / y.pretax)) : 0.21;
+    return { year: String(y.end || "").slice(0, 4), v: isNum(y.ebit) && isNum(avg) && avg > 0 ? y.ebit * (1 - tr) / avg * 100 : NaN, debtSt: isNum(y.stDebt) }; });
+}
+function roicItem(ys, item){
+  const r = roicYears(ys || []), r0 = r[0] || {}, past = r.slice(1, 5).filter(x => isNum(x.v));
+  const lo = 3, hi = 18; // label: Strong ≥ 13.5%, OK ≥ 9%, Weak below (the app's usual 0.7 / 0.4 of the way)
+  const x = item("Return on invested capital (ROIC)", r0.v, v => v.toFixed(1) + "%", lo, hi,
+    `After-tax operating profit ÷ money invested in the business (shareholders' equity + debt, average of the year) · year to ${esc((ys[0] && ys[0].end) || "?")}${past.length ? ` · earlier: ${past.map(p => `${p.year} ${p.v.toFixed(0)}%`).join(", ")}` : ""}. Strong ≥ 13.5%, OK 9–13.5%, weak below 9% (a typical company's cost of money is 8–10% a year). <b>Shown, not counted in the score</b>: heavy investment in new capacity (data centres, factories) lowers it for a few years before the profits arrive${r0.debtSt === false ? "; debt due within a year isn't in this report, so the figure may be a little high" : ""}.`);
+  x.info = true; return x;
+}
 function healthScore(mm, prof, fin, finQ){
   const SA = splitAdjust(fin && fin.years || []);
   const ysRaw = fin && fin.years || [], ys = ysRaw, y0 = ys[0], y1 = ys[1];
@@ -3623,8 +3642,8 @@ function healthScore(mm, prof, fin, finQ){
   const pct = v => v.toFixed(1) + "%";
   const pillars = [];
   const pillar = (id, name, what, items) => {
-    const got = items.filter(x => isNum(x.s));
-    pillars.push({ id, name, what, items: got, s: got.length ? got.reduce((a, x) => a + x.s, 0) / got.length : NaN });
+    const got = items.filter(x => isNum(x.s)), scored = got.filter(x => !x.info); // 7.46: info items are shown, not counted
+    pillars.push({ id, name, what, items: got, s: scored.length ? scored.reduce((a, x) => a + x.s, 0) / scored.length : NaN });
   };
   const item = (name, v, show, weak, strong, rule, s) => ({ name, v, show: isNum(v) ? show(v) : "—", s: s !== undefined ? s : scale(v, weak, strong), rule });
   // Finnhub's ready-made ratio (last 12 months) first; if missing, work it out from the latest annual report.
@@ -3658,6 +3677,7 @@ function healthScore(mm, prof, fin, finQ){
     fc ? item("Pre-tax margin", om.v, pct, 0, 20, "Profit before tax ÷ revenue (used instead of operating margin for financial companies). Full marks ≥ 20% · zero at 0% or below" + om.note)
        : item("Operating margin", om.v, pct, 0, 20, "Full marks ≥ 20% · zero at 0% or below" + om.note),
     item("Return on equity", roe.v, pct, 5, 20, fc ? "Full marks ≥ 20% · zero below 5% (banks: 10–15% is typical)" + roe.note : "Full marks ≥ 20% · zero below 5%" + roe.note),
+    ...(fc ? [] : [roicItem(ysRaw, item)]),
   ]);
   // 2. Balance sheet
   const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
@@ -3760,7 +3780,7 @@ function renderHealth(app, mm, price, prof, fin, finQ){
     <details class="more">
       <summary>Show the breakdown</summary>
       ${H.pillars.map(p => `<h3>${p.name} <span class="small muted" style="font-weight:400">· ${p.what}</span></h3>
-        ${p.items.length ? `<table><tbody>${p.items.map(i=>`<tr><td>${i.name}<div class="small muted">${i.rule}</div></td><td class="num"><b>${i.show}</b></td><td class="num"><span class="badge ${lvl(i.s)[0]}">${lvl(i.s)[1]}</span></td></tr>`).join("")}</tbody></table>`
+        ${p.items.length ? `<table><tbody>${p.items.map(i=>`<tr><td>${i.name}${i.info ? ` <span class="badge b-tag">not in the score</span>` : ""}<div class="small muted">${i.rule}</div></td><td class="num"><b>${i.show}</b></td><td class="num"><span class="badge ${lvl(i.s)[0]}">${lvl(i.s)[1]}</span></td></tr>`).join("")}</tbody></table>`
           : `<p class="small muted">${p.id==="cash" && H.fc ? "Left out for banks, lenders and insurers: making loans or buying investments counts as cash going out, so free cash flow doesn't show their health." : finState==="loading" ? "Loading…" : "Not provided by the data source for this stock."}</p>`}`).join("")}
       <h3>Piotroski F-Score <span class="small muted" style="font-weight:400">· 9 tests, latest year vs the one before</span></h3>
       ${H.f ? `<table><tbody>${H.f.tests.map(t=>`<tr><td>${t.name}<div class="small muted">${t.why}</div></td><td class="num">${t.ok===null?'<span class="muted small">n/a</span>':t.ok?'<span class="badge b-cheap">✓ Pass</span>':'<span class="badge b-rich">✗ Fail</span>'}</td></tr>`).join("")}</tbody></table>
