@@ -59,6 +59,7 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--mute
 /* My Stocks / Watchlist: column titles stay visible under the top bar while scrolling (desktop) */
 .listwrap{overflow-x:auto}
 .listtbl.nohealth .c-health{display:none}
+.val-table td .badge:not(.b-tag),.sig .stat .badge,#ins table .badge,.hs .badge{background:none;padding:0;font-size:13px} /* 7.33: words, not pills, inside tables and tiles */
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #commonflags{margin:0 0 10px}
 @media (min-width:801px){ .listwrap{overflow:visible} .listtbl thead th{position:sticky;top:var(--hdr,55px);z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)} }
@@ -504,7 +505,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.32</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.33</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2210,8 +2211,8 @@ async function viewStock(app, sym, tok){
         <div class="row">
           ${inMine ? "" : `<button class="primary" id="b-watch">${inWatch?"★ On watchlist":"☆ Add to watchlist"}</button>`}
           ${inMine ? `<span class="badge b-tag mine">In My Stocks</span>` : `<button class="primary" id="b-mine">+ My Stocks</button>`}
-          ${isFund ? "" : `<a class="btnlink primary" id="b-cmp" href="${cmpHref([sym])}">⇄ Compare with…</a>`}
-          <button type="button" class="primary" id="b-share">⤴ Share PDF</button>
+          ${isFund ? "" : `<a class="btnlink primary" id="b-cmp" href="${cmpHref([sym])}">⇄ Compare<span class="hide-sm"> with…</span></a>`}
+          <button type="button" class="primary" id="b-share">⤴ Share<span class="hide-sm"> PDF</span></button>
         </div>
       </div>
       <div class="grid" id="s-stats" style="margin-top:14px"></div>
@@ -2261,7 +2262,7 @@ async function viewStock(app, sym, tok){
   const mm = met && met.metric || {};
   const nm = prof.name || (holding && holding.name); if(nm){ $("#s-name",app).textContent = nm; document.title = `${sym} · Stock Analysis`; }
   $("#s-ex",app).textContent = [prof.exchange, prof.finnhubIndustry, prof.country].filter(Boolean).join(" · ");
-  if(prof.weburl) $("#s-ex",app).insertAdjacentHTML("beforeend", `<span class="ph-lbl"> · <a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></span>`);
+  if(prof.weburl) $("#s-ex",app).insertAdjacentHTML("beforeend", `<span> · <a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></span>`);
   { const ex = $("#s-ex",app); ex.insertAdjacentHTML("beforeend", `${ex.textContent.trim() ? " · " : ""}<button type="button" class="abbtn" id="b-about" aria-haspopup="dialog">ⓘ About</button>`);
     $("#b-about",app).onclick = e => { e.stopPropagation(); abOpen(e.currentTarget, sym, prof, holding, mm); }; }
   let price = q.ok && isNum(q.v.c) && q.v.c>0 ? q.v.c : (holding && isNum(holding.manualPrice) ? holding.manualPrice : undefined);
@@ -2279,7 +2280,6 @@ async function viewStock(app, sym, tok){
   // iPhone (6.2): 4 key tiles show, the rest behind "More numbers". Owned: your value & shares + 52-week range; else market cap, 52-week range, dividend.
   const key = own ? ["Your value","Your shares","52-week high","52-week low"] : ["Market cap","52-week high","52-week low","Dividend yield","Beta (vs market)"];
   $("#s-stats",app).innerHTML = stats.map(([k,v])=>`<div class="stat${key.includes(k) ? "" : " x"}${/^Your /.test(k) ? " mine" : ""}"><span>${k}</span><b>${v}</b></div>`).join("") +
-    (prof.weburl ? `<div class="stat x web"><span>Website</span><b style="font-size:14px"><a href="${esc(prof.weburl)}" target="_blank" rel="noopener">${esc(prof.weburl.replace(/^https?:\/\/(www\.)?/,"").replace(/\/$/,""))}</a></b></div>` : "") +
     (splitF && splitF !== 1 ? `<div class="small muted" style="grid-column:1/-1;flex-basis:100%;margin-top:2px">Adjusted for ${/^(8|11|18)\b/.test(String(Math.round(splitF > 1 ? splitF : 1 / splitF))) ? "an" : "a"} ${splitF > 1 ? `${splitF}-for-1` : `1-for-${Math.round(1 / splitF)} reverse`} stock split: Finnhub still had ${(() => { const w = [splitS.ps !== 1 && "its per-share figures (earnings, book value, sales)", splitS.sh !== 1 && "the share count", splitS.f52 !== 1 && "the 52-week range"].filter(Boolean); return w.length > 1 ? w.slice(0, -1).join(", ") + " and " + w[w.length - 1] : w[0]; })()} on the old basis, so ${splitS.ps !== 1 || [splitS.sh, splitS.f52].filter(x => x !== 1).length > 1 ? "they're" : "it's"} converted here.</div>` : "");
 
   { const sg = $("#s-stats",app); if(sg.querySelector(".stat.x:not(.web)")){ sg.insertAdjacentHTML("beforeend", `<button type="button" class="statmore">More numbers</button>`);
@@ -2292,7 +2292,7 @@ async function viewStock(app, sym, tok){
     renderInsiders(app, sym, tok);
   }
   renderAiCard(app, sym);
-  fh.news(sym).then(n => live(tok) && renderNews(app, n), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
+  fh.news(sym).then(n => live(tok) && renderNews(app, n, sym), e => live(tok) && ($("#news",app).innerHTML = `<p class="muted">${esc(e.message)}</p>`));
 }
 
 // PEG (7.1; 7.18 owner: both growth views): today's P/E ÷ yearly growth (%), from the same growth Fair value uses (7.16
@@ -3644,9 +3644,9 @@ function renderHealth(app, mm, price, prof, fin, finQ){
     <div class="hs">
       <div class="hs-ring" style="--p:${isNum(total)?total:0};--c:${scoreColor(total)}"><div><b>${isNum(total)?total:"—"}</b><span>of 100</span></div></div>
       <div style="flex:1;min-width:0">
-        <div style="margin-bottom:8px"><span class="badge ${scoreClass(total)}">${scoreWord(total)}</span>
+        <div style="margin-bottom:8px">${isNum(total) ? "" : `<span class="badge ${scoreClass(total)}">${scoreWord(total)}</span>`}
           ${H.f ? `<span class="badge b-tag" title="Piotroski F-Score">Piotroski ${H.f.score}/${H.f.of}</span>` : ""}
-          ${H.az ? `<span class="badge ${H.az.zone==="safe"?"b-cheap":H.az.zone==="grey"?"b-warn":"b-rich"}" title="Altman Z-Score">Altman Z ${H.az.z.toFixed(1)}</span>` : ""}
+          ${H.f && H.az ? " · " : ""}${H.az ? `<span class="badge ${H.az.zone==="safe"?"b-cheap":H.az.zone==="grey"?"b-warn":"b-rich"}" title="Altman Z-Score">Altman Z ${H.az.z.toFixed(1)} (${H.az.zone === "safe" ? "safe" : H.az.zone === "grey" ? "grey zone" : "distress"})</span>` : ""}
         </div>
         ${H.pillars.map(pBar).join("")}
       </div>
@@ -3779,7 +3779,7 @@ async function stockFacts(app, sym){
   return [`Stock: ${sym} (${txt("#s-name", 120)})`, `Price: ${txt("#s-price", 40)} ${txt("#s-chg", 40)}`,
     h ? `The reader owns ${isNum(h.shares) ? h.shares + " shares" : "this stock"}.` : state.watchlist.includes(sym) ? "The stock is on the reader's watchlist." : "",
     (() => { const nx = nextEarnings(earnAdj(sym, peek.earn(sym))); return nx ? `Next results: ${nx.date}${HOUR[nx.hour] ? " " + HOUR[nx.hour] : ""} (in ${daysUntil(nx.date)} days)${isNum(nx.epsEstimate) ? `, analysts expect EPS ${nx.epsEstimate}` : ""}.` : "Next results date: not known."; })(),
-    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Outside views (published estimates found on the web):\n${txt("#ov ul", 600) || "not looked up"}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Sales and profit (company reports; analysts' forecasts for the next years / quarters):\n${txt("#sales .sl-sum", 700)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
+    `Key figures:\n${txt("#s-stats", 900)}`, `At a glance:\n${txt("#c-glance", 700)}`, `Valuation:\n${txt("#val", 2800)}`, `Fair value:\n${txt("#fv", 1500)}`, `Outside views (published estimates found on the web):\n${(($("#ov ul", app) || {}).textContent || "").replace(/\s+/g, " ").trim().slice(0, 600) || "not looked up"}`, `5-year projections (Bear / Base / Bull scenarios; the reader can edit the assumptions):\n${txt("#proj .pj-top", 120)}\n${txt("#proj .pj-sum", 900)}`, `Sales and profit (company reports; analysts' forecasts for the next years / quarters):\n${txt("#sales .sl-sum", 700)}`, `Price trend and technical signals:\n${[txt("#chart > p", 300), txt("#chart .sig", 1400)].filter(Boolean).join("\n")}`,
     `Financial health:\n${txt("#health", 1500)}`, `Analysts:\n${txt("#rec", 700)}`, `Insiders:\n${txt("#ins", 900)}`, news ? `Recent headlines:\n${news}` : ""].filter(Boolean).join("\n\n");
 }
 const mdLite = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*\w])\*(?![\s*])([^*\n]+?)\*(?!\w)/g, "$1<i>$2</i>").replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, "$1<i>$2</i>").split("\n").reduce((o, l) => { const m = l.match(/^\s*[-*•]\s+(.*)/);
@@ -3892,6 +3892,10 @@ function ovCheck(text, found, price){
   return { fair, target, remarks: String(j.remarks || "").slice(0, 400), dropped };
 }
 function ovAge(t){ const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`; }
+// 7.33: the comparison line(s) stay visible, the list and notes fold (body = list, then comparison, then notes)
+let ovOpen = false;
+const cmpOnly = b => { const d = document.createElement("div"); d.innerHTML = b; return [...d.children].filter(e => e.tagName === "P" && !e.classList.contains("muted")).map(e => e.outerHTML).join(""); };
+const listOnly = b => { const d = document.createElement("div"); d.innerHTML = b; return [...d.children].filter(e => !(e.tagName === "P" && !e.classList.contains("muted"))).map(e => e.outerHTML).join(""); };
 function renderOutside(app, sym){
   const el = $("#ov", app); if(!el) return;
   const o = state.ov && state.ov[sym] && Date.now() - state.ov[sym].t < OV_KEEP ? state.ov[sym] : null;
@@ -3922,9 +3926,13 @@ function renderOutside(app, sym){
       <p class="small muted" style="margin:6px 0 0">Looked up ${ovAge(o.t)} by ${esc(o.by || "Claude Haiku 5.5")}${o.cost ? `, cost ${/^under/.test(o.cost) ? "" : "about "}${o.cost}` : ""}. Figures come from the linked pages; open them to check. AI can misread a page.</p>`;
   }
   const what = `<p class="small muted" style="margin:0 0 6px">A second opinion on our range: Claude (Haiku, the cheapest model) searches reputable finance sites (Morningstar, StockAnalysis, MarketBeat, Yahoo Finance and others it can reach) for <b>published fair value estimates</b> of this stock and the <b>analysts' average price target</b>. The app keeps only figures from pages Claude actually found, links each one, and compares them with our range. About 1–4p a check from your Anthropic account; kept 30 days on both your devices.</p>`;
-  el.innerHTML = `<div class="ov"><h3>Outside views</h3>${o ? "" : what}${body}
-    <div class="row" style="margin-top:8px"><button data-ov class="${o ? "" : "primary"}">${o ? "Check again" : "Check outside views"}</button>
-    <span id="ov-msg" class="small muted">${o ? "" : "Usually 20–60 seconds."}</span></div>${o ? `<details class="more"><summary>What is this?</summary>${what}</details>` : ""}</div>`;
+  const btn = `<div class="row" style="margin-top:8px"><button data-ov class="${o ? "" : "primary"}">${o ? "Check again" : "Check outside views"}</button>
+    <span id="ov-msg" class="small muted">${o ? "" : "Usually 20–60 seconds."}</span></div>`;
+  if(o){ const r = o.r, sum = [...r.fair.map(f => `${f.src} ${fmt(f.v)}`), ...(r.target ? [`analysts' target ${fmt(r.target.avg)}`] : [])].join(" · ");
+    el.innerHTML = `<div class="ov"><h3>Outside views</h3>${cmpOnly(body)}
+      <details class="more" id="ov-more"${ovOpen ? " open" : ""}><summary>${sum ? esc(sum) : "No figures found"} · checked ${ovAge(o.t)}</summary>${listOnly(body)}${btn}${howTo(what, "What is this?")}</details></div>`;
+    $("#ov-more", el).ontoggle = e => { ovOpen = e.target.open; };
+  } else el.innerHTML = `<div class="ov"><h3>Outside views</h3>${what}${btn}</div>`;
   $("[data-ov]", el).onclick = () => ovLookup(app, sym);
 }
 async function ovLookup(app, sym){
@@ -3996,15 +4004,22 @@ function renderRec(app, r){
     <div class="recbar">${parts.map(([k,,c])=>cur[k]?`<div style="width:${cur[k]/tot*100}%;background:${c}" title="${k}: ${cur[k]}"></div>`:"").join("")}</div>
     <div class="legend">${parts.map(([k,l,c])=>`<span><i style="background:${c}"></i>${l} ${cur[k]||0}</span>`).join("")}</div>
     <p class="small">${trend}</p>
-    <p class="small muted" style="margin-bottom:0">Full analyst reports aren't in the free data plan. Analysts' earnings forecasts are under Fair value${state.avKey ? "" : ` (needs a free <a href="#settings">Alpha Vantage key</a>)`}.</p>`;
+    ${howTo(`Buy = strong buy + buy, sell = sell + strong sell, from Finnhub's monthly count of analysts' ratings; the label (Claude's suggestion) is Mostly buy at 70%+ buy, Many sell at 30%+ sell, else Mixed. Full analyst reports aren't in the free data plan. Analysts' earnings forecasts are under Fair value${state.avKey ? "" : ` (needs a free <a href="#settings">Alpha Vantage key</a>)`}.`, "About these figures")}`;
 }
 
-function renderNews(app, n){
+function renderNews(app, n, sym){
   const el = $("#news", app);
   const items = (Array.isArray(n) ? n : []).filter(x=>x.headline && x.url).sort((a,b)=>b.datetime-a.datetime).slice(0, 10);
   if(!items.length){ el.innerHTML = `<p class="muted">No news in the last 2 weeks.</p>`; return; }
   const link = x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.headline)}<small>${esc(x.source)} · ${new Date(x.datetime*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</small></a>`;
-  el.innerHTML = items.slice(0,5).map(link).join("") + (items.length > 5 ? `<details class="more"><summary>Show ${items.length - 5} more</summary><div class="news">${items.slice(5).map(link).join("")}</div></details>` : "");
+  // 7.33: Finnhub tags general market stories to a stock (Bitcoin, Medtronic, SpaceX on NVDA); headlines naming the company come first
+  const nm = (($("#s-name", app) || {}).textContent || "").replace(/,? (Inc|Corp|Corporation|Holdings|Group|Ltd|plc|PBC|Co)\b.*$/i, "").trim();
+  const words = [sym, nm, nm.split(" ")[0]].filter(w => w && w.length >= 2).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = words.length ? new RegExp(`\\b(${words.join("|")})\\b`, "i") : null;
+  const named = re ? items.filter(x => re.test(x.headline)) : items, other = items.filter(x => !named.includes(x));
+  const top = named.slice(0, 5), rest = [...named.slice(5), ...other];
+  el.innerHTML = (top.length ? top.map(link).join("") : `<p class="small muted" style="margin:0">No headline in the last 2 weeks names ${esc(nm || sym)}.</p>`) +
+    (rest.length ? `<details class="more"><summary>${other.length && other.length === rest.length ? `${rest.length} general market headline${rest.length === 1 ? "" : "s"} tagged ${esc(sym)}` : `Show ${rest.length} more`}</summary><div class="news">${rest.map(link).join("")}</div></details>` : "");
 }
 
 /* ================= Bank order-history import ================= */
