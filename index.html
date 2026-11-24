@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.38</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.39</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2359,8 +2359,8 @@ async function viewStock(app, sym, tok){
   if(q.ok && isNum(q.v.dp)) $("#s-chg",app).innerHTML = `<span class="${cls(q.v.dp)}">${fmtPct(q.v.dp,2)} today</span>`;
   const stats = [
     ["Market cap", fmtCap(prof.marketCapitalization ?? mm.marketCapitalization)],
-    ["52-week high", fmt(mm["52WeekHigh"])],
-    ["52-week low", fmt(mm["52WeekLow"])],
+    ["52-week high", fmt(mm["52WeekHigh"]) + near52(price, mm["52WeekHigh"], "high")],
+    ["52-week low", fmt(mm["52WeekLow"]) + near52(price, mm["52WeekLow"], "low")],
     ["Dividend yield", isNum(mm.dividendYieldIndicatedAnnual) ? mm.dividendYieldIndicatedAnnual.toFixed(2)+"%" : "—"],
     ["Beta (vs market)", fmt(mm.beta)],
   ];
@@ -3696,16 +3696,17 @@ const scoreClass = v => !isNum(v) ? "b-tag" : v >= 70 ? "b-cheap" : v >= 40 ? "b
 const scoreWord = v => !isNum(v) ? "Not enough data" : v >= 70 ? "Strong" : v >= 40 ? "Average" : "Weak";
 const scoreColor = v => !isNum(v) ? "var(--line)" : v >= 70 ? "var(--good)" : v >= 40 ? "var(--mid)" : "var(--bad)";
 
+// 7.39 (moved out of Health, where a price warning made the business look weaker): an amber "Price near it" on the 52-week tile
+const near52 = (px, v, kind) => isNum(px) && isNum(v) && (kind === "high" ? px >= v * 0.95 : px <= v * 1.05)
+  ? ` <span class="badge b-warn" title="${kind === "high" ? "The price is within 5% of its 1-year high. Good momentum, but less room for error if you're buying now." : "The price is within 5% of its 1-year low. Check whether something has changed in the business."}">Price near it</span>` : "";
 function renderHealth(app, mm, price, prof, fin, finQ){
   const el = $("#health", app); if(!el) return;
   const finState = fin === undefined ? "loading" : fin && fin.years && fin.years.length ? "ok" : "none";
   const H = healthScore(mm, prof, finState === "ok" ? fin : null, finQ);
   const flags = [];
-  const hi = mm["52WeekHigh"], lo = mm["52WeekLow"];
   const de = pick(mm, ["totalDebt/totalEquityQuarterly","totalDebt/totalEquityAnnual"]);
   const cr = pick(mm, ["currentRatioQuarterly","currentRatioAnnual"]);
-  if(isNum(price)&&isNum(hi)&&price >= hi*0.95) flags.push(["b-warn","Near 52-week high", `Within 5% of its 1-year high (${fmt(hi)}). Good momentum, but less room for error if you're buying now.`]);
-  if(isNum(price)&&isNum(lo)&&price <= lo*1.05) flags.push(["b-warn","Near 52-week low", `Within 5% of its 1-year low (${fmt(lo)}). Check whether something has changed in the business.`]);
+  // 7.39: "Near 52-week high / low" is about the price, not the business: shown on the 52-week tiles by the price instead
   const nmItem = H.pillars.find(p => p.id === "profit").items.find(i => i.name === "Net profit margin");
   if(nmItem && nmItem.v < 0) flags.push(["b-rich","Losing money", `Net profit margin is ${nmItem.v.toFixed(1)}% (${nmItem.rule.split(" · ").pop()}).`]);
   if(isNum(mm.revenueGrowthTTMYoy)&&mm.revenueGrowthTTMYoy<0) flags.push(["b-rich","Revenue shrinking",`Sales are down ${Math.abs(mm.revenueGrowthTTMYoy).toFixed(1)}% vs a year ago.`]);
