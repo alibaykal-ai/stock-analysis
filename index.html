@@ -4104,11 +4104,12 @@ function trackRecord(r){
 // number (Finnhub keeps Tesla's EPS lines rounded to 0 / 1).
 const epsOf = x => !x ? NaN : isNum(x.net) && isNum(x.shares) && x.shares > 0 ? x.net / x.shares : isNum(x.epsD) && x.epsD % 1 !== 0 ? x.epsD : NaN;
 function reportedEps(period, fin, finQ){
-  const qs = (finQ && finQ.q) || [], q = qs.find(x => x.end === period), near = (a, b) => Math.abs(a - b) <= 0.6;
+  const same = e => Math.abs(new Date(e) - new Date(period)) <= 15 * 864e5; // fiscal quarters can end a few days off the month end (AMD 27 Sep)
+  const qs = (finQ && finQ.q) || [], q = qs.find(x => same(x.end)), near = (a, b) => Math.abs(a - b) <= 0.6;
   if(q && isNum(epsOf(q))){ if(near(q.months, 3)) return epsOf(q);
     const prev = qs.find(x => x.start === q.start && near(x.months, q.months - 3)); return prev && isNum(epsOf(prev)) ? epsOf(q) - epsOf(prev) : NaN; }
-  const y = fin && fin.years && fin.years.find(x => x.end === period); if(!y || !isNum(epsOf(y))) return NaN;
-  const nine = qs.find(x => near(x.months, 9) && near(monthsBetween(x.end, period), 3)); return nine && isNum(epsOf(nine)) ? epsOf(y) - epsOf(nine) : NaN;
+  const y = fin && fin.years && fin.years.find(x => same(x.end)); if(!y || !isNum(epsOf(y))) return NaN;
+  const nine = qs.find(x => near(x.months, 9) && near(monthsBetween(x.end, y.end), 3)); return nine && isNum(epsOf(nine)) ? epsOf(y) - epsOf(nine) : NaN;
 }
 const trackShort = t => !t || !t.n ? "" : `${t.beat} of ${t.n} beat${t.miss ? ` · ${t.miss} missed` : ""}`;
 function renderSurprises(app, sym){
