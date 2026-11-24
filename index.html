@@ -1870,7 +1870,8 @@ function bgRefresh(){
     }
     const app = $("#app"), tok = renderToken;
     if(todo.length){ note(`Up to date (${todo.length} stock${todo.length === 1 ? "" : "s"} refreshed in the background).`);
-      if($("#alerts-b", app)) checkAlerts(app, tok); if($("#risk-b", app)) renderRisk(app, tok); if($("#perf-b", app)) renderPerf(app, tok); }
+      if($("#alerts-b", app)) checkAlerts(app, tok); if($("#risk-b", app)) renderRisk(app, tok); if($("#perf-b", app)) renderPerf(app, tok);
+      if($("#earn-b", app)) renderEarnings(app, tok); } // 7.43: now with price history, a split is applied to the calendar's per-share figures (SNDK)
   })();
   bgRun.finally(() => { bgRun = null; });
   return bgRun;
@@ -4106,7 +4107,7 @@ function renderSurprises(app, sym){
       <p class="verdict" style="margin-bottom:6px"><span class="badge ${t.k[0]}">${t.k[1]}</span> Beat analysts' forecast in <b>${t.beat} of the last ${t.n}</b> quarters${t.miss ? `, missed ${t.miss}` : ""}. Latest (quarter to ${qLabel(last)}): ${fmt(last.actual)} per share vs ${fmt(last.estimate)} expected, ${fmtPct(ls, 1)}.</p>
       <details class="more"><summary>Show the ${t.n} quarters</summary><div style="overflow-x:auto"><table class="tight"><thead><tr><th>Quarter to</th><th class="num">Expected</th><th class="num">Actual</th><th class="num">Difference</th><th></th></tr></thead><tbody>${
         t.rows.map((x, i) => `<tr><td>${qLabel(x)}</td><td class="num">${fmt(x.estimate)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmtPct(t.sp[i], 1)}</td><td>${beatBadge(t.sp[i])}</td></tr>`).join("")}</tbody></table></div></details>
-      ${howTo(`Earnings per share as reported vs analysts' average forecast just before the results (Finnhub, last ${t.n} quarters). Beat = 2% or more above the forecast, missed = 2% or more below, else in line: the same rule as the Earnings calendar. Label (Claude's suggestion): Usually beats = 3 or more beats and no miss; Often misses = 2 or more misses; else Mixed. Many companies set forecasts they can beat, so a beat is normal; a miss, or a run of them, is the stronger signal.`, "How to read this")}`;
+      ${howTo(`Earnings per share as reported vs analysts' average forecast just before the results (Finnhub, last ${t.n} quarters). Beat = 2% or more above the forecast, missed = 2% or more below, else in line: the same rule as the Earnings calendar. Label (Claude's suggestion): Usually beats = 3 or more beats and no miss; Often misses = 2 or more misses; else Mixed. Many companies set forecasts they can beat, so a beat is normal; a miss, or a run of them, is the stronger signal. The reported figure can include one-off gains or costs that analysts left out of their forecast, so check a surprising miss or beat in the company's results before reading much into it.`, "How to read this")}`;
   });
 }
 function renderRec(app, r){
@@ -5610,6 +5611,9 @@ async function renderEarnings(app, tok){
   const mineSet = new Set(state.holdings.filter(h => !isFundLike(h)).map(h => h.symbol));
   const syms = [...new Set([...mineSet, ...state.watchlist])];
   if(!syms.length){ el.innerHTML = "No stocks yet."; return; }
+  // 7.43: the split check (splitOf) reads each stock's key figures: load them first, or a calendar opened before My Stocks
+  // finished loading showed SNDK's per-share figures from before its 8-for-1 split (found by checks.mjs rule track-split)
+  await Promise.all(syms.map(s => safe(fh.metric(s))));
   const res = await Promise.all(syms.map(s => safe(fh.earnings(s)).then(r => ({ s, r }))));
   const tracks = new Map((await Promise.all(syms.map(s => safe(fh.surprises(s)).then(r => [s, r.ok ? trackRecord(r.v) : null])))));
   if(!live(tok)) return;
