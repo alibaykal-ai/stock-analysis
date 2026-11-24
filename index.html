@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.44</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.45</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -2333,10 +2333,10 @@ async function viewStock(app, sym, tok){
     ${isFund ? `<div class="card"><h2>Fund</h2><p class="muted">This is marked as an ${esc(holding.type.toUpperCase())}. Company valuation ratios don't apply to funds, so the first version shows price and value only.</p></div>` : `
     <div class="card" id="c-fv"><h2>Fair value: what is it worth?</h2><div id="fv"><span class="spin"></span> Working out fair value…</div><div id="ov"></div></div>
     <div class="card" id="c-val"><h2>Valuation: cheap or expensive?</h2><div id="val"><span class="spin"></span> Loading valuation…</div></div>
-    <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div></div>
+    <div class="card" id="c-sales"><h2>Sales &amp; profit</h2><div id="sales"><span class="spin"></span> Loading company reports…</div><div id="rec-surp"></div></div>
     <div class="card" id="c-proj"><h2>Projections: 5 years ahead</h2><div id="proj"><span class="spin"></span> Working out projections…</div></div>
     <div class="card" id="c-health"><h2>Financial health</h2><div id="health"><span class="spin"></span></div></div>
-    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div><div id="rec-surp"></div></div>`}
+    <div class="card" id="c-rec"><h2>Analyst views</h2><div id="rec"><span class="spin"></span></div><div id="rec-tgt"></div></div>`}
     <div class="card" id="c-ai"><h2>AI summary: bull &amp; bear case <span class="small muted" style="font-weight:400">(Claude)</span></h2><div id="ai"></div></div>
     <div class="card" id="c-chart"><h2>Price chart</h2><div id="chart"></div></div>
     ${isFund ? "" : `<div class="card" id="c-ins"><h2>Insiders &amp; ownership</h2><div id="ins"><span class="spin"></span> Loading insider trades…</div></div>`}
@@ -4114,13 +4114,15 @@ function reportedEps(period, fin, finQ){
 const trackShort = t => !t || !t.n ? "" : `${t.beat} of ${t.n} beat${t.miss ? ` · ${t.miss} missed` : ""}`;
 function renderSurprises(app, sym){
   const el = $("#rec-surp", app); if(!el) return;
-  Promise.all([safe(fh.surprises(sym)), safe(fh.fin(sym)), safe(fh.finQ(sym))]).then(([r, fa, fq]) => {
+  Promise.all([safe(fh.surprises(sym)), safe(fh.fin(sym)), safe(fh.finQ(sym)), safe(fh.earnings(sym))]).then(([r, fa, fq, ec]) => {
+    const nx = ec.ok ? nextEarnings(earnAdj(sym, ec.v)) : null, dn = nx ? daysUntil(nx.date) : NaN;
+    const nextLine = nx ? `<p style="margin:0 0 8px"><b>Next results:</b> ${fmtWkDay(nx.date)}${HOUR[nx.hour] ? ", " + HOUR[nx.hour] : ""} <span class="muted">(${dn <= 0 ? "today" : dn === 1 ? "tomorrow" : `in ${dn} days`})</span>${isNum(nx.epsEstimate) ? `: ${fmt(nx.epsEstimate)} per share expected` : ""}${isNum(nx.revenueEstimate) ? `, sales ${fmtBig(nx.revenueEstimate)}` : ""}.</p>` : "";
     const f = splitOf(sym), t = r.ok ? trackRecord(f === 1 ? r.v : r.v.map(x => ({ ...x, actual: x.actual / f, estimate: x.estimate / f }))) : null; // per-share figures after a split, like the Earnings calendar (earnAdj)
     const repd = t ? t.rows.map(x => { const v = reportedEps(x.period, fa.ok ? fa.v : null, fq.ok ? fq.v : null); return isNum(v) ? v / f : NaN; }) : [];
     const odd = repd.map((v, i) => isNum(v) && Math.abs(v - t.rows[i].actual) > Math.max(0.05, Math.abs(t.rows[i].actual) * 0.2)), nOdd = odd.filter(Boolean).length;
-    if(!t || !t.n){ el.innerHTML = r.ok ? "" : `<p class="small muted" style="margin:12px 0 0">Earnings vs forecasts: ${esc(r.e.message)}.</p>`; return; } // funds and new listings: nothing to show
+    if(!t || !t.n){ el.innerHTML = nextLine ? `<h3 style="margin:16px 0 6px">Earnings vs forecasts</h3>${nextLine}` : r.ok ? "" : `<p class="small muted" style="margin:12px 0 0">Earnings vs forecasts: ${esc(r.e.message)}.</p>`; return; } // funds and new listings: next date only, if any
     const last = t.rows[0], ls = t.sp[0];
-    el.innerHTML = `<h3 style="margin:16px 0 6px">Earnings vs forecasts</h3>
+    el.innerHTML = `<h3 style="margin:16px 0 6px">Earnings vs forecasts</h3>${nextLine}
       <p class="verdict" style="margin-bottom:6px"><span class="badge ${t.k[0]}">${t.k[1]}</span> Beat analysts' forecast in <b>${t.beat} of the last ${t.n}</b> quarters${t.miss ? `, missed ${t.miss}` : ""}. Latest (quarter to ${qLabel(last)}): ${fmt(last.actual)} per share vs ${fmt(last.estimate)} expected, ${fmtPct(ls, 1)}.${nOdd ? ` <span class="small muted">These are adjusted figures, the kind analysts forecast; in ${nOdd} of the ${t.n} quarters the officially reported figure, which sites like TradingView show, was very different (see the quarters).</span>` : ""}</p>
       <details class="more"><summary>Show the ${t.n} quarters</summary><div style="overflow-x:auto"><table class="tight"><thead><tr><th>Quarter to</th><th class="num">Expected</th><th class="num">Actual</th><th class="num">Difference</th><th></th>${repd.some(isNum) ? `<th class="num">As reported</th>` : ""}</tr></thead><tbody>${
         t.rows.map((x, i) => `<tr><td>${qLabel(x)}</td><td class="num">${fmt(x.estimate)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmtPct(t.sp[i], 1)}</td><td>${beatBadge(t.sp[i])}</td>${repd.some(isNum) ? `<td class="num">${isNum(repd[i]) ? fmt(repd[i]) + (odd[i] ? ` <span class="small muted">differs</span>` : "") : "—"}</td>` : ""}</tr>`).join("")}</tbody></table></div></details>
