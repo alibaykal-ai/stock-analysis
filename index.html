@@ -105,6 +105,14 @@ h3{font-size:14px;margin:18px 0 8px}
 .stat b{display:block;font-size:17px}
 .stat span{font-size:12px;color:var(--muted)}
 .flags{display:flex;flex-wrap:wrap;gap:4px;max-width:340px}
+/* 7.38: flags as small icons (red = filled triangle, amber = outlined), new ones in words for 3 days; details in the pop-up */
+.fbtn{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;background:none;border:0;padding:3px 4px;margin:-3px -4px;border-radius:8px;cursor:pointer;font:inherit;color:inherit;text-align:left;max-width:340px}
+.fbtn:hover{background:var(--neutralbg)} .fbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ficon{display:inline-flex;align-items:center;gap:2px;font-size:13px;font-weight:700;line-height:1}
+.ficon svg{width:17px;height:17px;display:block} .ficon.f-red{color:var(--bad)} .ficon.f-amber{color:var(--mid)} .ficon.f-none{color:var(--muted)}
+#abpop .fl-list{list-style:none;margin:0 0 8px;padding:0} #abpop .fl-list li{display:grid;grid-template-columns:20px 1fr;gap:2px 8px;padding:7px 0;border-top:1px solid var(--line)}
+#abpop .fl-list li:first-child{border-top:0} #abpop .fl-list .ficon{grid-row:span 2;align-self:start;padding-top:1px} #abpop .fl-why{color:var(--muted);font-size:13px}
+#abpop .fl-new{font-size:12px;font-weight:600;color:var(--info);margin-left:6px}
 .flag{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
 .flag:last-child{border-bottom:none}
 .news a{display:block;padding:8px 0;border-bottom:1px solid var(--line);color:var(--ink)}
@@ -301,6 +309,7 @@ footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;font-size:12px;color
   .listtbl td.c-flags{grid-area:flags}
   .listtbl td.c-flags .flags{max-width:none}
   .listtbl td.c-flags:empty{display:none}
+  .listtbl td.c-flags .fbtn{min-height:44px;min-width:44px;margin:-10px -4px;padding:4px;max-width:none}
   .listtbl td.c-del{grid-area:del;align-self:end}
   .listtbl td.c-del button{min-width:44px;min-height:44px;margin:-10px -6px -10px 0}
   .ph-lbl{display:inline}
@@ -506,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.37</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.38</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1056,7 +1065,7 @@ document.addEventListener("mouseout", e => { if(rqPhone() || !e.target.closest |
 function abClose(){ numsPin = false; const ap = document.getElementById("abpop"); if(ap) ap.setAttribute("aria-label", "About this company"); const pop = document.getElementById("abpop"); if(!pop || pop.hidden) return; pop.hidden = true; document.getElementById("abback").hidden = true; if(abFrom) abFrom.setAttribute("aria-expanded", "false"); abFrom = null; }
 document.addEventListener("click", e => { if(!e.target.closest) return;
   if(e.target.closest("[data-abx]")){ abClose(); return; }
-  if(!e.target.closest("#abpop") && !e.target.closest("#b-about") && !e.target.closest("#b-nums")) abClose(); });
+  if(!e.target.closest("#abpop") && !e.target.closest("#b-about") && !e.target.closest("#b-nums") && !e.target.closest(".fbtn")) abClose(); });
 document.addEventListener("keydown", e => { if(e.key === "Escape") abClose(); });
 window.addEventListener("hashchange", abClose);
 /* ================= Alpha Vantage client (second free source) ================= */
@@ -1419,7 +1428,7 @@ function viewHome(app, tok){
         <button id="fullcheck" title="Fetches what's missing: company reports (Finnhub) and daily prices (Twelve Data, 1 request per stock, kept 12 hours)">Run full check</button>
         <span id="checknote" class="small muted">Prices and reports are refreshed in the background when this page opens. "Run full check" fetches everything missing now.</span>
       </div>
-      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years; where losses or tiny profits make past P/Es meaningless, it compares price/sales instead (marked <b>P/S</b>). Red flags = concern, amber = worth watching; hover a flag for why. Tap a stock for the full picture.</p>
+      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years; where losses or tiny profits make past P/Es meaningless, it compares price/sales instead (marked <b>P/S</b>). Flags: red filled triangle = concern, amber outline = worth watching, a number = how many; new flags are shown in words for ${FLAG_NEW_DAYS} days. Hover (tap on the iPhone) for the details. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>
     ${hasAny ? `<div class="card" id="alerts" data-home="alerts"><h2>Alerts</h2><div id="alerts-b" class="muted small"><span class="spin"></span> Checking your stocks…</div></div>` : ""}
@@ -1748,13 +1757,55 @@ function riskFlags(c){
   const rank = x => x.sev === "red" ? -1 : (i => i < 0 ? AMBER.length : i)(AMBER.findIndex(k => x.text.startsWith(k)));
   return f.sort((a, b) => rank(a) - rank(b));
 }
-function flagsCell(f, checked, common){
-  // 7.37 (owner: "Only the one above the list… what does it mean?"): say it plainly; hover names the shared flag(s) and this stock's figure
-  if(!f.length) return common ? `<span class="small muted" title="${esc("Only the flag shared by most of the list (shown above it): " + common)}">No flags of its own</span>` : `<span class="small muted">${checked ? "None" : "None so far"}</span>`;
-  const b = x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" title="${esc(x.why)}">${esc(x.text)}</span>`;
-  const more = f.slice(1); // 7.29: the most serious flag only; the rest on hover and on the stock page
-  return `<div class="flags">${b(f[0])}${more.length ? `<span class="badge b-tag" title="${esc(more.map(x => x.text + ": " + x.why).join("\n"))}">+${more.length} more<span class="sr">: ${esc(more.map(x => x.text).join(", "))}</span></span>` : ""}</div>`;
+// 7.38 (owner: "put warning exclamation triangles (small icons) with colors… I use the hover to see what's going on"):
+// one small icon per stock, coloured by its most serious flag (red filled, amber outlined: shape as well as colour), with a count;
+// flags first seen in the last 3 days stay in words so a fresh warning isn't missed. Hover (Mac) or tap (iPhone) opens the details.
+const FLAG_NEW_DAYS = 3;
+// first seen = the newest "new flag" alert for this stock and flag; a flag that comes and goes (volume, RSI) is a repeat when it
+// was already flagged in the 14 days before, and isn't treated as new again
+const flagSeenAt = (sym, f) => { const k = flagKey(f.text), ev = alertsState().events.filter(e => e.type === "flag" && e.sym === sym && flagKey(String(e.text).replace(/^[^:]+:\s*/, "")) === k);
+  if(!ev.length) return null; const t = ev.map(e => new Date(e.at).getTime()).sort((a, b) => b - a);
+  return t.slice(1).some(x => t[0] - x < 14 * 864e5) ? null : new Date(t[0]).toISOString(); };
+const flagIsNew = (sym, f) => { const at = flagSeenAt(sym, f); return !!at && Date.now() - new Date(at).getTime() < FLAG_NEW_DAYS * 864e5; };
+const flagSvg = sev => sev === "none"
+  ? `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 10h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`
+  : sev === "red"
+  ? `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 1.8 19 17.6H1z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M10 7.2v5" stroke="var(--card)" stroke-width="2.2" stroke-linecap="round"/><circle cx="10" cy="15" r="1.25" fill="var(--card)"/></svg>`
+  : `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.6 18.4 17H1.6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M10 7.6v4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="14.6" r="1.15" fill="currentColor"/></svg>`;
+const flagIcon = (sev, n) => `<span class="ficon f-${sev}" data-sev="${sev}">${flagSvg(sev)}${n > 1 ? `<span class="fcount">${n}</span>` : ""}</span>`;
+const flagPop = new Map(); // symbol -> what its pop-up lists
+function flagsCell(sym, f, common){
+  if(!f.length) return ""; // no flags of its own: an empty cell (7.38; the shared flag is in the line above the list)
+  const fresh = f.filter(x => flagIsNew(sym, x)).slice(0, 1), rest = f.filter(x => !fresh.includes(x));
+  return `<button type="button" class="fbtn" data-fsym="${esc(sym)}" aria-haspopup="dialog" aria-expanded="false">`
+    + fresh.map(x => `<span class="badge ${x.sev === "red" ? "b-rich" : "b-warn"}" aria-hidden="true">${esc(x.text)}</span>`).join("")
+    + (rest.length ? flagIcon(rest[0].sev === "red" ? "red" : "amber", rest.length) : "")
+    + `<span class="sr">${esc(f.map(x => x.text + (fresh.includes(x) ? " (new)" : "")).join("; "))}</span></button>`;
 }
+function flagPopHtml(sym){
+  const d = flagPop.get(sym) || { own: [], common: [] }, head = `<div class="rqp-h"><b>Flags for ${esc(sym)}</b><button type="button" class="rqp-x" data-abx aria-label="Close">×</button></div>`;
+  if(d.err) return head + `<p>${flagIcon("none", 1)} <b>No price history</b></p><p class="small muted">${esc(d.err)}</p><p class="small muted" style="margin:0">Flags that need daily prices (trend, RSI, volume) can't be checked for this stock.</p>`;
+  const li = x => { const at = flagIsNew(sym, x) && flagSeenAt(sym, x);
+    return `<li>${flagIcon(x.sev === "red" ? "red" : "amber", 1)}<b>${esc(x.text)}${at ? `<span class="fl-new">New · ${esc(fmtDay(ymd(new Date(at))))}</span>` : ""}</b><span class="fl-why">${esc(x.why || "")}</span></li>`; };
+  return head + (d.own.length ? `<ul class="fl-list">${d.own.map(li).join("")}</ul>` : "")
+    + (d.common.length ? `<p class="small muted">Also the flag shared by most of the list (shown above it): ${d.common.map(x => esc(x.text)).join(", ")}</p>` : "")
+    + `<p class="small muted" style="margin:0">Red = concern, amber = worth watching. Flags first seen in the last ${FLAG_NEW_DAYS} days are shown in words in the list.</p>`
+    + (rqPhone() ? `<p style="margin:10px 0 0"><a href="${esc(stockHref(sym))}" class="btnlink">Open ${esc(sym)} →</a></p>` : "");
+}
+function flagOpen(trigger, pin){
+  const pop = document.getElementById("abpop"); if(!pop) return;
+  if(!pop.hidden && abFrom === trigger){ if(pin){ if(numsPin) abClose(); else numsPin = true; } return; }
+  if(abFrom) abClose(); rqClose(); abFrom = trigger; numsPin = !!pin;
+  const sym = trigger.dataset.fsym; pop.innerHTML = flagPopHtml(sym);
+  pop.setAttribute("aria-label", "Flags for " + sym); pop.hidden = false; document.getElementById("abback").hidden = !rqPhone();
+  trigger.setAttribute("aria-expanded", "true"); abPlace(pop, trigger);
+}
+document.addEventListener("click", e => { const b = e.target.closest && e.target.closest(".fbtn"); if(b){ e.stopPropagation(); e.preventDefault(); flagOpen(b, true); } }, true);
+document.addEventListener("mouseover", e => { if(rqPhone() || !e.target.closest) return; const b = e.target.closest(".fbtn");
+  if(b){ clearTimeout(numsHideT); flagOpen(b, false); } else if(e.target.closest("#abpop") && abFrom && abFrom.classList.contains("fbtn")) clearTimeout(numsHideT); });
+document.addEventListener("mouseout", e => { if(rqPhone() || !e.target.closest || !abFrom || !abFrom.classList.contains("fbtn") || numsPin) return;
+  const to = e.relatedTarget; if(to && to.closest && (to.closest(".fbtn") === abFrom || to.closest("#abpop"))) return;
+  if(e.target.closest(".fbtn") || e.target.closest("#abpop")){ clearTimeout(numsHideT); numsHideT = setTimeout(() => { if(!numsPin) abClose(); }, 250); } });
 // 7.30: a flag on most of the list (e.g. "Below 200-day avg" in a falling market) is a market-wide move: one line above the list
 function paintFlags(app){
   const rows = [...app.querySelectorAll(".listtbl tr[data-sym]")].map(tr => ({ tr, c: rowCtx.get(tr.dataset.sym) })).filter(x => x.c && x.c._f);
@@ -1763,7 +1814,10 @@ function paintFlags(app){
   const common = new Set([...cnt].filter(([, n]) => withTd >= 5 && n >= 4 && n >= withTd * 0.6).map(([k]) => k));
   rows.forEach(({ tr, c }) => { const fEl = tr.querySelector('[data-f="flags"]'); if(!fEl) return;
     const own = c._f.filter(f => !common.has(flagKey(f.text))), had = own.length < c._f.length;
-    fEl.innerHTML = !c._f.length && c.tdErr ? `<span class="small muted" title="${esc(c.tdErr)}">No price history</span>` : flagsCell(own, c._checked, had ? c._f.filter(f => common.has(flagKey(f.text))).map(f => f.text).join(", ") : ""); });
+    const sym = tr.dataset.sym, shared = c._f.filter(f => common.has(flagKey(f.text)));
+    flagPop.set(sym, { own, common: shared, err: !c._f.length && c.tdErr ? c.tdErr : "" });
+    fEl.innerHTML = !c._f.length && c.tdErr ? `<button type="button" class="fbtn" data-fsym="${esc(sym)}" aria-haspopup="dialog" aria-expanded="false">${flagIcon("none", 1)}<span class="sr">No price history</span></button>` : flagsCell(sym, own, shared);
+    if(abFrom && abFrom.dataset.fsym === sym && !abFrom.isConnected) abClose(); });
   const el = $("#commonflags", app); if(!el) return;
   el.hidden = !common.size;
   if(common.size) el.innerHTML = `<b>Across most of the list:</b> ${[...common].map(k => { const hits = rows.filter(x => x.c._f.some(f => flagKey(f.text) === k)), ex = hits[0].c._f.find(f => flagKey(f.text) === k);
@@ -5358,6 +5412,7 @@ async function checkAlerts(app, tok){
   if(devChanged) devData.set(dev);
   if(changed || fresh.length) save();
   drawAlertBadges(app);
+  if(fresh.some(e => e.type === "flag")) paintFlags(app); // 7.38: a flag that just appeared is shown in words
   if(homeSec === "alerts") renderAlerts(app);
 }
 function drawAlertBadges(app){
