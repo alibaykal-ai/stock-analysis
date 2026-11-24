@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.39</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.40</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1043,12 +1043,21 @@ const NUMS_HTML = `<ul class="small howto" style="margin:0 0 4px;padding-left:18
       <li><b>Outside views and the AI summary</b> are read from web pages or written by Claude: AI can misread a page or a number, so open the links and check anything important.</li>
       <li><b>Data</b>: Finnhub, Twelve Data and Alpha Vantage free plans (usually delayed), the company's own reports, FRED for the economy. Each section's "How to read this" explains its rules.</li>
     </ul>`;
+// 7.40 (owner, iPhone screenshot: "Too much text shown every time… no need to keep it visible at all times"): the list's
+// explanations in the same ⓘ pop-up instead of two paragraphs under the list
+const LIST_HTML = () => `<ul class="small howto" style="margin:0 0 4px;padding-left:18px">
+      <li><b>Run full check.</b> Prices and reports are refreshed in the background when this page opens; the button fetches everything missing now (company reports from Finnhub, daily prices from Twelve Data, 1 request per stock). Prices are kept 12 hours, reports a week.</li>
+      <li><b>"vs its past"</b> compares today's P/E with its middle value over the last ${state.settings.years} years. Where losses or tiny profits make past P/Es meaningless, it compares price/sales instead (marked <b>P/S</b>).</li>
+      <li><b>Flags:</b> red filled triangle = concern, amber outline = worth watching, a number = how many. New flags are shown in words for ${FLAG_NEW_DAYS} days. Hover over a flag (tap on the iPhone) for the details. A flag shared by most of the list is shown once above it.</li>
+      <li>Tap a stock for the full picture.</li>
+    </ul>`;
 function numsOpen(trigger, pin){
   const pop = document.getElementById("abpop"); if(!pop) return;
   if(!pop.hidden && abFrom === trigger){ if(pin){ if(numsPin) abClose(); else numsPin = true; } return; }
   rqClose(); abFrom = trigger; numsPin = !!pin;
-  pop.innerHTML = `<div class="rqp-h"><b>About these numbers</b><button type="button" class="rqp-x" data-abx aria-label="Close">×</button></div>${NUMS_HTML}`;
-  pop.setAttribute("aria-label", "About these numbers"); pop.hidden = false; document.getElementById("abback").hidden = !rqPhone();
+  const list = trigger.id === "b-list", title = list ? "How to read this list" : "About these numbers";
+  pop.innerHTML = `<div class="rqp-h"><b>${title}</b><button type="button" class="rqp-x" data-abx aria-label="Close">×</button></div>${list ? LIST_HTML() : NUMS_HTML}`;
+  pop.setAttribute("aria-label", title); pop.hidden = false; document.getElementById("abback").hidden = !rqPhone();
   trigger.setAttribute("aria-expanded", "true"); abPlace(pop, trigger);
 }
 let numsPin = false, numsHideT = null;
@@ -1056,16 +1065,16 @@ let numsPin = false, numsHideT = null;
 const abFollow = () => { const pop = document.getElementById("abpop"); if(pop && !pop.hidden && abFrom && abFrom.isConnected) abPlace(pop, abFrom); };
 window.addEventListener("scroll", abFollow, { passive: true }); window.addEventListener("resize", abFollow);
 new MutationObserver(() => requestAnimationFrame(abFollow)).observe(document.getElementById("app") || document.body, { childList: true, subtree: true });
-document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("#b-nums"); if(b){ e.stopPropagation(); numsOpen(b, true); } }, true);
-document.addEventListener("mouseover", e => { if(rqPhone() || !e.target.closest) return; const b = e.target.closest("#b-nums");
-  if(b){ clearTimeout(numsHideT); numsOpen(b, false); } else if(e.target.closest("#abpop") && abFrom && abFrom.id === "b-nums") clearTimeout(numsHideT); });
-document.addEventListener("mouseout", e => { if(rqPhone() || !e.target.closest || !abFrom || abFrom.id !== "b-nums" || numsPin) return;
-  const to = e.relatedTarget; if(to && to.closest && (to.closest("#b-nums") || to.closest("#abpop"))) return;
-  if(e.target.closest("#b-nums") || e.target.closest("#abpop")){ clearTimeout(numsHideT); numsHideT = setTimeout(() => { if(!numsPin) abClose(); }, 250); } });
+document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("#b-nums, #b-list"); if(b){ e.stopPropagation(); numsOpen(b, true); } }, true);
+document.addEventListener("mouseover", e => { if(rqPhone() || !e.target.closest) return; const b = e.target.closest("#b-nums, #b-list");
+  if(b){ clearTimeout(numsHideT); numsOpen(b, false); } else if(e.target.closest("#abpop") && abFrom && (abFrom.id === "b-nums" || abFrom.id === "b-list")) clearTimeout(numsHideT); });
+document.addEventListener("mouseout", e => { if(rqPhone() || !e.target.closest || !abFrom || (abFrom.id !== "b-nums" && abFrom.id !== "b-list") || numsPin) return;
+  const to = e.relatedTarget; if(to && to.closest && (to.closest("#b-nums, #b-list") || to.closest("#abpop"))) return;
+  if(e.target.closest("#b-nums, #b-list") || e.target.closest("#abpop")){ clearTimeout(numsHideT); numsHideT = setTimeout(() => { if(!numsPin) abClose(); }, 250); } });
 function abClose(){ numsPin = false; const ap = document.getElementById("abpop"); if(ap) ap.setAttribute("aria-label", "About this company"); const pop = document.getElementById("abpop"); if(!pop || pop.hidden) return; pop.hidden = true; document.getElementById("abback").hidden = true; if(abFrom) abFrom.setAttribute("aria-expanded", "false"); abFrom = null; }
 document.addEventListener("click", e => { if(!e.target.closest) return;
   if(e.target.closest("[data-abx]")){ abClose(); return; }
-  if(!e.target.closest("#abpop") && !e.target.closest("#b-about") && !e.target.closest("#b-nums") && !e.target.closest(".fbtn")) abClose(); });
+  if(!e.target.closest("#abpop") && !e.target.closest("#b-about") && !e.target.closest("#b-nums, #b-list") && !e.target.closest(".fbtn")) abClose(); });
 document.addEventListener("keydown", e => { if(e.key === "Escape") abClose(); });
 window.addEventListener("hashchange", abClose);
 /* ================= Alpha Vantage client (second free source) ================= */
@@ -1426,9 +1435,9 @@ function viewHome(app, tok){
       </table></div>
       <div class="row" style="margin-top:12px">
         <button id="fullcheck" title="Fetches what's missing: company reports (Finnhub) and daily prices (Twelve Data, 1 request per stock, kept 12 hours)">Run full check</button>
-        <span id="checknote" class="small muted">Prices and reports are refreshed in the background when this page opens. "Run full check" fetches everything missing now.</span>
+        <button type="button" class="abbtn" id="b-list" aria-haspopup="dialog" aria-expanded="false">ⓘ How to read this list</button>
+        <span id="checknote" class="small muted"></span>
       </div>
-      <p class="small muted" style="margin:10px 0 0">"vs its past" compares today's P/E with its middle value over the last ${state.settings.years} years; where losses or tiny profits make past P/Es meaningless, it compares price/sales instead (marked <b>P/S</b>). Flags: red filled triangle = concern, amber outline = worth watching, a number = how many; new flags are shown in words for ${FLAG_NEW_DAYS} days. Hover (tap on the iPhone) for the details. Tap a stock for the full picture.</p>
       ` : `<p class="muted">${homeTab==="mine" ? "No stocks yet. Add your first one above, or import a list in Settings." : "Your watchlist is empty. Add a ticker above, or use Search."}</p>`}
     </div>
     ${hasAny ? `<div class="card" id="alerts" data-home="alerts"><h2>Alerts</h2><div id="alerts-b" class="muted small"><span class="spin"></span> Checking your stocks…</div></div>` : ""}
@@ -1859,7 +1868,7 @@ function bgRefresh(){
       if(c && app){ if(td && td.ok) c.td = td.v; if(fin && fin.ok) c.fin = fin.v; if(finQ && finQ.ok) c.finQ = finQ.v; drawRowFlags(app, h); }
     }
     const app = $("#app"), tok = renderToken;
-    if(todo.length){ note(`Saved prices and reports are up to date (refreshed ${todo.length} stock${todo.length === 1 ? "" : "s"} in the background).`);
+    if(todo.length){ note(`Up to date (${todo.length} stock${todo.length === 1 ? "" : "s"} refreshed in the background).`);
       if($("#alerts-b", app)) checkAlerts(app, tok); if($("#risk-b", app)) renderRisk(app, tok); if($("#perf-b", app)) renderPerf(app, tok); }
   })();
   bgRun.finally(() => { bgRun = null; });
@@ -1885,7 +1894,7 @@ async function runFullCheckInner(app, list, tok){
   }
   if($("#risk-b", app) && live(tok)) renderRisk(app, tok);
   if($("#perf-b", app) && live(tok)) renderPerf(app, tok);
-  note.textContent = `Full check done${state.tdKey ? "" : " (no Twelve Data key, so technical flags are missing)"}. Results are kept: prices for 12 hours, company reports for a week.`;
+  note.textContent = `Full check done${state.tdKey ? "" : " (no Twelve Data key, so technical flags are missing)"}.`;
   btn.disabled = false;
 }
 
