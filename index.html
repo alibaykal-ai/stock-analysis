@@ -3629,10 +3629,12 @@ function roicYears(ys){
     return { year: String(y.end || "").slice(0, 4), v: isNum(y.ebit) && isNum(avg) && avg > 0 ? y.ebit * (1 - tr) / avg * 100 : NaN, debtSt: isNum(y.stDebt) }; });
 }
 function roicItem(ys, item){
-  const r = roicYears(ys || []), r0 = r[0] || {}, past = r.slice(1, 5).filter(x => isNum(x.v));
+  // newest year with the figures (Finnhub's copy of a just-filed report can lack the balance sheet: MU, NKE)
+  const r = roicYears(ys || []), at = Math.max(0, r.findIndex(x => isNum(x.v))), r0 = r[at] || {}, past = r.slice(at + 1, at + 5).filter(x => isNum(x.v));
+  const pcR = v => v > 100 ? "over 100%" : v < -100 ? "below −100%" : `${v.toFixed(0)}%`; // tiny invested money (negative equity) gives silly percentages
   const lo = 3, hi = 18; // label: Strong ≥ 13.5%, OK ≥ 9%, Weak below (the app's usual 0.7 / 0.4 of the way)
-  const x = item("Return on invested capital (ROIC)", r0.v, v => v.toFixed(1) + "%", lo, hi,
-    `After-tax operating profit ÷ money invested in the business (shareholders' equity + debt, average of the year) · year to ${esc((ys[0] && ys[0].end) || "?")}${past.length ? ` · earlier: ${past.map(p => `${p.year} ${p.v.toFixed(0)}%`).join(", ")}` : ""}. Strong ≥ 13.5%, OK 9–13.5%, weak below 9% (a typical company's cost of money is 8–10% a year). <b>Shown, not counted in the score</b>: heavy investment in new capacity (data centres, factories) lowers it for a few years before the profits arrive${r0.debtSt === false ? "; debt due within a year isn't in this report, so the figure may be a little high" : ""}.`);
+  const x = item("Return on invested capital (ROIC)", r0.v, v => Math.abs(v) > 100 ? pcR(v) : v.toFixed(1) + "%", lo, hi,
+    `After-tax operating profit ÷ money invested in the business (shareholders' equity + debt, average of the year) · year to ${esc((ys[at] && ys[at].end) || "?")}${at > 0 && isNum(r0.v) ? " (the newest report lacks the figures)" : ""}${past.length ? ` · earlier: ${past.map(p => `${p.year} ${pcR(p.v)}`).join(", ")}` : ""}. Strong ≥ 13.5%, OK 9–13.5%, weak below 9% (a typical company's cost of money is 8–10% a year). <b>Shown, not counted in the score</b>: heavy investment in new capacity (data centres, factories) lowers it for a few years before the profits arrive${r0.debtSt === false ? "; debt due within a year isn't in this report, so the figure may be a little high" : ""}.`);
   x.info = true; return x;
 }
 function healthScore(mm, prof, fin, finQ){
