@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.40</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.41</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -1597,6 +1597,11 @@ async function fillRow(app, h, tok){
     const manual = !(q.ok && isNum(q.v.c) && q.v.c > 0);
     const sym = manual || pc === "GBP" ? "£" : pc === "USD" || !pc ? "$" : "";
     set("value", isNum(price)&&isNum(h.shares) ? (pc === "GBX" && !manual ? "£" + fmt(price*h.shares/100) : sym + fmt(price*h.shares) + (sym ? "" : " " + esc(pc))) : "—");
+    // 7.41 (UX review, My Stocks 6): every value in pounds, like the total above (a $ / £ mix didn't add up by eye); the price's own
+    // currency and the rate on hover. Same figures as the total (holdingValues), so no extra requests.
+    if(isNum(price) && isNum(h.shares)) hvFor(tok).then(hv => { const r = hv.rows.find(x => x.h.symbol === h.symbol); if(!r || !isNum(r.gbp) || !tr.isConnected) return;
+      const own = r.cur === "USD" ? `$${fmt(price * h.shares)} at $${hv.usdPerGbp.toFixed(4)} per £` : "";
+      set("value", own ? `<span title="${esc(own)}">${fmtGBP(r.gbp)}</span>` : fmtGBP(r.gbp)); }).catch(() => {});
   }
   if(isStock){
     const r = RATIOS[0];
