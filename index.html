@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.48</b> · 25 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.49</b> · 25 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -4510,7 +4510,7 @@ function comingHtml(j){
 const FED_DECISIONS = ["2026-12-09","2027-01-27","2027-03-17","2027-04-28","2027-06-09","2027-07-28","2027-09-15","2027-11-17","2028-01-26"];
 async function macroData(force){
   const ck = "fred:macro";
-  const hit = cacheGet(ck); if(!force && hit !== undefined && hit.series && hit.series.DEXUSUK) return hit; // older saved copies lack the exchange rate: fetch again
+  const hit = cacheGet(ck); if(!force && hit !== undefined && hit.series && hit.series.DEXUSUK && hit.releases && hit.releases.PCE) return hit; // older saved copies lack the exchange rate (or, before 7.48, PCE / GDP dates): fetch again
   if(inflight.has(ck)) return inflight.get(ck);
   const p = (async () => {
     let r;
