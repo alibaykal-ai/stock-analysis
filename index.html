@@ -515,7 +515,7 @@ html.sharing .cmp-name{display:block}
   <a href="#settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</a>
 </nav>
 <footer>
-  <b id="appver">Version 7.47</b> · 24 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
+  <b id="appver">Version 7.48</b> · 25 Nov 2026 · <a href="#" id="updchk">Check for updates</a><span id="syncstat"></span><span id="rqfoot"></span> ·
   For information only, not financial advice. Market data from Finnhub, Alpha Vantage and Twelve Data (free plans), usually delayed; economic data from FRED.
   Verdicts compare numbers with the stock's own past and with similar companies, and fair values and analyst forecasts are estimates; they are not buy or sell signals.
 </footer>
@@ -4478,7 +4478,7 @@ async function holdingSectors(){
 // to the repo's "macro-data" branch (see .github/workflows/macro-data.yml). No key needed.
 const MACRO_URL = "https://raw.githubusercontent.com/alibaykal-ai/stock-analysis/macro-data/macro.json";
 // Fed rate decisions (second day of each meeting). Source: federalreserve.gov calendar, 2027 dates tentative. Update yearly.
-// Coming-up dates (7.11): CPI and the jobs report from FRED's release calendar (saved in macro.json by the GitHub job,
+// Coming-up dates (7.11; PCE and GDP since 7.48): CPI, the jobs report, PCE and GDP from FRED's release calendar (saved in macro.json by the GitHub job,
 // UTC times), the Fed decision from FED_DECISIONS at 2pm New York time. Shown in the device's own time zone.
 function nyToUtc(day, hh, mm){ // New York wall time → Date (EST −5, EDT −4)
   const [y, m, d] = day.split("-").map(Number);
@@ -4493,6 +4493,10 @@ function comingUp(j){
   const jobs = next(rel.JOBS), cpi = next(rel.CPI), fed = FED_DECISIONS.map(d => nyToUtc(d, 14, 0)).find(t => t.getTime() > now - 3600e3);
   if(jobs) out.push({ t: jobs, name: "Jobs report", what: "jobs added, unemployment and wage growth for last month" });
   if(cpi) out.push({ t: cpi, name: "CPI inflation", what: "last month's consumer prices" });
+  // 7.48 (owner: "Today PCE numbers will be announced. Why aren't we showing it in the coming up?")
+  const pce = next(rel.PCE), gdp = next(rel.GDP);
+  if(pce) out.push({ t: pce, name: "PCE inflation", what: "the Fed's preferred inflation measure, with personal income and spending" });
+  if(gdp) out.push({ t: gdp, name: "GDP", what: "how fast the economy grew last quarter" });
   if(fed) out.push({ t: fed, name: "Fed decision", what: "interest rates, with a press conference half an hour later" });
   return out.sort((a, b) => a.t - b.t);
 }

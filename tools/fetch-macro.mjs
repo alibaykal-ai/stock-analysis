@@ -48,7 +48,7 @@ async function get(id, start){
 
 // Release dates (7.11): FRED's public release calendar (BLS dates, shown there in St. Louis time, US Central). This year's
 // and next year's pages; next year's dates appear once BLS publishes its schedule. Kept as UTC times.
-const RELEASES = { CPI: 10, JOBS: 50 }; // FRED release ids: Consumer Price Index, Employment Situation
+const RELEASES = { CPI: 10, JOBS: 50, PCE: 54, GDP: 53 }; // FRED release ids: Consumer Price Index, Employment Situation, Personal Income and Outlays (PCE, 7.48), Gross Domestic Product (7.48)
 const MON = { January: 1, February: 2, March: 3, April: 4, May: 5, June: 6, July: 7, August: 8, September: 9, October: 10, November: 11, December: 12 };
 function centralToUtc(y, m, d, hh, mm){ // US Central wall time → UTC (CST −6, CDT −5)
   for(const off of [5, 6]){ const t = Date.UTC(y, m - 1, d, hh + off, mm);
